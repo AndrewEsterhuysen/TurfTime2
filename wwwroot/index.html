@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>Soccer Team Rotation Manager</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <h1>
+            ⚽ Turf Time 🥅
+        </h1>
+        <div class="top-controls">
+            <div class="control-col">
+                <div class="timer-wrapper">
+                    <span class="timer-label">Match Time</span>
+                    <span id="matchTimer" class="match-timer">00:00:00</span>
+                </div>
+            </div>
+            <div class="control-col">
+                <div class="timer-wrapper">
+                    <span class="timer-label">Rotate Time</span>
+                    <span id="countdownTimer" class="countdown-timer">2:00</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <table class="roster-table" aria-label="Team Roster">
+                <thead>
+                    <tr>
+                        <th>Player</th>
+                        <th>Field</th>
+                        <th>Bench</th>
+                        <th>Goalie</th>
+                        <th>Inactive</th>
+                    </tr>
+                </thead>
+                <tbody id="rosterBody"></tbody>
+            </table>
+        </div>
+
+        <div class="bottom-controls">
+            <div class="control-col">
+                <button id="startBtn">Start</button>
+            </div>
+            <div class="control-col">
+                <button id="rotateBtn">Rotate</button>
+            </div>
+            <div class="control-col">
+                <button id="viewlessBtn">ZOOM</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Modal Dialog -->
+    <div id="modalOverlay" class="modal-overlay">
+        <div class="modal-dialog">
+            <div id="modalTitle" class="modal-title"></div>
+            <input type="text" id="modalInput" class="modal-input" />
+            <div id="modalError" class="modal-error"></div>
+            <div class="modal-buttons">
+                <button id="modalCancel" class="modal-btn modal-btn-secondary">Cancel</button>
+                <button id="modalOk" class="modal-btn modal-btn-primary">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/game-logger.js"></script>
+    <script src="js/roster-manager.js"></script>
+</body>
+
+</html>
