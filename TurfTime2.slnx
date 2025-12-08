@@ -1,5 +1,4 @@
 <Solution>
-  <Project Path="../TurfTime-master/TurfTime-master/TurfTimer.csproj" />
   <Project Path="TurfTime2.csproj">
     <Deploy Solution="Debug|*" />
   </Project>

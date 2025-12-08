@@ -62,9 +62,6 @@ class RosterManager {
         this.bindEvents();
         this.markNextPlayers();
 
-        // Test vibration support
-        console.log('Vibration API available:', 'vibrate' in navigator);
-
         // Save on app background/close
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState !== 'visible') this.saveToStorage();
@@ -91,7 +88,6 @@ class RosterManager {
         this.countdownLabel.style.userSelect = 'none';
 
         this.rotateBtn.addEventListener('click', () => {
-            this.cancelVibration();
             this.rotateOnce();
             this.resetCountdown(this.timerRunning);
             this.saveDebounced();
@@ -362,7 +358,6 @@ class RosterManager {
         this.countdownRemaining = this.countdownPreset;
         this.updateCountdownDisplay();
         this.setRotateAttention(false);
-        this.cancelVibration();
         
         // Log rotation timer change
         if (this.logger) {
@@ -638,13 +633,8 @@ class RosterManager {
                 this.countdownRemaining -= 1;
                 this.updateCountdownDisplay();
                 
-                if (this.countdownRemaining === 10) {
-                    this.triggerVibration(200);
-                }
-                
                 if (this.countdownRemaining === 0) {
                     this.setRotateAttention(true);
-                    this.triggerVibration(5000);
                     this.pauseCountdown();
                 }
             }
@@ -662,7 +652,6 @@ class RosterManager {
         this.countdownRemaining = this.countdownPreset;
         this.updateCountdownDisplay();
         this.setRotateAttention(false);
-        this.cancelVibration();
         this.pauseCountdown();
         if (continueRunning) this.startCountdown();
     }
@@ -688,55 +677,6 @@ class RosterManager {
                 clearTimeout(this._flashTimeout);
                 this._flashTimeout = null;
             }
-        }
-    }
-
-    triggerVibration(duration = 100) {
-        try {
-            if (typeof VibrationBridge !== 'undefined' && VibrationBridge.vibrate) {
-                if (Array.isArray(duration)) {
-                    const patternJson = JSON.stringify(duration);
-                    VibrationBridge.vibratePattern(patternJson);
-                    console.log(`Vibration triggered via bridge (pattern): ${patternJson}`);
-                    return true;
-                } else {
-                    VibrationBridge.vibrate(duration);
-                    console.log(`Vibration triggered via bridge: ${duration}ms`);
-                    return true;
-                }
-            }
-            else if ('vibrate' in navigator) {
-                const result = navigator.vibrate(duration);
-                console.log(`Vibration triggered via navigator: ${duration}ms, result: ${result}`);
-                return result;
-            } else {
-                console.warn('Vibration API not supported on this device');
-                return false;
-            }
-        } catch (error) {
-            console.error('Vibration error:', error);
-            return false;
-        }
-    }
-
-    cancelVibration() {
-        try {
-            if (typeof VibrationBridge !== 'undefined') {
-                if (VibrationBridge.cancelVibration) {
-                    VibrationBridge.cancelVibration();
-                    console.log('Vibration cancelled via bridge.cancelVibration()');
-                }
-                if (VibrationBridge.vibrate) {
-                    VibrationBridge.vibrate(0);
-                    console.log('Vibration cancelled via bridge.vibrate(0');
-                }
-            }
-            if ('vibrate' in navigator) {
-                navigator.vibrate(0);
-                console.log('Vibration cancelled via navigator');
-            }
-        } catch (error) {
-            console.error('Cancel vibration error:', error);
         }
     }
 
