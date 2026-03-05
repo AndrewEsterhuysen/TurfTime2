@@ -19,6 +19,16 @@ class RosterManager {
         this.modalOk = document.getElementById('modalOk');
         this.modalCancel = document.getElementById('modalCancel');
 
+        // Rotation count modal elements
+        this.rotationModalOverlay = document.getElementById('rotationModalOverlay');
+        this.rotationCountDisplay = document.getElementById('rotationCountDisplay');
+        this.rotationIncrement = document.getElementById('rotationIncrement');
+        this.rotationDecrement = document.getElementById('rotationDecrement');
+        this.rotationModalClose = document.getElementById('rotationModalClose');
+
+        // Rotation count state
+        this.rotationCount = 1;
+
         // Storage
         this.STORAGE_KEY = 'roster.v1';
         this.STORAGE_VERSION = 2; // Increment when structure changes
@@ -61,6 +71,7 @@ class RosterManager {
         this.loadFromStorage();
         this.bindEvents();
         this.markNextPlayers();
+        this.updateRotateButtonText(); // Initialize button text with rotation count
 
         // Save on app background/close
         document.addEventListener('visibilitychange', () => {
@@ -87,11 +98,60 @@ class RosterManager {
         this.countdownLabel.style.cursor = 'pointer';
         this.countdownLabel.style.userSelect = 'none';
 
-        this.rotateBtn.addEventListener('click', () => {
-            this.rotateOnce();
+        // Rotate button - execute N rotations based on rotationCount
+        this._rotateBtnLongPressFired = false;
+        this._rotateBtnHoldTimer = null;
+
+        this.rotateBtn.addEventListener('click', (e) => {
+            if (this._rotateBtnLongPressFired) {
+                this._rotateBtnLongPressFired = false;
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
+            // Execute rotationCount rotations
+            for (let i = 0; i < this.rotationCount; i++) {
+                this.rotateOnce();
+            }
             this.resetCountdown(this.timerRunning);
             this.saveDebounced();
             this.updateDynamicSizing();
+        });
+
+        // Long-press detection on rotate button to show rotation count modal
+        const rotateHoldStart = () => {
+            if (this._rotateBtnHoldTimer) clearTimeout(this._rotateBtnHoldTimer);
+            this._rotateBtnLongPressFired = false;
+            this._rotateBtnHoldTimer = setTimeout(() => {
+                this.showRotationCountModal();
+                this._rotateBtnLongPressFired = true;
+            }, 500); // 500ms for long press
+        };
+        const rotateHoldEnd = () => {
+            if (this._rotateBtnHoldTimer) {
+                clearTimeout(this._rotateBtnHoldTimer);
+                this._rotateBtnHoldTimer = null;
+            }
+        };
+
+        this.rotateBtn.addEventListener('mousedown', rotateHoldStart);
+        this.rotateBtn.addEventListener('mouseup', rotateHoldEnd);
+        this.rotateBtn.addEventListener('mouseleave', rotateHoldEnd);
+        this.rotateBtn.addEventListener('touchstart', (e) => { rotateHoldStart(); }, { passive: true });
+        this.rotateBtn.addEventListener('touchend', rotateHoldEnd);
+        this.rotateBtn.addEventListener('touchcancel', rotateHoldEnd);
+        this.rotateBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
+        this.rotateBtn.addEventListener('selectstart', (e) => { e.preventDefault(); e.stopPropagation(); });
+
+        // Rotation count modal events
+        this.rotationIncrement.addEventListener('click', () => this.incrementRotationCount());
+        this.rotationDecrement.addEventListener('click', () => this.decrementRotationCount());
+        this.rotationModalClose.addEventListener('click', () => this.hideRotationCountModal());
+        this.rotationModalOverlay.addEventListener('click', (e) => {
+            if (e.target === this.rotationModalOverlay) {
+                this.hideRotationCountModal();
+            }
         });
 
         // Click toggles start/pause unless long-press already restarted the game
@@ -437,8 +497,76 @@ class RosterManager {
             this.pauseCountdown();
             this.startCountdown();
         }
-        
+
         this.saveDebounced();
+    }
+
+    // Show rotation count modal
+    showRotationCountModal() {
+        this.updateRotationCountMax();
+        this.updateRotationCountDisplay();
+        this.rotationModalOverlay.classList.add('active');
+    }
+
+    // Hide rotation count modal
+    hideRotationCountModal() {
+        this.rotationModalOverlay.classList.remove('active');
+        this.updateRotateButtonText(); // Update button text when modal closes
+    }
+
+    // Update rotation count display and button states
+    updateRotationCountDisplay() {
+        this.rotationCountDisplay.textContent = this.rotationCount.toString();
+
+        // Update button states
+        const benchCount = this.rows.filter(r => 
+            r.cbBench.checked && !r.cbInactive.checked && !r.cbGoalie.checked
+        ).length;
+
+        this.rotationDecrement.disabled = this.rotationCount <= 1;
+        this.rotationIncrement.disabled = this.rotationCount >= benchCount || benchCount === 0;
+
+        // Update rotate button text
+        this.updateRotateButtonText();
+    }
+
+    // Update max rotation count based on bench players
+    updateRotationCountMax() {
+        const benchCount = this.rows.filter(r => 
+            r.cbBench.checked && !r.cbInactive.checked && !r.cbGoalie.checked
+        ).length;
+
+        if (this.rotationCount > benchCount && benchCount > 0) {
+            this.rotationCount = benchCount;
+        }
+        if (this.rotationCount < 1) {
+            this.rotationCount = 1;
+        }
+    }
+
+    // Increment rotation count
+    incrementRotationCount() {
+        const benchCount = this.rows.filter(r => 
+            r.cbBench.checked && !r.cbInactive.checked && !r.cbGoalie.checked
+        ).length;
+
+        if (this.rotationCount < benchCount) {
+            this.rotationCount++;
+            this.updateRotationCountDisplay();
+        }
+    }
+
+    // Decrement rotation count
+    decrementRotationCount() {
+        if (this.rotationCount > 1) {
+            this.rotationCount--;
+            this.updateRotationCountDisplay();
+        }
+    }
+
+    // Update rotate button text with rotation count
+    updateRotateButtonText() {
+        this.rotateBtn.textContent = `Rotate ${this.rotationCount}`;
     }
 
     // Timer logic (countdown with half-time support)

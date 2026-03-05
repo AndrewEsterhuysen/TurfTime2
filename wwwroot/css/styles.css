@@ -490,3 +490,69 @@ tfoot .footer-cell button {
 body.min-view .min-hidden {
     display: none !important;
 }
+
+/* Rotation Count Modal Styles */
+.rotation-modal {
+    max-width: 300px;
+}
+
+.rotation-counter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin: 20px 0;
+}
+
+.rotation-count-display {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: var(--text);
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 15px 40px;
+    min-width: 80px;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.rotation-arrow {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    font-size: 1.5rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s ease, background 0.2s ease;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.rotation-arrow:hover {
+    background: #ff8c61;
+}
+
+.rotation-arrow:active {
+    transform: scale(0.95);
+}
+
+.rotation-arrow:disabled {
+    background: #777;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.modal-error {
+    color: var(--danger);
+    font-size: 0.85rem;
+    margin-top: -10px;
+    margin-bottom: 10px;
+    text-align: center;
+    min-height: 1.2em;
+}
