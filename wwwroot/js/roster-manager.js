@@ -528,6 +528,9 @@ class RosterManager {
 
         // Update rotate button text
         this.updateRotateButtonText();
+
+        // Update player highlighting to reflect new rotation count
+        this.markNextPlayers();
     }
 
     // Update max rotation count based on bench players
@@ -1422,17 +1425,22 @@ class RosterManager {
         this.rows.forEach(r => r.tr.classList.remove('player-next'));
 
         const benchCandidates = [];
-        const fieldCandidates = this.rows.filter(r => !r.cbInactive.checked && (r.cbField.checked || r.cbGoalie.checked));
+        const fieldCandidates = [];
         this.rows.forEach((r, idx) => {
             if (r.cbBench.checked && !r.cbInactive.checked && !r.cbGoalie.checked) benchCandidates.push(idx);
             if (r.cbField.checked && !r.cbInactive.checked && !r.cbGoalie.checked) fieldCandidates.push(idx);
         });
 
-        const nextFieldIdx = this._nextIndexFrom(fieldCandidates, this.lastFieldIdx);
-        const nextBenchIdx = this._nextIndexFrom(benchCandidates, this.lastBenchIdx);
+        // Mark rotationCount number of players for rotation
+        const rotations = Math.min(this.rotationCount, benchCandidates.length, fieldCandidates.length);
 
-        if (nextFieldIdx !== -1) this.rows[nextFieldIdx].tr.classList.add('player-next');
-        if (nextBenchIdx !== -1) this.rows[nextBenchIdx].tr.classList.add('player-next');
+        for (let i = 0; i < rotations; i++) {
+            const nextFieldIdx = this._nextIndexFromWithOffset(fieldCandidates, this.lastFieldIdx, i);
+            const nextBenchIdx = this._nextIndexFromWithOffset(benchCandidates, this.lastBenchIdx, i);
+
+            if (nextFieldIdx !== -1) this.rows[nextFieldIdx].tr.classList.add('player-next');
+            if (nextBenchIdx !== -1) this.rows[nextBenchIdx].tr.classList.add('player-next');
+        }
     }
 
     _nextIndexFrom(candidates, lastIdx) {
@@ -1440,6 +1448,20 @@ class RosterManager {
         for (let i = 1; i <= this.rows.length; i++) {
             const probe = (lastIdx + i) % this.rows.length;
             if (candidates.includes(probe)) return probe;
+        }
+        return -1;
+    }
+
+    _nextIndexFromWithOffset(candidates, lastIdx, offset) {
+        if (candidates.length === 0) return -1;
+        for (let i = 1; i <= this.rows.length; i++) {
+            const probe = (lastIdx + i) % this.rows.length;
+            if (candidates.includes(probe)) {
+                // Found the starting position, now apply offset
+                const startPos = candidates.indexOf(probe);
+                const targetPos = (startPos + offset) % candidates.length;
+                return candidates[targetPos];
+            }
         }
         return -1;
     }
