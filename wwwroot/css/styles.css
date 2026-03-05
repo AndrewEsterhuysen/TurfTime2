@@ -483,3 +483,10 @@ tfoot .footer-cell button {
     background: rgba(255, 255, 255, 0.15);
     color: var(--text);
 }
+
+/* Add at the end of the file */
+
+/* Min View - hide rows marked as min-hidden */
+body.min-view .min-hidden {
+    display: none !important;
+}

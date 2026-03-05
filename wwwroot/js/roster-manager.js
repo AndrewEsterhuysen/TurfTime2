@@ -46,7 +46,7 @@ class RosterManager {
         this.lastFieldIdx = -1;
         this.lastBenchIdx = -1;
 
-        this.lessMode = false;
+        this.viewMode = 0; // 0=Standard, 1=Less, 2=Min
         this.isEditingName = false; // skip sizing updates while editing a name
 
         // Drag and drop state
@@ -150,10 +150,32 @@ class RosterManager {
 
     // Toggle Less/More view
     toggleLessView() {
-        this.lessMode = !this.lessMode;
-        document.body.classList.toggle('less-view', this.lessMode);
-        this.viewlessBtn.textContent = this.lessMode ? 'zoom' : 'ZOOM';
+        // Cycle through: 0 (Standard) -> 1 (Less) -> 2 (Min) -> 0
+        this.viewMode = (this.viewMode + 1) % 3;
+        
+        // Update body classes
+        document.body.classList.remove('less-view', 'min-view');
+        if (this.viewMode === 1) {
+            document.body.classList.add('less-view');
+            this.viewlessBtn.textContent = 'zoom';
+        } else if (this.viewMode === 2) {
+            document.body.classList.add('less-view', 'min-view');
+            this.viewlessBtn.textContent = 'MIN';
+        } else {
+            this.viewlessBtn.textContent = 'ZOOM';
+        }
+        
+        // Update inactive row visibility
         this.rows.forEach(r => r.tr.classList.toggle('inactive-row', !!r.cbInactive.checked));
+        
+        // Apply min view field player visibility if entering min view
+        if (this.viewMode === 2) {
+            this.updateMinViewVisibility();
+        } else {
+            // Clear min-hidden class when leaving min view
+            this.rows.forEach(r => r.tr.classList.remove('min-hidden'));
+        }
+        
         this.updateDynamicSizing();
         setTimeout(() => this.updateDynamicSizing(), 100);
     }
@@ -161,7 +183,7 @@ class RosterManager {
     // Compute dynamic sizes for Less view based on viewport and visible rows
     updateDynamicSizing() {
         if (this.isEditingName) return;
-        if (!this.lessMode) {
+        if (this.viewMode === 0) { // Standard view
             const b = document.body.style;
             b.removeProperty('--row-h');
             b.removeProperty('--cell-pad-v');
@@ -177,7 +199,8 @@ class RosterManager {
             b.removeProperty('--timer-pad-h');
             return;
         }
-        const visibleRows = this.rows.filter(r => !r.cbInactive.checked);
+        // Less view (1) and Min view (2) use same dynamic sizing
+        const visibleRows = this.rows.filter(r => !r.cbInactive.checked && !r.tr.classList.contains('min-hidden'));
         const count = visibleRows.length || 1;
         const tbody = this.rosterBody;
         const table = tbody.closest('table');
@@ -221,6 +244,47 @@ class RosterManager {
         bodyStyle.setProperty('--timer-fs', timerFs + 'px');
         bodyStyle.setProperty('--timer-pad-v', timerPadV + 'px');
         bodyStyle.setProperty('--timer-pad-h', timerPadH + 'px');
+    }
+
+    // Update field player visibility for Min View
+    updateMinViewVisibility() {
+        if (this.viewMode !== 2) return;
+        
+        // Count bench players
+        const benchCount = this.rows.filter(r => r.cbBench.checked && !r.cbInactive.checked && !r.cbGoalie.checked).length;
+        
+        // Get field players (excluding goalie)
+        const fieldPlayers = [];
+        this.rows.forEach((r, idx) => {
+            if (r.cbField.checked && !r.cbInactive.checked && !r.cbGoalie.checked) {
+                fieldPlayers.push({ row: r, index: idx });
+            }
+        });
+        
+        if (fieldPlayers.length === 0 || benchCount === 0) {
+            // No hiding needed
+            this.rows.forEach(r => r.tr.classList.remove('min-hidden'));
+            return;
+        }
+        
+        // Find next field player to rotate (starting point)
+        const nextFieldIdx = this._nextIndexFrom(
+            fieldPlayers.map(fp => fp.index),
+            this.lastFieldIdx
+        );
+        
+        // Hide all field players first
+        fieldPlayers.forEach(fp => fp.row.tr.classList.add('min-hidden'));
+        
+        // Show benchCount field players starting from nextFieldIdx
+        let shown = 0;
+        for (let i = 0; i < fieldPlayers.length && shown < benchCount; i++) {
+            const currentIdx = (fieldPlayers.findIndex(fp => fp.index === nextFieldIdx) + i) % fieldPlayers.length;
+            if (currentIdx >= 0 && currentIdx < fieldPlayers.length) {
+                fieldPlayers[currentIdx].row.tr.classList.remove('min-hidden');
+                shown++;
+            }
+        }
     }
 
     // Custom modal dialog helper
@@ -1115,6 +1179,13 @@ class RosterManager {
         this.lastBenchIdx = benchIdx;
 
         this.markNextPlayers();
+        
+        // Update Min View visibility after rotation
+        if (this.viewMode === 2) {
+            this.updateMinViewVisibility();
+            this.updateDynamicSizing();
+        }
+        
         this.saveDebounced();
     }
 
@@ -1137,6 +1208,7 @@ class RosterManager {
                 matchRemainingSeconds: this.matchRemainingSeconds,
                 currentHalf: this.currentHalf,
                 countdownPreset: this.countdownPreset,
+                viewMode: this.viewMode, // Save view mode
                 players: this.rows.map(r => ({
                     name: r.nameInput.value,
                     field: !!r.cbField.checked,
@@ -1181,6 +1253,17 @@ class RosterManager {
                 this.countdownPreset = model.countdownPreset;
                 this.countdownRemaining = this.countdownPreset;
             }
+            if (typeof model.viewMode === 'number' && model.viewMode >= 0 && model.viewMode <= 2) {
+                this.viewMode = model.viewMode;
+                // Apply view mode classes
+                if (this.viewMode === 1) {
+                    document.body.classList.add('less-view');
+                    this.viewlessBtn.textContent = 'zoom';
+                } else if (this.viewMode === 2) {
+                    document.body.classList.add('less-view', 'min-view');
+                    this.viewlessBtn.textContent = 'MIN';
+                }
+            }
             this.updateTimerDisplay();
             this.updateCountdownDisplay();
             this.updateMatchTimeLabel();
@@ -1196,6 +1279,11 @@ class RosterManager {
                 r.updatePlayerColor();
                 this.updateCounterDisplay(r);
             });
+            
+            // Apply min view visibility if in min mode
+            if (this.viewMode === 2) {
+                this.updateMinViewVisibility();
+            }
         } catch (error) {
             console.error('[RosterManager] Error loading from storage:', error);
             localStorage.removeItem(this.STORAGE_KEY);
