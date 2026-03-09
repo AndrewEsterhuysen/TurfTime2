@@ -89,7 +89,43 @@ public partial class HelpPage : ContentPage
     <h3>Timers</h3>
     <ul>
         <li><strong>Match Time:</strong> Click to set game duration (default: 90 min). Timer splits into two halves automatically</li>
-        <li><strong>Rotate Time:</strong> Click to set rotation countdown (default: 2:00). Timer alerts you when substitution is due</li>
+        <li><strong>Rotate Time:</strong> Click to set rotation countdown (default: 2:00). Timer alerts you when substitution is due
+            <ul>
+                <li><strong>Auto Button:</strong> Automatically calculates the optimal rotation time using a smart hybrid formula
+                    <ul>
+                        <li><strong>Formula 1 - Equal Playing Time:</strong> (Match Duration × Rotation Count) ÷ Bench Players</li>
+                        <li><strong>Formula 2 - Fast Fives Mode (Bench-Aware):</strong> (Half Duration × Rotation Count) ÷ max(5, Bench Players ÷ Rotation Count)
+                            <ul>
+                                <li>Ensures minimum 5 rotations per half for fast games</li>
+                                <li>BUT increases frequency if needed to cycle through all bench players</li>
+                                <li>Adapts to bench size automatically</li>
+                            </ul>
+                        </li>
+                        <li>Uses the SMALLER value (more frequent rotations) to ensure both speed and fairness</li>
+                        <li>Example (40-min fast fives, 2 bench, rotate 1):
+                            <ul>
+                                <li>Formula 1: (2400 × 1) ÷ 2 = 1200 sec = 20 min</li>
+                                <li>Formula 2: (1200 × 1) ÷ max(5, 2) = 240 sec = 4 min ✓ (fast rotations)</li>
+                                <li>Each player gets 5 rotations = 20 min field time ✓</li>
+                            </ul>
+                        </li>
+                        <li>Example (40-min fast fives, 10 bench, rotate 1):
+                            <ul>
+                                <li>Formula 1: (2400 × 1) ÷ 10 = 240 sec = 4 min</li>
+                                <li>Formula 2: (1200 × 1) ÷ max(5, 10) = 120 sec = 2 min ✓ (adapts to bench size)</li>
+                                <li>Each player gets 10 rotations = 20 min field time ✓</li>
+                            </ul>
+                        </li>
+                        <li>Example (90-min match, 6 bench, rotate 2):
+                            <ul>
+                                <li>Formula 1: (5400 × 2) ÷ 6 = 1800 sec = 30 min ✓ (respects bench size)</li>
+                                <li>Formula 2: (2700 × 2) ÷ max(5, 3) = 1080 sec = 18 min</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        </li>
     </ul>
 
     <h3>Buttons</h3>
@@ -100,16 +136,25 @@ public partial class HelpPage : ContentPage
                 <li><em>Hold for 1 second</em> to restart the entire game</li>
             </ul>
         </li>
-        <li><strong>Rotate:</strong> Swap next field player with next bench player
+        <li><strong>Rotate:</strong> Swap next field player(s) with next bench player(s)
             <ul>
                 <li>Red highlighted rows show who rotates next</li>
                 <li>Resets the rotation countdown timer</li>
+                <li><em>Hold for 0.5 seconds</em> to change rotation count (default: 1 player)
+                    <ul>
+                        <li>Use ▲/▼ arrows to adjust how many players rotate each time</li>
+                        <li>Maximum is limited by number of bench players available</li>
+                        <li>Button text shows 'Rotate 1', 'Rotate 2', etc.</li>
+                        <li>All players to be rotated are highlighted in red</li>
+                    </ul>
+                </li>
             </ul>
         </li>
-        <li><strong>ZOOM:</strong> Toggle between normal and fullscreen view
+        <li><strong>View 1/2/3:</strong> Toggle between three different display modes
             <ul>
-                <li>Hides inactive players for clearer view during game</li>
-                <li>Automatically sizes rows to fill screen</li>
+                <li><strong>View 1 (Standard):</strong> Shows all players with normal row spacing</li>
+                <li><strong>View 2 (Zoomed):</strong> Hides inactive players and enlarges rows to fill the screen</li>
+                <li><strong>View 3 (Minimal):</strong> Shows only bench players and next field players to rotate for clearest view during game</li>
             </ul>
         </li>
     </ul>
@@ -117,7 +162,12 @@ public partial class HelpPage : ContentPage
     <h3>During the Match</h3>
     <ul>
         <li><strong>Player Timers:</strong> Shows how long each field/goalie player has been on</li>
-        <li><strong>Red Background:</strong> Players with red backgrounds rotate next</li>
+        <li><strong>Red Background:</strong> All players scheduled for next rotation are highlighted with red background and outline
+            <ul>
+                <li>Number of highlighted players matches rotation count (e.g., if 'Rotate 3', six rows are red: 3 field + 3 bench)</li>
+                <li>Highlighting updates immediately when rotation count changes</li>
+            </ul>
+        </li>
         <li><strong>Drag to Reorder:</strong> You can still drag players to adjust rotation order during the match</li>
         <li><strong>Vibration Alerts:</strong>
             <ul>
@@ -172,6 +222,8 @@ public partial class HelpPage : ContentPage
         <li>?? Drag players anytime to adjust rotation order on the fly</li>
         <li>?? Player counters show total field time, not just current stint</li>
         <li>?? Dragging resets rotation pointers - next players are recalculated from new positions</li>
+        <li>?? Set rotation count to match your strategy - rotate 1 player for precision, or 3-4 players for full line changes</li>
+        <li>?? All players in next rotation are highlighted - makes it easy to prepare substitutions in advance</li>
     </ul>
 </body>
 </html>";

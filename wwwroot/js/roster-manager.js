@@ -18,6 +18,7 @@ class RosterManager {
         this.modalError = document.getElementById('modalError');
         this.modalOk = document.getElementById('modalOk');
         this.modalCancel = document.getElementById('modalCancel');
+        this.modalAuto = document.getElementById('modalAuto');
 
         // Rotation count modal elements
         this.rotationModalOverlay = document.getElementById('rotationModalOverlay');
@@ -212,17 +213,17 @@ class RosterManager {
     toggleLessView() {
         // Cycle through: 0 (Standard) -> 1 (Less) -> 2 (Min) -> 0
         this.viewMode = (this.viewMode + 1) % 3;
-        
+
         // Update body classes
         document.body.classList.remove('less-view', 'min-view');
         if (this.viewMode === 1) {
             document.body.classList.add('less-view');
-            this.viewlessBtn.textContent = 'zoom';
+            this.viewlessBtn.textContent = 'View 2';
         } else if (this.viewMode === 2) {
             document.body.classList.add('less-view', 'min-view');
-            this.viewlessBtn.textContent = 'MIN';
+            this.viewlessBtn.textContent = 'View 3';
         } else {
-            this.viewlessBtn.textContent = 'ZOOM';
+            this.viewlessBtn.textContent = 'View 1';
         }
         
         // Update inactive row visibility
@@ -348,12 +349,20 @@ class RosterManager {
     }
 
     // Custom modal dialog helper
-    showModal(title, defaultValue, validator) {
+    showModal(title, defaultValue, validator, autoHandler = null) {
         return new Promise((resolve) => {
             this.modalTitle.textContent = title;
             this.modalInput.value = defaultValue;
             this.modalError.textContent = '';
             this.modalOverlay.classList.add('active');
+
+            // Show/hide Auto button based on whether autoHandler is provided
+            if (autoHandler) {
+                this.modalAuto.style.display = '';
+            } else {
+                this.modalAuto.style.display = 'none';
+            }
+
             this.modalInput.focus();
             this.modalInput.select();
 
@@ -362,6 +371,9 @@ class RosterManager {
                 this.modalOk.removeEventListener('click', okHandler);
                 this.modalCancel.removeEventListener('click', cancelHandler);
                 this.modalInput.removeEventListener('keydown', keyHandler);
+                if (autoHandler) {
+                    this.modalAuto.removeEventListener('click', autoClickHandler);
+                }
             };
 
             const okHandler = () => {
@@ -392,9 +404,22 @@ class RosterManager {
                 }
             };
 
+            const autoClickHandler = () => {
+                const autoValue = autoHandler();
+                if (autoValue !== null) {
+                    this.modalInput.value = autoValue;
+                    this.modalError.textContent = '';
+                    this.modalInput.focus();
+                    this.modalInput.select();
+                }
+            };
+
             this.modalOk.addEventListener('click', okHandler);
             this.modalCancel.addEventListener('click', cancelHandler);
             this.modalInput.addEventListener('keydown', keyHandler);
+            if (autoHandler) {
+                this.modalAuto.addEventListener('click', autoClickHandler);
+            }
         });
     }
 
@@ -444,7 +469,7 @@ class RosterManager {
     async editCountdownPreset() {
         const currentMinutes = Math.floor(this.countdownPreset / 60);
         const currentSeconds = this.countdownPreset % 60;
-        
+
         const input = await this.showModal(
             'Enter rotation countdown (MM:SS):',
             `${currentMinutes}:${currentSeconds.toString().padStart(2, '0')}`,
@@ -453,36 +478,37 @@ class RosterManager {
                 if (parts.length !== 2) {
                     return 'Please enter time in MM:SS format (e.g., 2:00)';
                 }
-                
+
                 const minutes = parseInt(parts[0], 10);
                 const seconds = parseInt(parts[1], 10);
-                
+
                 if (isNaN(minutes) || isNaN(seconds) || minutes < 0 || minutes > 99 || seconds < 0 || seconds > 59) {
                     return 'Please enter valid minutes (0-99) and seconds (0-59)';
                 }
-                
+
                 const totalSeconds = minutes * 60 + seconds;
                 if (totalSeconds === 0) {
                     return 'Countdown time must be greater than 0';
                 }
-                
+
                 return null;
-            }
+            },
+            () => this.calculateOptimalRotationTime() // Auto button handler
         );
 
         if (input === null) return;
-        
+
         const parts = input.split(':');
         const minutes = parseInt(parts[0], 10);
         const seconds = parseInt(parts[1], 10);
         const oldValue = this.countdownPreset;
         const totalSeconds = minutes * 60 + seconds;
-        
+
         this.countdownPreset = totalSeconds;
         this.countdownRemaining = this.countdownPreset;
         this.updateCountdownDisplay();
         this.setRotateAttention(false);
-        
+
         // Log rotation timer change
         if (this.logger) {
             this.logger.log(
@@ -492,13 +518,76 @@ class RosterManager {
                 { oldValue, newValue: totalSeconds }
             );
         }
-        
+
         if (this.timerRunning) {
             this.pauseCountdown();
             this.startCountdown();
         }
 
         this.saveDebounced();
+    }
+
+    // Calculate optimal rotation time for equal playing time
+    calculateOptimalRotationTime() {
+        // Count active field players (excluding goalie and inactive)
+        const fieldPlayers = this.rows.filter(r => 
+            r.cbField.checked && !r.cbInactive.checked && !r.cbGoalie.checked
+        ).length;
+
+        // Count active bench players (excluding goalie and inactive)
+        const benchPlayers = this.rows.filter(r => 
+            r.cbBench.checked && !r.cbInactive.checked && !r.cbGoalie.checked
+        ).length;
+
+        // Validation
+        if (fieldPlayers === 0) {
+            this.modalError.textContent = 'No field players assigned';
+            return null;
+        }
+
+        if (benchPlayers === 0) {
+            this.modalError.textContent = 'No bench players to rotate';
+            return null;
+        }
+
+        // FORMULA 1: Equal playing time based on bench size
+        // rotation_time = (match_duration × rotation_count) / bench_players
+        const equalTimeRotation = Math.round(
+            (this.matchDurationSeconds * this.rotationCount) / benchPlayers
+        );
+
+        // FORMULA 2: Fast fives / high-frequency rotation mode (BENCH-AWARE)
+        // Ensures minimum rotation frequency for fast games
+        // BUT also ensures we rotate often enough to give everyone playing time
+        // Example: 40-min game, 10 bench players, rotate 1
+        //   - Need at least 10 rotations to cycle through everyone
+        //   - targetRotationsPerHalf = 5 → need at least 10 total rotations
+        //   - minRotationsPerHalf = max(5, 10/1) = 10
+        //   - rotation_time = (1200 × 1) / 10 = 120 sec = 2 min
+        const halfDuration = this.matchDurationSeconds / 2;
+        const targetRotationsPerHalf = 5; // Baseline for fast games
+        const minRotationsPerHalf = Math.max(
+            targetRotationsPerHalf,
+            Math.ceil(benchPlayers / this.rotationCount)  // At least 1 full cycle
+        );
+        const fastFivesRotation = Math.round(
+            (halfDuration * this.rotationCount) / minRotationsPerHalf
+        );
+
+        // Use the SMALLER value (more frequent rotations)
+        // This ensures fast fives get frequent rotations, while longer matches
+        // still respect bench size for equal playing time
+        const rotationTimeSeconds = Math.min(equalTimeRotation, fastFivesRotation);
+
+        if (rotationTimeSeconds <= 0) {
+            this.modalError.textContent = 'Calculated time is too short';
+            return null;
+        }
+
+        const minutes = Math.floor(rotationTimeSeconds / 60);
+        const seconds = rotationTimeSeconds % 60;
+
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
     }
 
     // Show rotation count modal
@@ -1389,10 +1478,10 @@ class RosterManager {
                 // Apply view mode classes
                 if (this.viewMode === 1) {
                     document.body.classList.add('less-view');
-                    this.viewlessBtn.textContent = 'zoom';
+                    this.viewlessBtn.textContent = 'View 2';
                 } else if (this.viewMode === 2) {
                     document.body.classList.add('less-view', 'min-view');
-                    this.viewlessBtn.textContent = 'MIN';
+                    this.viewlessBtn.textContent = 'View 3';
                 }
             }
             this.updateTimerDisplay();
