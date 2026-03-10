@@ -151,24 +151,24 @@ public partial class SetupPage : ContentPage
 			}
 			else
 			{
-				await DisplayAlert("Location Error", "Unable to get current location. Please enter coordinates manually.", "OK");
+				await DisplayAlertAsync("Location Error", "Unable to get current location. Please enter coordinates manually.", "OK");
 			}
 		}
 		catch (FeatureNotSupportedException)
 		{
-			await DisplayAlert("Not Supported", "Geolocation is not supported on this device.", "OK");
+			await DisplayAlertAsync("Not Supported", "Geolocation is not supported on this device.", "OK");
 		}
 		catch (FeatureNotEnabledException)
 		{
-			await DisplayAlert("Location Disabled", "Please enable location services in device settings.", "OK");
+			await DisplayAlertAsync("Location Disabled", "Please enable location services in device settings.", "OK");
 		}
 		catch (PermissionException)
 		{
-			await DisplayAlert("Permission Denied", "Location permission is required to get GPS coordinates.", "OK");
+			await DisplayAlertAsync("Permission Denied", "Location permission is required to get GPS coordinates.", "OK");
 		}
 		catch (Exception ex)
 		{
-			await DisplayAlert("Error", $"Unable to get location: {ex.Message}", "OK");
+			await DisplayAlertAsync("Error", $"Unable to get location: {ex.Message}", "OK");
 		}
 	}
 
@@ -180,7 +180,7 @@ public partial class SetupPage : ContentPage
 			
 			if (string.IsNullOrWhiteSpace(locationName))
 			{
-				await DisplayAlert("No Location", "Please enter a location name first.", "OK");
+				await DisplayAlertAsync("No Location", "Please enter a location name first.", "OK");
 				return;
 			}
 
@@ -195,12 +195,12 @@ public partial class SetupPage : ContentPage
 			}
 			else
 			{
-				await DisplayAlert("Error", "Unable to create search URL.", "OK");
+				await DisplayAlertAsync("Error", "Unable to create search URL.", "OK");
 			}
 		}
 		catch (Exception ex)
 		{
-			await DisplayAlert("Error", $"Unable to search location: {ex.Message}", "OK");
+			await DisplayAlertAsync("Error", $"Unable to search location: {ex.Message}", "OK");
 		}
 	}
 
@@ -247,7 +247,7 @@ public partial class SetupPage : ContentPage
 			await Map.OpenAsync(placemark, options);
 
 			// Show instructions to user
-			await DisplayAlert("Pick Location", 
+			await DisplayAlertAsync("Pick Location", 
 				"1. Find your desired location on the map\n" +
 				"2. Long-press on the location to drop a pin\n" +
 				"3. Tap the pin and copy the coordinates\n" +
@@ -256,7 +256,7 @@ public partial class SetupPage : ContentPage
 		}
 		catch (Exception ex)
 		{
-			await DisplayAlert("Error", $"Unable to open maps: {ex.Message}", "OK");
+			await DisplayAlertAsync("Error", $"Unable to open maps: {ex.Message}", "OK");
 		}
 	}
 
@@ -268,7 +268,7 @@ public partial class SetupPage : ContentPage
 			
 			if (string.IsNullOrWhiteSpace(link))
 			{
-				await DisplayAlert("No Link", "Please paste a Google Maps link first.", "OK");
+				await DisplayAlertAsync("No Link", "Please paste a Google Maps link first.", "OK");
 				return;
 			}
 
@@ -287,12 +287,12 @@ public partial class SetupPage : ContentPage
 			}
 			else
 			{
-				await DisplayAlert("Invalid Link", "The provided link is not valid. Please check and try again.", "OK");
+				await DisplayAlertAsync("Invalid Link", "The provided link is not valid. Please check and try again.", "OK");
 			}
 		}
 		catch (Exception ex)
 		{
-			await DisplayAlert("Error", $"Unable to open link: {ex.Message}", "OK");
+			await DisplayAlertAsync("Error", $"Unable to open link: {ex.Message}", "OK");
 		}
 	}
 

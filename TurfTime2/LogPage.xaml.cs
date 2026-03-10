@@ -188,7 +188,7 @@ public partial class LogPage : ContentPage
         {
             System.Diagnostics.Debug.WriteLine($"[LogPage] Error loading sessions: {ex.Message}");
             System.Diagnostics.Debug.WriteLine($"[LogPage] Stack trace: {ex.StackTrace}");
-            await DisplayAlert("Error", $"Failed to load game sessions: {ex.Message}", "OK");
+            await DisplayAlertAsync("Error", $"Failed to load game sessions: {ex.Message}", "OK");
             await DisplayNoSessionsMessage();
         }
     }
@@ -248,7 +248,7 @@ public partial class LogPage : ContentPage
 
             if (string.IsNullOrEmpty(result) || result == "null")
             {
-                await DisplayAlert("Error", "Session not found", "OK");
+                await DisplayAlertAsync("Error", "Session not found", "OK");
                 return;
             }
 
@@ -268,7 +268,7 @@ public partial class LogPage : ContentPage
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[LogPage] Failed to decode session base64: {ex.Message}");
-                await DisplayAlert("Error", "Failed to load session", "OK");
+                await DisplayAlertAsync("Error", "Failed to load session", "OK");
                 return;
             }
 
@@ -277,7 +277,7 @@ public partial class LogPage : ContentPage
             // Check for errors
             if (session.RootElement.TryGetProperty("error", out var errorProp))
             {
-                await DisplayAlert("Error", $"Failed to load session: {errorProp.GetString()}", "OK");
+                await DisplayAlertAsync("Error", $"Failed to load session: {errorProp.GetString()}", "OK");
                 return;
             }
 
@@ -287,7 +287,7 @@ public partial class LogPage : ContentPage
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[LogPage] Error loading session logs: {ex.Message}");
-            await DisplayAlert("Error", $"Failed to load session logs: {ex.Message}", "OK");
+            await DisplayAlertAsync("Error", $"Failed to load session logs: {ex.Message}", "OK");
         }
     }
 
@@ -511,7 +511,7 @@ public partial class LogPage : ContentPage
     {
         if (sessionPicker.SelectedItem is not SessionInfo session)
         {
-            await DisplayAlert("Error", "Please select a session first", "OK");
+            await DisplayAlertAsync("Error", "Please select a session first", "OK");
             return;
         }
 
@@ -563,7 +563,7 @@ public partial class LogPage : ContentPage
 
             if (string.IsNullOrEmpty(csv))
             {
-                await DisplayAlert("Error", "Failed to export session", "OK");
+                await DisplayAlertAsync("Error", "Failed to export session", "OK");
                 return;
             }
 
@@ -580,7 +580,7 @@ public partial class LogPage : ContentPage
         }
         catch (Exception ex)
         {
-            await DisplayAlert("Error", $"Export failed: {ex.Message}", "OK");
+            await DisplayAlertAsync("Error", $"Export failed: {ex.Message}", "OK");
         }
     }
 
@@ -588,7 +588,7 @@ public partial class LogPage : ContentPage
     {
         if (sessionPicker.SelectedItem is not SessionInfo session)
         {
-            await DisplayAlert("Error", "Please select a session first", "OK");
+            await DisplayAlertAsync("Error", "Please select a session first", "OK");
             return;
         }
 
@@ -630,7 +630,7 @@ public partial class LogPage : ContentPage
             
             if (string.IsNullOrEmpty(result) || result == "null")
             {
-                await DisplayAlert("Error", "Failed to generate report", "OK");
+                await DisplayAlertAsync("Error", "Failed to generate report", "OK");
                 return;
             }
 
@@ -650,7 +650,7 @@ public partial class LogPage : ContentPage
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[LogPage] Failed to decode share base64: {ex.Message}");
-                await DisplayAlert("Error", "Failed to generate report", "OK");
+                await DisplayAlertAsync("Error", "Failed to generate report", "OK");
                 return;
             }
 
@@ -665,7 +665,7 @@ public partial class LogPage : ContentPage
         }
         catch (Exception ex)
         {
-            await DisplayAlert("Error", $"Share failed: {ex.Message}", "OK");
+            await DisplayAlertAsync("Error", $"Share failed: {ex.Message}", "OK");
         }
     }
 
@@ -751,7 +751,7 @@ public partial class LogPage : ContentPage
 
     private async void OnClearClicked(object sender, EventArgs e)
     {
-        var confirm = await DisplayAlert(
+        var confirm = await DisplayAlertAsync(
             "Clear All Logs",
             "Are you sure you want to delete all game session logs? This cannot be undone.",
             "Delete",
@@ -769,7 +769,7 @@ public partial class LogPage : ContentPage
             
             await logWebView.EvaluateJavaScriptAsync(script);
             await LoadSessionsAsync();
-            await DisplayAlert("Success", "All session logs cleared", "OK");
+            await DisplayAlertAsync("Success", "All session logs cleared", "OK");
         }
     }
 
