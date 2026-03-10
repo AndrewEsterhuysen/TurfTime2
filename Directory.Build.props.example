@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <!-- Android Keystore Passwords -->
+    <!-- 
+      SETUP INSTRUCTIONS:
+      1. Copy this file to "Directory.Build.props" (without .example)
+      2. Replace the placeholder values below with your actual keystore passwords
+      3. DO NOT commit Directory.Build.props to Git - it's in .gitignore
+    -->
+    <AndroidSigningStorePassword>YOUR_KEYSTORE_PASSWORD_HERE</AndroidSigningStorePassword>
+    <AndroidSigningKeyPassword>YOUR_KEY_PASSWORD_HERE</AndroidSigningKeyPassword>
+  </PropertyGroup>
+</Project>

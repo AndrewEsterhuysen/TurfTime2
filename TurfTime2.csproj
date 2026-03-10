@@ -18,19 +18,32 @@
 		<Nullable>enable</Nullable>
 
 		<!-- Display name -->
-		<ApplicationTitle>TurfTime2</ApplicationTitle>
+		<ApplicationTitle>Turf Time</ApplicationTitle>
 
 		<!-- App Identifier -->
-		<ApplicationId>com.companyname.turftime2</ApplicationId>
+		<ApplicationId>com.andrewestherhuysen.turftime</ApplicationId>
 
 		<!-- Versions -->
-		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
 		<ApplicationVersion>1</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+	</PropertyGroup>
+
+	<!-- Android Release Configuration -->
+	<PropertyGroup Condition="'$(Configuration)' == 'Release' and $(TargetFramework.Contains('android'))">
+		<AndroidPackageFormat>aab</AndroidPackageFormat>
+		<AndroidKeyStore>true</AndroidKeyStore>
+		<AndroidSigningKeyStore>turftime.keystore</AndroidSigningKeyStore>
+		<AndroidSigningKeyAlias>turftime</AndroidSigningKeyAlias>
+    <AndroidSigningStorePass>$(AndroidSigningStorePassword)</AndroidSigningStorePass> <!-- Note: The Android signing key password is the same as the store password in this case, but it can be different if desired.-->
+    <AndroidSigningKeyPass>$(AndroidSigningKeyPassword)</AndroidSigningKeyPass> <!-- Note: The Android signing key password is the same as the store password in this case, but it can be different if desired.-->
+    <AndroidLinkTool>r8</AndroidLinkTool>
+		<RunAOTCompilation>true</RunAOTCompilation>
+		<PublishTrimmed>true</PublishTrimmed>
 	</PropertyGroup>
 
 	<ItemGroup>

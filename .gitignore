@@ -361,3 +361,15 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# Android Keystore - DO NOT COMMIT!
+*.keystore
+*.jks
+keystore.properties
+Directory.Build.props
+
+# Play Store Credentials
+play-store-credentials.json
+google-services.json
+
+# User documentation
+copilot prompts.docx
