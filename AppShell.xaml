@@ -7,6 +7,12 @@
     Shell.FlyoutBehavior="Disabled"
     Shell.NavBarIsVisible="True">
 
+    <Shell.Resources>
+        <Style TargetType="ShellContent">
+            <Setter Property="Shell.NavBarIsVisible" Value="True" />
+        </Style>
+    </Shell.Resources>
+
     <TabBar>
         <ShellContent
             Title="Game"
@@ -19,9 +25,9 @@
             Route="SetupPage" />
 
         <ShellContent
-            Title="Log"
-            ContentTemplate="{DataTemplate local:LogPage}"
-            Route="LogPage" />
+            Title="Settings"
+            ContentTemplate="{DataTemplate local:SettingsPage}"
+            Route="SettingsPage" />
 
         <ShellContent
             Title="Help"

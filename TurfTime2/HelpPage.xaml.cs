@@ -179,6 +179,22 @@ public partial class HelpPage : ContentPage
         <li><strong>Half-Time:</strong> Button shows '1/2 Time' when first half ends. Click to start second half</li>
     </ul>
 
+    <h3>Settings Menu</h3>
+    <ul>
+        <li><strong>Navigation:</strong> Tap Settings from the main menu to access app configuration options</li>
+        <li><strong>Log:</strong> Access game session logs, export data, and review event history (moved from main menu for better organization)</li>
+        <li><strong>Skins:</strong> Customize the app's appearance with different themes</li>
+    </ul>
+
+    <h3>Skins & Themes</h3>
+    <ul>
+        <li><strong>Classic Theme:</strong> Original green soccer field colors with warm tones</li>
+        <li><strong>Modern Theme:</strong> Dark theme with high contrast, brighter accent colors, and enhanced borders for better visibility</li>
+        <li><strong>Theme Selection:</strong> Tap any theme in Settings > Skins to apply it instantly</li>
+        <li><strong>Persistence:</strong> Your theme preference is saved and applied automatically when you open the app</li>
+        <li><strong>Preview Colors:</strong> Each theme shows color swatches so you can see the palette before selecting</li>
+    </ul>
+
     <h3>Log Menu</h3>
     <ul>
         <li><strong>Automatic Logging:</strong> Every action is tracked automatically - player changes, rotations, timer adjustments, game events</li>

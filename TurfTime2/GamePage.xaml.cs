@@ -25,9 +25,29 @@ public partial class GamePage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        
+
         // Keep screen on when page appears
         SetKeepScreenOn(true);
+
+        // Sync theme from Preferences to WebView
+        SyncThemeToWebView();
+    }
+
+    private async void SyncThemeToWebView()
+    {
+        try
+        {
+            // Small delay to ensure WebView is fully loaded
+            await Task.Delay(100);
+
+            var theme = Preferences.Get("AppTheme", "classic");
+            await webView.EvaluateJavaScriptAsync($"setTheme('{theme}')");
+            System.Diagnostics.Debug.WriteLine($"[Theme] Synced theme to WebView: {theme}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Theme] Error syncing theme: {ex.Message}");
+        }
     }
 
     protected override void OnDisappearing()

@@ -1564,7 +1564,30 @@ class RosterManager {
     }
 }
 
+// Theme switching function
+function setTheme(theme) {
+    const stylesheet = document.getElementById('theme-stylesheet');
+    if (theme === 'modern') {
+        stylesheet.href = 'css/styles-modern.css';
+    } else {
+        stylesheet.href = 'css/styles-classic.css';
+    }
+    localStorage.setItem('appTheme', theme);
+}
+
+// Load saved theme on page load
+function loadSavedTheme() {
+    const savedTheme = localStorage.getItem('appTheme') || 'classic';
+    const stylesheet = document.getElementById('theme-stylesheet');
+    if (savedTheme === 'modern') {
+        stylesheet.href = 'css/styles-modern.css';
+    } else {
+        stylesheet.href = 'css/styles-classic.css';
+    }
+}
+
 // Initialize when DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
+    loadSavedTheme();
     new RosterManager();
 });

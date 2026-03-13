@@ -4,6 +4,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              Shell.NavBarIsVisible="True">
 
-    <WebView Source="file:///android_asset/wwwroot/index.html" AutomationId="CustomWebView" />
+    <WebView x:Name="webView" Source="file:///android_asset/wwwroot/index.html" AutomationId="CustomWebView" />
 
 </ContentPage>

@@ -1,0 +1,567 @@
+/* Soccer Team Rotation Manager Styles - Modern Theme */
+
+:root {
+    --bg: #0d1b2a;
+    --bg2: #1b263b;
+    --card: rgba(255, 255, 255, 0.05);
+    --text: #e0e0e0;
+    --accent: #00d9ff;
+    --border: rgba(255, 255, 255, 0.3);
+    --danger: #ff3d3d;
+
+    /* dynamic vars filled by JS in Less mode */
+    --row-h: auto;
+    --cell-pad-v: 0;
+    --cell-pad-h: 0;
+    --input-h: auto;
+    --input-fs: inherit;
+    --cb-scale: 1;
+    --btn-font: inherit;
+    --btn-pad-v: 0.5rem;
+    --btn-pad-h: 0.75rem;
+    --timer-fs: inherit;
+    --timer-pad-v: 0.125rem;
+    --timer-pad-h: 0.5rem;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: Arial, sans-serif;
+    color: var(--text);
+}
+
+body {
+    background: linear-gradient(135deg, var(--bg2), var(--bg));
+    display: flex;
+    transition: background 0.3s ease;
+}
+
+/* Yellow flash for rotation alert */
+body.flash-yellow {
+    animation: yellowFlash 0.5s ease-in-out infinite;
+}
+
+@keyframes yellowFlash {
+    0% {
+        background: #ffd700;
+    }
+    50% {
+        background: linear-gradient(135deg, var(--bg2), var(--bg));
+    }
+    100% {
+        background: #ffd700;
+    }
+}
+
+.container {
+    flex: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 12px;
+}
+
+/* Compact header */
+h1 {
+    margin: 0 0 8px;
+    font-size: 1.2rem;
+    text-align: center;
+}
+
+/* Controls: two columns side-by-side, never wrap */
+.controls,
+.top-controls,
+.bottom-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 8px;
+    flex-wrap: nowrap;
+}
+
+.control-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: .85rem;
+    font-weight: bold;
+    cursor: pointer;
+    white-space: nowrap;
+    /* Prevent long-press text selection/callout on Android */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+button:disabled {
+    background: #444;
+    color: #888;
+    cursor: not-allowed;
+}
+
+/* Reduce horizontal padding on start button to fit longer text */
+#startBtn {
+    padding: 6px 8px;
+}
+
+.match-timer,
+.countdown-timer {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: .95rem;
+    padding: 2px 8px;
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    min-width: 110px;
+    text-align: center;
+}
+
+.countdown-timer {
+    min-width: 80px;
+}
+
+/* Match timer wrapper with label */
+.timer-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.timer-label {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.65rem;
+    color: var(--text);
+    opacity: 0.7;
+    pointer-events: none;
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Rotate attention pulse */
+.rotate-attention {
+    background: var(--danger) !important;
+    box-shadow: 0 0 0 3px rgba(255, 61, 61, 0.4);
+    animation: pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.03);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* Panel and table */
+.panel {
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 6px;
+}
+
+.roster-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.roster-table thead th {
+    position: sticky;
+    top: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(2px);
+    font-size: .8rem;
+}
+
+.roster-table th,
+.roster-table td {
+    border-bottom: 2px solid var(--border);
+    padding: 2px 4px;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+.roster-table tr {
+    height: 30px;
+}
+
+.roster-table th:nth-child(1),
+.roster-table td:nth-child(1) {
+    text-align: left;
+    width: 52%;
+}
+
+.roster-table th:not(:first-child),
+.roster-table td:not(:first-child) {
+    width: 12%;
+}
+
+/* Inputs and next markers */
+.name-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 2px 4px;
+    border-radius: 4px;
+    border: 2px solid #555;
+    font-size: .78rem;
+    height: 24px;
+    line-height: 1.2;
+}
+
+.roster-table tbody tr.player-next {
+    outline: 3px solid #ff3d3d;
+    outline-offset: -3px;
+    background-color: rgba(255, 61, 61, 0.25) !important;
+}
+
+.roster-table tbody tr.player-next td {
+    background-color: transparent;
+}
+
+.cb {
+    transform: scale(0.9);
+}
+
+/* Checkbox fill colors using accent-color for each column */
+.cb-field {
+    accent-color: #00ff88;
+}
+
+.cb-bench {
+    accent-color: #ff6b35;
+}
+
+.cb-goalie {
+    accent-color: #ffd700;
+}
+
+.cb-inactive {
+    accent-color: #888;
+}
+
+.cb {
+    background-color: #222;
+}
+
+/* Player name input color classes */
+.player-field {
+    background-color: #00ff88 !important;
+    color: #000 !important;
+    font-weight: bold;
+}
+
+.player-bench {
+    background-color: #ff6b35 !important;
+    color: #000 !important;
+    font-weight: bold;
+}
+
+.player-goalie {
+    background-color: #ffd700 !important;
+    color: #000 !important;
+    font-weight: bold;
+}
+
+.player-inactive {
+    background-color: #888 !important;
+    color: #000 !important;
+}
+
+.player-none {
+    background-color: #333 !important;
+    color: #e0e0e0 !important;
+    border-color: #666;
+}
+
+/* Drag and drop styles */
+.roster-table tbody tr.dragging {
+    opacity: 0.5;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.roster-table tbody tr.drag-over {
+    border-top: 3px solid var(--accent);
+    border-bottom: 3px solid var(--accent);
+}
+
+.roster-table tbody tr[draggable="true"] {
+    cursor: move;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Viewless toggle (Less -> More) */
+tfoot .footer-cell {
+    padding: 8px 0;
+    border-bottom: none;
+}
+
+tfoot .footer-cell button {
+    min-width: 120px;
+}
+
+/* Less-view mode: hide inactive column and inactive rows, dynamic sizing (no fixed dims) */
+.less-view .roster-table th:nth-child(5),
+.less-view .roster-table td:nth-child(5) {
+    display: none;
+}
+
+.less-view tr.inactive-row {
+    display: none;
+}
+
+.less-view .roster-table tbody tr {
+    height: var(--row-h);
+}
+
+.less-view .roster-table th,
+.less-view .roster-table td {
+    padding: var(--cell-pad-v) var(--cell-pad-h);
+}
+
+.less-view .name-input {
+    font-size: var(--input-fs);
+    height: var(--input-h);
+    padding: calc(var(--input-h) * 0.15) calc(var(--cell-pad-h) * 0.5);
+}
+
+.less-view .cb {
+    transform: scale(var(--cb-scale));
+}
+
+.less-view button {
+    padding: var(--btn-pad-v) var(--btn-pad-h);
+    font-size: var(--btn-font);
+    border-radius: 10px;
+}
+
+/* Ensure startBtn uses dynamic padding in ZOOM mode */
+.less-view #startBtn {
+    padding: var(--btn-pad-v) var(--btn-pad-h);
+}
+
+.less-view .match-timer,
+.less-view .countdown-timer {
+    font-size: var(--timer-fs);
+    padding: var(--timer-pad-v) var(--timer-pad-h);
+}
+
+/* Player counter overlay */
+.name-wrapper {
+    position: relative;
+}
+
+.player-counter {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.7em;
+    font-weight: bold;
+    color: #000;
+    pointer-events: none;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 1px 3px;
+    border-radius: 2px;
+}
+
+.less-view .player-counter {
+    font-size: calc(var(--input-fs) * 0.9);
+    padding: calc(var(--input-h) * 0.05) calc(var(--cell-pad-h) * 0.2);
+}
+
+/* Extra compact on very small screens: keep inline */
+@media (max-width: 480px) {
+    .controls {
+        flex-wrap: nowrap;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .control-col {
+        min-width: 0;
+    }
+}
+
+/* Custom Modal Dialog Styles */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+.modal-dialog {
+    background: var(--bg);
+    border: 3px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.8);
+}
+
+.modal-title {
+    font-size: 1.1rem;
+    font-weight: bold;
+    margin-bottom: 15px;
+    color: var(--text);
+    text-align: center;
+}
+
+.modal-input {
+    width: 100%;
+    padding: 10px;
+    font-size: 1rem;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    background: var(--card);
+    color: var(--text);
+    margin-bottom: 15px;
+    box-sizing: border-box;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.modal-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.modal-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.modal-btn {
+    flex: 1;
+    padding: 10px 20px;
+    font-size: 0.95rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.modal-btn-primary {
+    background: var(--accent);
+    color: #000;
+}
+
+.modal-btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+    border: 2px solid var(--border);
+}
+
+/* Add at the end of the file */
+
+/* Min View - hide rows marked as min-hidden */
+body.min-view .min-hidden {
+    display: none !important;
+}
+
+/* Rotation Count Modal Styles */
+.rotation-modal {
+    max-width: 300px;
+}
+
+.rotation-counter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin: 20px 0;
+}
+
+.rotation-count-display {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: var(--text);
+    background: var(--card);
+    border: 3px solid var(--border);
+    border-radius: 12px;
+    padding: 15px 40px;
+    min-width: 80px;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+.rotation-arrow {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    font-size: 1.5rem;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.1s ease, background 0.2s ease;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.rotation-arrow:hover {
+    background: #00f0ff;
+}
+
+.rotation-arrow:active {
+    transform: scale(0.95);
+}
+
+.rotation-arrow:disabled {
+    background: #444;
+    color: #666;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.modal-error {
+    color: var(--danger);
+    font-size: 0.85rem;
+    margin-top: -10px;
+    margin-bottom: 10px;
+    text-align: center;
+    min-height: 1.2em;
+}
