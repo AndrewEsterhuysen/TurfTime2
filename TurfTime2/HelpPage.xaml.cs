@@ -5,12 +5,39 @@ public partial class HelpPage : ContentPage
     public HelpPage()
     {
         InitializeComponent();
-        
+
         // Load the help content directly
         helpWebView.Source = new HtmlWebViewSource
         {
             Html = GetHelpHtml()
         };
+    }
+
+    private string GetBuildDateTime()
+    {
+        try
+        {
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            var buildDate = new DateTime(2000, 1, 1).AddDays(assembly.GetName().Version.Build).AddSeconds(assembly.GetName().Version.Revision * 2);
+
+            // For more accurate build time, use file modification time of the assembly
+            var assemblyPath = assembly.Location;
+            if (!string.IsNullOrEmpty(assemblyPath) && File.Exists(assemblyPath))
+            {
+                var fileInfo = new FileInfo(assemblyPath);
+                return fileInfo.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
+            }
+
+            // Fallback to version-based calculation
+            return buildDate.ToString("yyyy-MM-dd HH:mm:ss");
+        }
+        catch
+        {
+            // If we can't get the build time, return the version instead
+            var version = AppInfo.Current.VersionString;
+            var buildNumber = AppInfo.Current.BuildString;
+            return $"v{version} (Build {buildNumber})";
+        }
     }
 
     private string GetHelpHtml()
@@ -69,7 +96,7 @@ public partial class HelpPage : ContentPage
     </style>
 </head>
 <body>
-    <p style=""text-align: center; color: #bbb; font-size: 0.9em;"">Build Date/Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p>
+    <p style=""text-align: center; color: #bbb; font-size: 0.9em;"">Build: {GetBuildDateTime()}</p>
     <h1>? Turf Timer Help ??</h1>
     
     <h3>Getting Started</h3>
@@ -150,11 +177,11 @@ public partial class HelpPage : ContentPage
                 </li>
             </ul>
         </li>
-        <li><strong>View 1/2/3:</strong> Toggle between three different display modes
+        <li><strong>View Modes (View_A/B/C):</strong> Toggle between three different display modes to optimize screen space
             <ul>
-                <li><strong>View 1 (Standard):</strong> Shows all players with normal row spacing</li>
-                <li><strong>View 2 (Zoomed):</strong> Hides inactive players and enlarges rows to fill the screen</li>
-                <li><strong>View 3 (Minimal):</strong> Shows only bench players and next field players to rotate for clearest view during game</li>
+                <li><strong>View_A (All Players):</strong> Shows all team slots with normal row spacing - use this for full team overview and managing inactive players</li>
+                <li><strong>View_B (Active Only):</strong> Hides inactive players and enlarges rows to fill the screen - perfect for focusing on active roster during setup</li>
+                <li><strong>View_C (Rotation Focus):</strong> Shows only bench players and the matching number of field players who will rotate next - maximum simplicity for quick substitutions during fast-paced games</li>
             </ul>
         </li>
     </ul>

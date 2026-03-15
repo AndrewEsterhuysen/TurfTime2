@@ -15,6 +15,13 @@ public partial class SkinsPage : ContentPage
         LoadCurrentTheme();
     }
 
+    protected override bool OnBackButtonPressed()
+    {
+        // Pop back to Settings page, clearing the modal stack
+        Shell.Current.GoToAsync("..");
+        return true;
+    }
+
     private void LoadCurrentTheme()
     {
         var theme = Preferences.Get(ThemePreferenceKey, "classic");

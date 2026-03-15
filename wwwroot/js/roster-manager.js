@@ -218,17 +218,17 @@ class RosterManager {
         document.body.classList.remove('less-view', 'min-view');
         if (this.viewMode === 1) {
             document.body.classList.add('less-view');
-            this.viewlessBtn.textContent = 'View 2';
+            this.viewlessBtn.textContent = 'View_B';
         } else if (this.viewMode === 2) {
             document.body.classList.add('less-view', 'min-view');
-            this.viewlessBtn.textContent = 'View 3';
+            this.viewlessBtn.textContent = 'View_C';
         } else {
-            this.viewlessBtn.textContent = 'View 1';
+            this.viewlessBtn.textContent = 'View_A';
         }
-        
+
         // Update inactive row visibility
         this.rows.forEach(r => r.tr.classList.toggle('inactive-row', !!r.cbInactive.checked));
-        
+
         // Apply min view field player visibility if entering min view
         if (this.viewMode === 2) {
             this.updateMinViewVisibility();
@@ -236,7 +236,7 @@ class RosterManager {
             // Clear min-hidden class when leaving min view
             this.rows.forEach(r => r.tr.classList.remove('min-hidden'));
         }
-        
+
         this.updateDynamicSizing();
         setTimeout(() => this.updateDynamicSizing(), 100);
     }
