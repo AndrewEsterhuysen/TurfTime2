@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>net10.0-android</TargetFrameworks>
+		<TargetFrameworks>net10.0-android;net10.0-ios</TargetFrameworks>
 
 		<!-- Note for MacCatalyst:
 		The default runtime is maccatalyst-x64, except in Release config, in which case the default is maccatalyst-x64;maccatalyst-arm64.
@@ -31,6 +31,16 @@
 		<WindowsPackageType>None</WindowsPackageType>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+	</PropertyGroup>
+
+	<!-- iOS Release Configuration -->
+	<PropertyGroup Condition="'$(Configuration)' == 'Release' and $(TargetFramework.Contains('ios'))">
+		<CodesignKey>Apple Development</CodesignKey>
+		<CodesignProvision>Automatic</CodesignProvision>
+		<ArchiveOnBuild>true</ArchiveOnBuild>
+		<MtouchLink>SdkOnly</MtouchLink>
+		<EnableSGenConc>true</EnableSGenConc>
 	</PropertyGroup>
 
 	<!-- Android Release Configuration -->

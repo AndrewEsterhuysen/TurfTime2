@@ -20,6 +20,22 @@ public partial class GamePage : ContentPage
             webView.SetLayerType(Android.Views.LayerType.Hardware, null);
         });
 #endif
+
+#if IOS
+        // Configure WebView for iOS
+        Microsoft.Maui.Handlers.WebViewHandler.Mapper.AppendToMapping("CustomWebView", (handler, view) =>
+        {
+            var webView = handler.PlatformView;
+            webView.Configuration.Preferences.SetValueForKey(
+                Foundation.NSNumber.FromBoolean(true),
+                new Foundation.NSString("allowFileAccessFromFileURLs")
+            );
+            webView.Configuration.Preferences.SetValueForKey(
+                Foundation.NSNumber.FromBoolean(true),
+                new Foundation.NSString("allowUniversalAccessFromFileURLs")
+            );
+        });
+#endif
     }
 
     protected override void OnAppearing()
