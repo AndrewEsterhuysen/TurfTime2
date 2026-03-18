@@ -118,6 +118,11 @@ class RosterManager {
             this.resetCountdown(this.timerRunning);
             this.saveDebounced();
             this.updateDynamicSizing();
+
+            // Update rotation display if in View_D mode
+            if (this.viewMode === 3) {
+                this.updateRotationDisplay();
+            }
         });
 
         // Long-press detection on rotate button to show rotation count modal
@@ -211,19 +216,34 @@ class RosterManager {
 
     // Toggle Less/More view
     toggleLessView() {
-        // Cycle through: 0 (Standard) -> 1 (Less) -> 2 (Min) -> 0
-        this.viewMode = (this.viewMode + 1) % 3;
+        // Cycle through: 0 (Standard) -> 1 (Less) -> 2 (Min) -> 3 (Rotation) -> 0
+        this.viewMode = (this.viewMode + 1) % 4;
 
         // Update body classes
-        document.body.classList.remove('less-view', 'min-view');
+        document.body.classList.remove('less-view', 'min-view', 'rotation-view');
+        const panel = document.querySelector('.panel');
+        const rotationDisplay = document.getElementById('rotationDisplay');
+
         if (this.viewMode === 1) {
             document.body.classList.add('less-view');
             this.viewlessBtn.textContent = 'View_B';
+            panel.style.display = '';
+            rotationDisplay.style.display = 'none';
         } else if (this.viewMode === 2) {
             document.body.classList.add('less-view', 'min-view');
             this.viewlessBtn.textContent = 'View_C';
+            panel.style.display = '';
+            rotationDisplay.style.display = 'none';
+        } else if (this.viewMode === 3) {
+            document.body.classList.add('rotation-view');
+            this.viewlessBtn.textContent = 'View_D';
+            panel.style.display = 'none';
+            rotationDisplay.style.display = '';
+            this.updateRotationDisplay();
         } else {
             this.viewlessBtn.textContent = 'View_A';
+            panel.style.display = '';
+            rotationDisplay.style.display = 'none';
         }
 
         // Update inactive row visibility
@@ -344,6 +364,68 @@ class RosterManager {
             if (currentIdx >= 0 && currentIdx < fieldPlayers.length) {
                 fieldPlayers[currentIdx].row.tr.classList.remove('min-hidden');
                 shown++;
+            }
+        }
+    }
+
+    // Update rotation display for View_D
+    updateRotationDisplay() {
+        const rotationPairs = document.getElementById('rotationPairs');
+        rotationPairs.innerHTML = '';
+
+        // Get bench and field player indices (just the index numbers)
+        const benchIndices = this.rows
+            .map((r, i) => ({ row: r, index: i }))
+            .filter(item => item.row.cbBench.checked)
+            .map(item => item.index);
+
+        const fieldIndices = this.rows
+            .map((r, i) => ({ row: r, index: i }))
+            .filter(item => item.row.cbField.checked)
+            .map(item => item.index);
+
+        if (benchIndices.length === 0 || fieldIndices.length === 0) {
+            rotationPairs.innerHTML = '<div class="rotation-empty">No rotations available</div>';
+            return;
+        }
+
+        // Find the next bench and field indices
+        const nextBenchIdx = this._nextIndexFrom(benchIndices, this.lastBenchIdx);
+        const nextFieldIdx = this._nextIndexFrom(fieldIndices, this.lastFieldIdx);
+
+        if (nextBenchIdx === -1 || nextFieldIdx === -1) {
+            rotationPairs.innerHTML = '<div class="rotation-empty">No rotations available</div>';
+            return;
+        }
+
+        // Create rotation pairs based on rotation count
+        const count = Math.min(this.rotationCount, benchIndices.length, fieldIndices.length);
+
+        for (let i = 0; i < count; i++) {
+            // Get bench and field player indices with offset
+            const benchIdx = this._nextIndexFromWithOffset(benchIndices, this.lastBenchIdx, i);
+            const fieldIdx = this._nextIndexFromWithOffset(fieldIndices, this.lastFieldIdx, i);
+
+            if (benchIdx !== -1 && fieldIdx !== -1) {
+                const benchRow = this.rows[benchIdx];
+                const fieldRow = this.rows[fieldIdx];
+
+                if (benchRow && fieldRow) {
+                    const benchName = benchRow.nameInput.value || `Player ${benchIdx + 1}`;
+                    const fieldName = fieldRow.nameInput.value || `Player ${fieldIdx + 1}`;
+
+                    // Bench player (left aligned)
+                    const benchDiv = document.createElement('div');
+                    benchDiv.className = 'rotation-name rotation-bench';
+                    benchDiv.textContent = `➜ ${benchName}`;
+                    rotationPairs.appendChild(benchDiv);
+
+                    // Field player (right aligned)
+                    const fieldDiv = document.createElement('div');
+                    fieldDiv.className = 'rotation-name rotation-field';
+                    fieldDiv.textContent = `${fieldName} ➜`;
+                    rotationPairs.appendChild(fieldDiv);
+                }
             }
         }
     }
@@ -620,6 +702,11 @@ class RosterManager {
 
         // Update player highlighting to reflect new rotation count
         this.markNextPlayers();
+
+        // Update rotation display if in View_D mode
+        if (this.viewMode === 3) {
+            this.updateRotationDisplay();
+        }
     }
 
     // Update max rotation count based on bench players
@@ -1182,9 +1269,15 @@ class RosterManager {
                 if (cbField.checked) {
                     this.lastFieldIdx = (idx - 1 + this.rows.length) % this.rows.length;
                     this.markNextPlayers();
+                    if (this.viewMode === 3) {
+                        this.updateRotationDisplay();
+                    }
                 } else if (cbBench.checked) {
                     this.lastBenchIdx = (idx - 1 + this.rows.length) % this.rows.length;
                     this.markNextPlayers();
+                    if (this.viewMode === 3) {
+                        this.updateRotationDisplay();
+                    }
                 }
             };
             nameInput.addEventListener('click', handleSelectAsNext);
@@ -1282,8 +1375,11 @@ class RosterManager {
                                     }
                                 );
                             }
-                            
+
                             this.markNextPlayers();
+                            if (this.viewMode === 3) {
+                                this.updateRotationDisplay();
+                            }
                             this.saveDebounced();
                         }
                     }
@@ -1473,15 +1569,31 @@ class RosterManager {
                 this.countdownPreset = model.countdownPreset;
                 this.countdownRemaining = this.countdownPreset;
             }
-            if (typeof model.viewMode === 'number' && model.viewMode >= 0 && model.viewMode <= 2) {
+            if (typeof model.viewMode === 'number' && model.viewMode >= 0 && model.viewMode <= 3) {
                 this.viewMode = model.viewMode;
                 // Apply view mode classes
+                const panel = document.querySelector('.panel');
+                const rotationDisplay = document.getElementById('rotationDisplay');
+
                 if (this.viewMode === 1) {
                     document.body.classList.add('less-view');
-                    this.viewlessBtn.textContent = 'View 2';
+                    this.viewlessBtn.textContent = 'View_B';
+                    if (panel) panel.style.display = '';
+                    if (rotationDisplay) rotationDisplay.style.display = 'none';
                 } else if (this.viewMode === 2) {
                     document.body.classList.add('less-view', 'min-view');
-                    this.viewlessBtn.textContent = 'View 3';
+                    this.viewlessBtn.textContent = 'View_C';
+                    if (panel) panel.style.display = '';
+                    if (rotationDisplay) rotationDisplay.style.display = 'none';
+                } else if (this.viewMode === 3) {
+                    document.body.classList.add('rotation-view');
+                    this.viewlessBtn.textContent = 'View_D';
+                    if (panel) panel.style.display = 'none';
+                    if (rotationDisplay) rotationDisplay.style.display = '';
+                } else {
+                    this.viewlessBtn.textContent = 'View_A';
+                    if (panel) panel.style.display = '';
+                    if (rotationDisplay) rotationDisplay.style.display = 'none';
                 }
             }
             this.updateTimerDisplay();

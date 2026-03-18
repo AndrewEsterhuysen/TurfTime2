@@ -556,3 +556,63 @@ body.min-view .min-hidden {
     text-align: center;
     min-height: 1.2em;
 }
+
+/* Rotation Display for View_D */
+.rotation-display {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 10px;
+}
+
+.rotation-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    text-align: center;
+    color: var(--accent);
+    margin-bottom: 25px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.rotation-pairs {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.rotation-name {
+    font-size: 1.3rem;
+    font-weight: bold;
+    padding: 15px 20px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid var(--border);
+}
+
+.rotation-bench {
+    text-align: left;
+    background: #8B4513;
+    color: #fff;
+    border-color: #A0522D;
+}
+
+.rotation-field {
+    text-align: right;
+    background: #00e676;
+    color: #222;
+    border-color: #00c962;
+}
+
+.rotation-empty {
+    text-align: center;
+    font-size: 1.1rem;
+    color: #bbb;
+    padding: 30px;
+}
+
+/* Hide table in rotation view */
+.rotation-view .panel {
+    display: none;
+}

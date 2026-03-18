@@ -177,11 +177,19 @@ public partial class HelpPage : ContentPage
                 </li>
             </ul>
         </li>
-        <li><strong>View Modes (View_A/B/C):</strong> Toggle between three different display modes to optimize screen space
+        <li><strong>View Modes (View_A/B/C/D):</strong> Toggle between four different display modes to optimize screen space and rotation clarity
             <ul>
                 <li><strong>View_A (All Players):</strong> Shows all team slots with normal row spacing - use this for full team overview and managing inactive players</li>
                 <li><strong>View_B (Active Only):</strong> Hides inactive players and enlarges rows to fill the screen - perfect for focusing on active roster during setup</li>
                 <li><strong>View_C (Rotation Focus):</strong> Shows only bench players and the matching number of field players who will rotate next - maximum simplicity for quick substitutions during fast-paced games</li>
+                <li><strong>View_D (Call Off View):</strong> Shows ONLY the players about to rotate in alternating left/right pattern - bench players can easily see which field player to call off
+                    <ul>
+                        <li>Displays rotation count × 2 names (e.g., if Rotate 2, shows 4 names)</li>
+                        <li>Pattern: Bench player (left) → Field player (right) → Bench player (left) → Field player (right)</li>
+                        <li>Large text, color-coded (bench=brown/orange, field=green)</li>
+                        <li>Perfect for sideline communication: bench players call their corresponding field player names</li>
+                    </ul>
+                </li>
             </ul>
         </li>
     </ul>
