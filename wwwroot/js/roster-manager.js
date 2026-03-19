@@ -73,6 +73,7 @@ class RosterManager {
         this.bindEvents();
         this.markNextPlayers();
         this.updateRotateButtonText(); // Initialize button text with rotation count
+        this.updateViewButtonState(); // Initialize view button state
 
         // Save on app background/close
         document.addEventListener('visibilitychange', () => {
@@ -748,6 +749,17 @@ class RosterManager {
         this.rotateBtn.textContent = `Rotate ${this.rotationCount}`;
     }
 
+    // Update view button state based on player selection
+    updateViewButtonState() {
+        // Check if any players are assigned to field, bench, or goalie
+        const hasSelectedPlayers = this.rows.some(r => 
+            r.cbField.checked || r.cbBench.checked || r.cbGoalie.checked
+        );
+
+        // Disable view button if no players are selected
+        this.viewlessBtn.disabled = !hasSelectedPlayers;
+    }
+
     // Timer logic (countdown with half-time support)
     toggleStartPause() {
         // When game has ended, allow pause but not resume
@@ -1124,6 +1136,7 @@ class RosterManager {
                 tr.classList.toggle('inactive-row', !!cbInactive.checked);
                 this.markNextPlayers();
                 this.updateNameInputsEditability();
+                this.updateViewButtonState(); // Update view button state
                 this.saveDebounced();
             };
 

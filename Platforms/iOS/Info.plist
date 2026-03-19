@@ -39,5 +39,12 @@
 	</dict>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIImageName</key>
+		<string>splash</string>
+		<key>UIColorName</key>
+		<string>LaunchScreenBackground</string>
+	</dict>
 </dict>
 </plist>
