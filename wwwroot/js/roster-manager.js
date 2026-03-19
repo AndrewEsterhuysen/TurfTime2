@@ -57,7 +57,7 @@ class RosterManager {
         this.lastFieldIdx = -1;
         this.lastBenchIdx = -1;
 
-        this.viewMode = 0; // 0=Standard, 1=Less, 2=Min
+        this.viewMode = 0; // 0=Standard, 1=Less, 2=Rotation
         this.isEditingName = false; // skip sizing updates while editing a name
 
         // Drag and drop state
@@ -74,6 +74,7 @@ class RosterManager {
         this.markNextPlayers();
         this.updateRotateButtonText(); // Initialize button text with rotation count
         this.updateViewButtonState(); // Initialize view button state
+        this.updateStartButtonState(); // Initialize start button state
 
         // Save on app background/close
         document.addEventListener('visibilitychange', () => {
@@ -121,7 +122,7 @@ class RosterManager {
             this.updateDynamicSizing();
 
             // Update rotation display if in View_D mode
-            if (this.viewMode === 3) {
+            if (this.viewMode === 2) {
                 this.updateRotationDisplay();
             }
         });
@@ -217,8 +218,22 @@ class RosterManager {
 
     // Toggle Less/More view
     toggleLessView() {
-        // Cycle through: 0 (Standard) -> 1 (Less) -> 2 (Min) -> 3 (Rotation) -> 0
-        this.viewMode = (this.viewMode + 1) % 4;
+        // If switching away from View_A during setup, auto-assign unassigned players to Inactive
+        if (this.viewMode === 0 && this.currentHalf === 'setup') {
+            this.rows.forEach(r => {
+                const hasPos = r.cbField.checked || r.cbBench.checked || r.cbGoalie.checked;
+                if (!hasPos) {
+                    r.cbInactive.checked = true;
+                    r.cbField.checked = false;
+                    r.cbBench.checked = false;
+                    r.cbGoalie.checked = false;
+                    r.updatePlayerColor();
+                }
+            });
+        }
+
+        // Cycle through: 0 (Standard) -> 1 (Less) -> 2 (Rotation) -> 0
+        this.viewMode = (this.viewMode + 1) % 3;
 
         // Update body classes
         document.body.classList.remove('less-view', 'min-view', 'rotation-view');
@@ -231,11 +246,6 @@ class RosterManager {
             panel.style.display = '';
             rotationDisplay.style.display = 'none';
         } else if (this.viewMode === 2) {
-            document.body.classList.add('less-view', 'min-view');
-            this.viewlessBtn.textContent = 'View_C';
-            panel.style.display = '';
-            rotationDisplay.style.display = 'none';
-        } else if (this.viewMode === 3) {
             document.body.classList.add('rotation-view');
             this.viewlessBtn.textContent = 'View_D';
             panel.style.display = 'none';
@@ -249,14 +259,6 @@ class RosterManager {
 
         // Update inactive row visibility
         this.rows.forEach(r => r.tr.classList.toggle('inactive-row', !!r.cbInactive.checked));
-
-        // Apply min view field player visibility if entering min view
-        if (this.viewMode === 2) {
-            this.updateMinViewVisibility();
-        } else {
-            // Clear min-hidden class when leaving min view
-            this.rows.forEach(r => r.tr.classList.remove('min-hidden'));
-        }
 
         this.updateDynamicSizing();
         setTimeout(() => this.updateDynamicSizing(), 100);
@@ -279,25 +281,89 @@ class RosterManager {
             b.removeProperty('--timer-fs');
             b.removeProperty('--timer-pad-v');
             b.removeProperty('--timer-pad-h');
+            b.removeProperty('--rotation-name-fs');
+            b.removeProperty('--rotation-name-pad');
+            b.removeProperty('--rotation-title-fs');
+            b.removeProperty('--rotation-title-mb');
             return;
         }
-        // Less view (1) and Min view (2) use same dynamic sizing
-        const visibleRows = this.rows.filter(r => !r.cbInactive.checked && !r.tr.classList.contains('min-hidden'));
-        const count = visibleRows.length || 1;
-        const tbody = this.rosterBody;
-        const table = tbody.closest('table');
-        const container = document.querySelector('.container');
 
-        const tbodyTop = tbody.getBoundingClientRect().top;
+        const container = document.querySelector('.container');
         const bottomControls = document.querySelector('.bottom-controls');
         const bottomH = bottomControls ? bottomControls.getBoundingClientRect().height : 0;
         const containerStyle = getComputedStyle(container);
         const paddingBottom = parseFloat(containerStyle.paddingBottom || '0');
-        
+        const bufferSpace = 20;
+
+        if (this.viewMode === 2) { // Rotation view (View_D)
+            const rotationDisplay = document.getElementById('rotationDisplay');
+            if (!rotationDisplay) return;
+
+            const rotationTitle = rotationDisplay.querySelector('.rotation-title');
+            const rotationPairs = document.getElementById('rotationPairs');
+
+            const displayTop = rotationDisplay.getBoundingClientRect().top;
+            const available = Math.max(0, window.innerHeight - displayTop - bottomH - paddingBottom - bufferSpace);
+
+            // Count rotation name elements (bench + field pairs)
+            const nameCount = rotationPairs ? rotationPairs.querySelectorAll('.rotation-name').length : 0;
+
+            if (nameCount === 0) return; // No pairs to display
+
+            // Reserve space for title and display padding
+            const displayPadding = 40; // top and bottom padding from .rotation-display
+            const titleHeight = 50; // Approximate title space including margin
+            const gapCount = nameCount - 1; // gaps between elements
+
+            // Calculate space available for names after accounting for fixed elements
+            const availableForNames = available - titleHeight - displayPadding;
+
+            // Estimate total gap space (will be set dynamically)
+            const gapSize = Math.max(4, Math.min(12, availableForNames / (nameCount * 8))); // Scale gap with available space
+            const totalGapSpace = gapCount * gapSize;
+
+            // Calculate per-name height
+            const nameHeight = (availableForNames - totalGapSpace) / nameCount;
+
+            // Dynamic sizing for rotation view
+            const rotationNameFs = Math.max(14, Math.min(nameHeight * 0.5, 28));
+            const rotationNamePad = Math.max(6, Math.min(nameHeight * 0.2, 15));
+            const rotationTitleFs = Math.max(18, Math.min(nameHeight * 0.6, 32));
+            const rotationTitleMb = Math.max(8, Math.min(nameHeight * 0.25, 20));
+
+            // Also size buttons and timers proportionally
+            const btnFont = Math.max(14, nameHeight * 0.35) + 'px';
+            const btnPadV = Math.max(6, nameHeight * 0.18);
+            const btnPadH = Math.max(10, nameHeight * 0.28);
+            const timerFs = Math.max(14, nameHeight * 0.38);
+            const timerPadV = Math.max(4, nameHeight * 0.1);
+            const timerPadH = Math.max(8, nameHeight * 0.22);
+
+            const bodyStyle = document.body.style;
+            bodyStyle.setProperty('--rotation-name-fs', rotationNameFs + 'px');
+            bodyStyle.setProperty('--rotation-name-pad', rotationNamePad + 'px');
+            bodyStyle.setProperty('--rotation-title-fs', rotationTitleFs + 'px');
+            bodyStyle.setProperty('--rotation-title-mb', rotationTitleMb + 'px');
+            bodyStyle.setProperty('--rotation-gap', gapSize + 'px');
+            bodyStyle.setProperty('--btn-font', btnFont);
+            bodyStyle.setProperty('--btn-pad-v', btnPadV + 'px');
+            bodyStyle.setProperty('--btn-pad-h', btnPadH + 'px');
+            bodyStyle.setProperty('--timer-fs', timerFs + 'px');
+            bodyStyle.setProperty('--timer-pad-v', timerPadV + 'px');
+            bodyStyle.setProperty('--timer-pad-h', timerPadH + 'px');
+            return;
+        }
+
+        // Less view (1) uses dynamic sizing for table rows
+        const visibleRows = this.rows.filter(r => !r.cbInactive.checked);
+        const count = visibleRows.length || 1;
+        const tbody = this.rosterBody;
+        const table = tbody.closest('table');
+
+        const tbodyTop = tbody.getBoundingClientRect().top;
         const thead = table.querySelector('thead');
         const theadH = thead ? thead.getBoundingClientRect().height : 30;
-        const bufferSpace = 20;
-        
+
         const available = Math.max(0, window.innerHeight - tbodyTop - bottomH - paddingBottom - bufferSpace);
         const rowH = (available - theadH) / count;
 
@@ -415,10 +481,16 @@ class RosterManager {
                     const benchName = benchRow.nameInput.value || `Player ${benchIdx + 1}`;
                     const fieldName = fieldRow.nameInput.value || `Player ${fieldIdx + 1}`;
 
-                    // Bench player (left aligned)
+                    // Bench player (with ", call" on the right)
                     const benchDiv = document.createElement('div');
                     benchDiv.className = 'rotation-name rotation-bench';
-                    benchDiv.textContent = `➜ ${benchName}`;
+                    const benchNameSpan = document.createElement('span');
+                    benchNameSpan.textContent = `➜ ${benchName}`;
+                    const benchCallSpan = document.createElement('span');
+                    benchCallSpan.className = 'rotation-call';
+                    benchCallSpan.textContent = ', call';
+                    benchDiv.appendChild(benchNameSpan);
+                    benchDiv.appendChild(benchCallSpan);
                     rotationPairs.appendChild(benchDiv);
 
                     // Field player (right aligned)
@@ -429,6 +501,9 @@ class RosterManager {
                 }
             }
         }
+
+        // Trigger dynamic sizing after DOM update
+        setTimeout(() => this.updateDynamicSizing(), 10);
     }
 
     // Custom modal dialog helper
@@ -705,7 +780,7 @@ class RosterManager {
         this.markNextPlayers();
 
         // Update rotation display if in View_D mode
-        if (this.viewMode === 3) {
+        if (this.viewMode === 2) {
             this.updateRotationDisplay();
         }
     }
@@ -758,6 +833,22 @@ class RosterManager {
 
         // Disable view button if no players are selected
         this.viewlessBtn.disabled = !hasSelectedPlayers;
+    }
+
+    // Update start button state based on field player assignment
+    updateStartButtonState() {
+        // Only disable start button if we're in setup phase
+        if (this.currentHalf !== 'setup') {
+            return; // Don't disable once game has started
+        }
+
+        // Check if any players are assigned to field or goalie (players on the field)
+        const hasFieldPlayers = this.rows.some(r => 
+            r.cbField.checked || r.cbGoalie.checked
+        );
+
+        // Disable start button if no field players are assigned
+        this.startBtn.disabled = !hasFieldPlayers;
     }
 
     // Timer logic (countdown with half-time support)
@@ -1137,6 +1228,7 @@ class RosterManager {
                 this.markNextPlayers();
                 this.updateNameInputsEditability();
                 this.updateViewButtonState(); // Update view button state
+                this.updateStartButtonState(); // Update start button state
                 this.saveDebounced();
             };
 
@@ -1282,13 +1374,13 @@ class RosterManager {
                 if (cbField.checked) {
                     this.lastFieldIdx = (idx - 1 + this.rows.length) % this.rows.length;
                     this.markNextPlayers();
-                    if (this.viewMode === 3) {
+                    if (this.viewMode === 2) {
                         this.updateRotationDisplay();
                     }
                 } else if (cbBench.checked) {
                     this.lastBenchIdx = (idx - 1 + this.rows.length) % this.rows.length;
                     this.markNextPlayers();
-                    if (this.viewMode === 3) {
+                    if (this.viewMode === 2) {
                         this.updateRotationDisplay();
                     }
                 }
@@ -1390,7 +1482,7 @@ class RosterManager {
                             }
 
                             this.markNextPlayers();
-                            if (this.viewMode === 3) {
+                            if (this.viewMode === 2) {
                                 this.updateRotationDisplay();
                             }
                             this.saveDebounced();
@@ -1508,13 +1600,7 @@ class RosterManager {
         this.lastBenchIdx = benchIdx;
 
         this.markNextPlayers();
-        
-        // Update Min View visibility after rotation
-        if (this.viewMode === 2) {
-            this.updateMinViewVisibility();
-            this.updateDynamicSizing();
-        }
-        
+
         this.saveDebounced();
     }
 
@@ -1582,7 +1668,7 @@ class RosterManager {
                 this.countdownPreset = model.countdownPreset;
                 this.countdownRemaining = this.countdownPreset;
             }
-            if (typeof model.viewMode === 'number' && model.viewMode >= 0 && model.viewMode <= 3) {
+            if (typeof model.viewMode === 'number' && model.viewMode >= 0 && model.viewMode <= 2) {
                 this.viewMode = model.viewMode;
                 // Apply view mode classes
                 const panel = document.querySelector('.panel');
@@ -1594,11 +1680,6 @@ class RosterManager {
                     if (panel) panel.style.display = '';
                     if (rotationDisplay) rotationDisplay.style.display = 'none';
                 } else if (this.viewMode === 2) {
-                    document.body.classList.add('less-view', 'min-view');
-                    this.viewlessBtn.textContent = 'View_C';
-                    if (panel) panel.style.display = '';
-                    if (rotationDisplay) rotationDisplay.style.display = 'none';
-                } else if (this.viewMode === 3) {
                     document.body.classList.add('rotation-view');
                     this.viewlessBtn.textContent = 'View_D';
                     if (panel) panel.style.display = 'none';
@@ -1624,11 +1705,6 @@ class RosterManager {
                 r.updatePlayerColor();
                 this.updateCounterDisplay(r);
             });
-            
-            // Apply min view visibility if in min mode
-            if (this.viewMode === 2) {
-                this.updateMinViewVisibility();
-            }
         } catch (error) {
             console.error('[RosterManager] Error loading from storage:', error);
             localStorage.removeItem(this.STORAGE_KEY);

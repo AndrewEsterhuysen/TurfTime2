@@ -576,11 +576,11 @@ body.min-view .min-hidden {
 }
 
 .rotation-title {
-    font-size: 1.5rem;
+    font-size: var(--rotation-title-fs, 1.5rem);
     font-weight: bold;
     text-align: center;
     color: var(--accent);
-    margin-bottom: 25px;
+    margin-bottom: var(--rotation-title-mb, 25px);
     text-transform: uppercase;
     letter-spacing: 1px;
 }
@@ -588,23 +588,30 @@ body.min-view .min-hidden {
 .rotation-pairs {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--rotation-gap, 12px);
 }
 
 .rotation-name {
-    font-size: 1.3rem;
+    font-size: var(--rotation-name-fs, 1.3rem);
     font-weight: bold;
-    padding: 15px 20px;
+    padding: var(--rotation-name-pad, 15px) var(--rotation-name-pad, 20px);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.1);
     border: 3px solid var(--border);
 }
 
 .rotation-bench {
-    text-align: left;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     background: #ff6b35;
     color: #000;
     border-color: #ff8555;
+}
+
+.rotation-call {
+    font-style: italic;
+    opacity: 0.9;
 }
 
 .rotation-field {
