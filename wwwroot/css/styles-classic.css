@@ -562,8 +562,77 @@ body.min-view .min-hidden {
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 20px;
+    padding: 20px 10px 20px 10px;
     margin-top: 10px;
+    box-sizing: border-box;
+}
+
+.rotation-content-wrapper {
+    display: flex;
+    align-items: stretch;
+    gap: 5px;
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+.rotation-center {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.score-button {
+    flex: 0 0 auto;
+    width: 12%;
+    min-width: 60px;
+    max-width: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    color: #000;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 10px 3px;
+    transition: transform 0.1s ease, background 0.2s ease;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    font-weight: bold;
+    box-sizing: border-box;
+}
+
+.score-button:active {
+    transform: scale(0.98);
+    background: #ffa500;
+}
+
+.score-button-left {
+    margin-right: 0;
+}
+
+.score-button-right {
+    margin-left: 0;
+}
+
+.score-label {
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    writing-mode: horizontal-tb;
+}
+
+.score-value {
+    font-size: 2rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-weight: bold;
 }
 
 .rotation-title {
@@ -592,17 +661,10 @@ body.min-view .min-hidden {
 }
 
 .rotation-bench {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    text-align: left;
     background: #8B4513;
     color: #fff;
     border-color: #A0522D;
-}
-
-.rotation-call {
-    font-style: italic;
-    opacity: 0.9;
 }
 
 .rotation-field {
@@ -610,7 +672,6 @@ body.min-view .min-hidden {
     background: #00e676;
     color: #222;
     border-color: #00c962;
-}
 }
 
 .rotation-empty {

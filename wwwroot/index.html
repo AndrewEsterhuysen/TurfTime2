@@ -43,10 +43,22 @@
             </table>
         </div>
 
-        <!-- Rotation Display for View_D -->
+        <!-- Rotation Display for View_D with Score Buttons -->
         <div id="rotationDisplay" class="rotation-display" style="display: none;">
-            <div class="rotation-title">Next Rotation</div>
-            <div id="rotationPairs" class="rotation-pairs"></div>
+            <div class="rotation-content-wrapper">
+                <button id="teamAScoreBtn" class="score-button score-button-left">
+                    <div class="score-label">Team A</div>
+                    <div class="score-value" id="teamAScore">0</div>
+                </button>
+                <div class="rotation-center">
+                    <div class="rotation-title">Next Rotation</div>
+                    <div id="rotationPairs" class="rotation-pairs"></div>
+                </div>
+                <button id="teamBScoreBtn" class="score-button score-button-right">
+                    <div class="score-label">Team B</div>
+                    <div class="score-value" id="teamBScore">0</div>
+                </button>
+            </div>
         </div>
 
         <div class="bottom-controls">

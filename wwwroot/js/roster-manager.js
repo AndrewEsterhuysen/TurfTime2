@@ -11,6 +11,14 @@ class RosterManager {
         this.countdownLabel = document.getElementById('countdownTimer');
         this.matchTimeLabelElement = document.querySelector('.top-controls .control-col:first-child .timer-label');
 
+        // Score tracking
+        this.teamAScore = 0;
+        this.teamBScore = 0;
+        this.teamAScoreBtn = document.getElementById('teamAScoreBtn');
+        this.teamBScoreBtn = document.getElementById('teamBScoreBtn');
+        this.teamAScoreDisplay = document.getElementById('teamAScore');
+        this.teamBScoreDisplay = document.getElementById('teamBScore');
+
         // Modal elements
         this.modalOverlay = document.getElementById('modalOverlay');
         this.modalTitle = document.getElementById('modalTitle');
@@ -199,6 +207,14 @@ class RosterManager {
         this.startBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
         this.startBtn.addEventListener('selectstart', (e) => { e.preventDefault(); e.stopPropagation(); });
         this.viewlessBtn.addEventListener('click', () => this.toggleLessView());
+
+        // Score button events
+        if (this.teamAScoreBtn) {
+            this.teamAScoreBtn.addEventListener('click', () => this.incrementTeamAScore());
+        }
+        if (this.teamBScoreBtn) {
+            this.teamBScoreBtn.addEventListener('click', () => this.incrementTeamBScore());
+        }
     }
 
     // Update Match Time label based on game state
@@ -481,16 +497,10 @@ class RosterManager {
                     const benchName = benchRow.nameInput.value || `Player ${benchIdx + 1}`;
                     const fieldName = fieldRow.nameInput.value || `Player ${fieldIdx + 1}`;
 
-                    // Bench player (with ", call" on the right)
+                    // Bench player (left aligned)
                     const benchDiv = document.createElement('div');
                     benchDiv.className = 'rotation-name rotation-bench';
-                    const benchNameSpan = document.createElement('span');
-                    benchNameSpan.textContent = `➜ ${benchName}`;
-                    const benchCallSpan = document.createElement('span');
-                    benchCallSpan.className = 'rotation-call';
-                    benchCallSpan.textContent = ', call';
-                    benchDiv.appendChild(benchNameSpan);
-                    benchDiv.appendChild(benchCallSpan);
+                    benchDiv.textContent = `➜ ${benchName}`;
                     rotationPairs.appendChild(benchDiv);
 
                     // Field player (right aligned)
@@ -851,6 +861,34 @@ class RosterManager {
         this.startBtn.disabled = !hasFieldPlayers;
     }
 
+    // Score tracking methods
+    incrementTeamAScore() {
+        this.teamAScore++;
+        if (this.teamAScoreDisplay) {
+            this.teamAScoreDisplay.textContent = this.teamAScore.toString();
+        }
+        this.saveDebounced();
+    }
+
+    incrementTeamBScore() {
+        this.teamBScore++;
+        if (this.teamBScoreDisplay) {
+            this.teamBScoreDisplay.textContent = this.teamBScore.toString();
+        }
+        this.saveDebounced();
+    }
+
+    resetScores() {
+        this.teamAScore = 0;
+        this.teamBScore = 0;
+        if (this.teamAScoreDisplay) {
+            this.teamAScoreDisplay.textContent = '0';
+        }
+        if (this.teamBScoreDisplay) {
+            this.teamBScoreDisplay.textContent = '0';
+        }
+    }
+
     // Timer logic (countdown with half-time support)
     toggleStartPause() {
         // When game has ended, allow pause but not resume
@@ -1059,7 +1097,7 @@ class RosterManager {
             );
             this.logger.endSession();
         }
-        
+
         // Stop timer directly without logging pause event
         this.timerRunning = false;
         if (this.timerId) {
@@ -1068,7 +1106,7 @@ class RosterManager {
         }
         this.pauseCountdown();
         this.rows.forEach(r => this.stopCounter(r));
-        
+
         // Reset game state
         this.halfDurationSeconds = 0;
         this.matchRemainingSeconds = this.matchDurationSeconds;
@@ -1088,6 +1126,7 @@ class RosterManager {
         this.updateMatchTimeLabel();
         this.timerLabel.style.cursor = 'pointer';
         this.markNextPlayers();
+        this.resetScores(); // Reset scores when restarting game
         this.saveDebounced();
     }
     
@@ -1624,6 +1663,8 @@ class RosterManager {
                 currentHalf: this.currentHalf,
                 countdownPreset: this.countdownPreset,
                 viewMode: this.viewMode, // Save view mode
+                teamAScore: this.teamAScore,
+                teamBScore: this.teamBScore,
                 players: this.rows.map(r => ({
                     name: r.nameInput.value,
                     field: !!r.cbField.checked,
@@ -1667,6 +1708,18 @@ class RosterManager {
             if (typeof model.countdownPreset === 'number') {
                 this.countdownPreset = model.countdownPreset;
                 this.countdownRemaining = this.countdownPreset;
+            }
+            if (typeof model.teamAScore === 'number') {
+                this.teamAScore = model.teamAScore;
+                if (this.teamAScoreDisplay) {
+                    this.teamAScoreDisplay.textContent = this.teamAScore.toString();
+                }
+            }
+            if (typeof model.teamBScore === 'number') {
+                this.teamBScore = model.teamBScore;
+                if (this.teamBScoreDisplay) {
+                    this.teamBScoreDisplay.textContent = this.teamBScore.toString();
+                }
             }
             if (typeof model.viewMode === 'number' && model.viewMode >= 0 && model.viewMode <= 2) {
                 this.viewMode = model.viewMode;
