@@ -19,6 +19,12 @@ class RosterManager {
         this.teamAScoreDisplay = document.getElementById('teamAScore');
         this.teamBScoreDisplay = document.getElementById('teamBScore');
 
+        // Header score displays
+        this.headerScoreUs = document.getElementById('scoreUs');
+        this.headerScoreThem = document.getElementById('scoreThem');
+        this.headerScoreUsValue = document.getElementById('scoreUsValue');
+        this.headerScoreThemValue = document.getElementById('scoreThemValue');
+
         // Modal elements
         this.modalOverlay = document.getElementById('modalOverlay');
         this.modalTitle = document.getElementById('modalTitle');
@@ -83,6 +89,7 @@ class RosterManager {
         this.updateRotateButtonText(); // Initialize button text with rotation count
         this.updateViewButtonState(); // Initialize view button state
         this.updateStartButtonState(); // Initialize start button state
+        this.updateScoreVisibility(); // Initialize score visibility based on game state
 
         // Save on app background/close
         document.addEventListener('visibilitychange', () => {
@@ -326,34 +333,34 @@ class RosterManager {
 
             if (nameCount === 0) return; // No pairs to display
 
-            // Reserve space for title and display padding
-            const displayPadding = 40; // top and bottom padding from .rotation-display
-            const titleHeight = 50; // Approximate title space including margin
+            // Reserve space for title and display padding (more conservative)
+            const displayPadding = 50; // top and bottom padding from .rotation-display plus borders
+            const titleHeight = 60; // Title space including margin
             const gapCount = nameCount - 1; // gaps between elements
 
             // Calculate space available for names after accounting for fixed elements
-            const availableForNames = available - titleHeight - displayPadding;
+            const availableForNames = Math.max(0, available - titleHeight - displayPadding);
 
             // Estimate total gap space (will be set dynamically)
-            const gapSize = Math.max(4, Math.min(12, availableForNames / (nameCount * 8))); // Scale gap with available space
+            const gapSize = Math.max(2, Math.min(8, availableForNames / (nameCount * 10))); // More conservative gap
             const totalGapSpace = gapCount * gapSize;
 
             // Calculate per-name height
-            const nameHeight = (availableForNames - totalGapSpace) / nameCount;
+            const nameHeight = Math.max(30, (availableForNames - totalGapSpace) / nameCount);
 
-            // Dynamic sizing for rotation view
-            const rotationNameFs = Math.max(14, Math.min(nameHeight * 0.5, 28));
-            const rotationNamePad = Math.max(6, Math.min(nameHeight * 0.2, 15));
-            const rotationTitleFs = Math.max(18, Math.min(nameHeight * 0.6, 32));
-            const rotationTitleMb = Math.max(8, Math.min(nameHeight * 0.25, 20));
+            // Dynamic sizing for rotation view (more conservative multipliers)
+            const rotationNameFs = Math.max(12, Math.min(nameHeight * 0.45, 24));
+            const rotationNamePad = Math.max(4, Math.min(nameHeight * 0.15, 12));
+            const rotationTitleFs = Math.max(16, Math.min(nameHeight * 0.5, 28));
+            const rotationTitleMb = Math.max(6, Math.min(nameHeight * 0.2, 16));
 
             // Also size buttons and timers proportionally
-            const btnFont = Math.max(14, nameHeight * 0.35) + 'px';
-            const btnPadV = Math.max(6, nameHeight * 0.18);
-            const btnPadH = Math.max(10, nameHeight * 0.28);
-            const timerFs = Math.max(14, nameHeight * 0.38);
-            const timerPadV = Math.max(4, nameHeight * 0.1);
-            const timerPadH = Math.max(8, nameHeight * 0.22);
+            const btnFont = Math.max(12, Math.min(nameHeight * 0.3, 18)) + 'px';
+            const btnPadV = Math.max(4, Math.min(nameHeight * 0.15, 10));
+            const btnPadH = Math.max(8, Math.min(nameHeight * 0.22, 16));
+            const timerFs = Math.max(12, Math.min(nameHeight * 0.32, 18));
+            const timerPadV = Math.max(3, Math.min(nameHeight * 0.08, 8));
+            const timerPadH = Math.max(6, Math.min(nameHeight * 0.18, 12));
 
             const bodyStyle = document.body.style;
             bodyStyle.setProperty('--rotation-name-fs', rotationNameFs + 'px');
@@ -847,12 +854,14 @@ class RosterManager {
 
     // Update start button state based on field player assignment
     updateStartButtonState() {
-        // Only disable start button if we're in setup phase
+        // Only manage button state during setup phase
+        // Once game starts, button should remain enabled for pause/resume
         if (this.currentHalf !== 'setup') {
-            return; // Don't disable once game has started
+            this.startBtn.disabled = false; // Ensure button is enabled after setup
+            return;
         }
 
-        // Check if any players are assigned to field or goalie (players on the field)
+        // During setup: Check if any players are assigned to field or goalie (players on the field)
         const hasFieldPlayers = this.rows.some(r => 
             r.cbField.checked || r.cbGoalie.checked
         );
@@ -864,28 +873,50 @@ class RosterManager {
     // Score tracking methods
     incrementTeamAScore() {
         this.teamAScore++;
-        if (this.teamAScoreDisplay) {
-            this.teamAScoreDisplay.textContent = this.teamAScore.toString();
-        }
+        this.updateScoreDisplays();
         this.saveDebounced();
     }
 
     incrementTeamBScore() {
         this.teamBScore++;
+        this.updateScoreDisplays();
+        this.saveDebounced();
+    }
+
+    updateScoreDisplays() {
+        // Update View_D button scores
+        if (this.teamAScoreDisplay) {
+            this.teamAScoreDisplay.textContent = this.teamAScore.toString();
+        }
         if (this.teamBScoreDisplay) {
             this.teamBScoreDisplay.textContent = this.teamBScore.toString();
         }
-        this.saveDebounced();
+
+        // Update header scores
+        if (this.headerScoreUsValue) {
+            this.headerScoreUsValue.textContent = this.teamAScore.toString();
+        }
+        if (this.headerScoreThemValue) {
+            this.headerScoreThemValue.textContent = this.teamBScore.toString();
+        }
     }
 
     resetScores() {
         this.teamAScore = 0;
         this.teamBScore = 0;
-        if (this.teamAScoreDisplay) {
-            this.teamAScoreDisplay.textContent = '0';
+        this.updateScoreDisplays();
+        this.updateScoreVisibility();
+    }
+
+    updateScoreVisibility() {
+        // Show scores in header only when game has started
+        const showScores = this.currentHalf !== 'setup';
+
+        if (this.headerScoreUs) {
+            this.headerScoreUs.style.display = showScores ? '' : 'none';
         }
-        if (this.teamBScoreDisplay) {
-            this.teamBScoreDisplay.textContent = '0';
+        if (this.headerScoreThem) {
+            this.headerScoreThem.style.display = showScores ? '' : 'none';
         }
     }
 
@@ -953,7 +984,8 @@ class RosterManager {
             this.halfDurationSeconds = this.matchDurationSeconds / 2;
             this.matchRemainingSeconds = this.halfDurationSeconds;
             this.updateMatchTimeLabel();
-            
+            this.updateScoreVisibility(); // Show scores when game starts
+
             // Start new game session
             if (this.logger) {
                 this.logger.startSession(
@@ -962,7 +994,7 @@ class RosterManager {
                     null // Location can be added later
                 );
             }
-            
+
             this.saveDebounced();
         } else {
             // Game resumed
@@ -1127,6 +1159,8 @@ class RosterManager {
         this.timerLabel.style.cursor = 'pointer';
         this.markNextPlayers();
         this.resetScores(); // Reset scores when restarting game
+        this.updateStartButtonState(); // Ensure button state is correct for setup phase
+        this.updateScoreVisibility(); // Hide scores during setup
         this.saveDebounced();
     }
     
@@ -1711,16 +1745,13 @@ class RosterManager {
             }
             if (typeof model.teamAScore === 'number') {
                 this.teamAScore = model.teamAScore;
-                if (this.teamAScoreDisplay) {
-                    this.teamAScoreDisplay.textContent = this.teamAScore.toString();
-                }
             }
             if (typeof model.teamBScore === 'number') {
                 this.teamBScore = model.teamBScore;
-                if (this.teamBScoreDisplay) {
-                    this.teamBScoreDisplay.textContent = this.teamBScore.toString();
-                }
             }
+            this.updateScoreDisplays();
+            this.updateScoreVisibility();
+
             if (typeof model.viewMode === 'number' && model.viewMode >= 0 && model.viewMode <= 2) {
                 this.viewMode = model.viewMode;
                 // Apply view mode classes

@@ -11,7 +11,9 @@
 <body>
     <div class="container">
         <h1>
+            <span id="scoreUs" class="header-score header-score-left" style="display: none;">Us - <span id="scoreUsValue">0</span></span>
             ⚽ Turf Time 🥅
+            <span id="scoreThem" class="header-score header-score-right" style="display: none;"><span id="scoreThemValue">0</span> - Them</span>
         </h1>
         <div class="top-controls">
             <div class="control-col">
@@ -47,7 +49,7 @@
         <div id="rotationDisplay" class="rotation-display" style="display: none;">
             <div class="rotation-content-wrapper">
                 <button id="teamAScoreBtn" class="score-button score-button-left">
-                    <div class="score-label">Team A</div>
+                    <div class="score-label">Us</div>
                     <div class="score-value" id="teamAScore">0</div>
                 </button>
                 <div class="rotation-center">
@@ -55,7 +57,7 @@
                     <div id="rotationPairs" class="rotation-pairs"></div>
                 </div>
                 <button id="teamBScoreBtn" class="score-button score-button-right">
-                    <div class="score-label">Team B</div>
+                    <div class="score-label">Them</div>
                     <div class="score-value" id="teamBScore">0</div>
                 </button>
             </div>

@@ -68,6 +68,25 @@ h1 {
     margin: 0 0 8px;
     font-size: 1.2rem;
     text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.header-score {
+    font-size: 0.85rem;
+    font-weight: normal;
+    color: var(--text);
+    white-space: nowrap;
+}
+
+.header-score-left {
+    order: -1;
+}
+
+.header-score-right {
+    order: 1;
 }
 
 /* Controls: two columns side-by-side, never wrap */
@@ -368,6 +387,10 @@ tfoot .footer-cell button {
 .less-view .countdown-timer {
     font-size: var(--timer-fs);
     padding: var(--timer-pad-v) var(--timer-pad-h);
+}
+
+.less-view .header-score {
+    font-size: calc(var(--btn-font) * 0.85);
 }
 
 /* Player counter overlay */
