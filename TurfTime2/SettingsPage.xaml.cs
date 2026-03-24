@@ -32,4 +32,17 @@ public partial class SettingsPage : ContentPage
             await DisplayAlertAsync("Error", "Could not navigate to Skins page.", "OK");
         }
     }
+
+    private async void OnRotationStyleTapped(object sender, EventArgs e)
+    {
+        try
+        {
+            await Shell.Current.GoToAsync("settings/rotationstyle");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
+            await DisplayAlertAsync("Error", "Could not navigate to Rotation Style page.", "OK");
+        }
+    }
 }

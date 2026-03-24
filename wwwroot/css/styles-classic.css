@@ -101,6 +101,11 @@ h1 {
     flex-wrap: nowrap;
 }
 
+.bottom-controls {
+    margin-top: 8px;
+    margin-bottom: 4px;
+}
+
 .control-col {
     display: flex;
     flex-direction: column;
@@ -198,6 +203,9 @@ button:disabled {
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 6px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: calc(100vh - 140px);
 }
 
 .roster-table {
@@ -249,14 +257,139 @@ button:disabled {
     line-height: 1.2;
 }
 
+/* Next player highlighting in table view - Base styles */
 .roster-table tbody tr.player-next {
-    outline: 2px solid #ff1744;
-    outline-offset: -2px;
-    background-color: rgba(255, 23, 68, 0.3) !important;
+    /* Default to Option 1 */
 }
 
 .roster-table tbody tr.player-next td {
     background-color: transparent;
+}
+
+/* ===== ROTATION HIGHLIGHT OPTIONS FOR TABLE VIEW ===== */
+
+/* Option 1: Glowing Left Border with Pulse (Default) */
+.roster-table tbody tr.player-next.rotate-style-1 {
+    border-left: 6px solid var(--accent);
+    box-shadow: -4px 0 12px rgba(255, 107, 53, 0.6);
+    animation: glowPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes glowPulse {
+    0%, 100% {
+        box-shadow: -4px 0 12px rgba(255, 107, 53, 0.6);
+    }
+    50% {
+        box-shadow: -4px 0 20px rgba(255, 107, 53, 0.9);
+    }
+}
+
+/* Option 2: Animated Gradient Border */
+.roster-table tbody tr.player-next.rotate-style-2 {
+    outline: 3px solid;
+    outline-offset: -3px;
+    border-image: linear-gradient(45deg, var(--accent), #ff8555, var(--accent)) 1;
+    animation: borderShift 2s linear infinite;
+}
+
+@keyframes borderShift {
+    0% { filter: hue-rotate(0deg); }
+    100% { filter: hue-rotate(360deg); }
+}
+
+/* Option 3: Corner Markers with Elevation */
+.roster-table tbody tr.player-next.rotate-style-3 {
+    position: relative;
+    transform: scale(1.02);
+    box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
+}
+
+.roster-table tbody tr.player-next.rotate-style-3::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 15px;
+    height: 15px;
+    border-top: 3px solid var(--accent);
+    border-left: 3px solid var(--accent);
+    animation: cornerPulse 1.5s ease-in-out infinite;
+    z-index: 1;
+}
+
+.roster-table tbody tr.player-next.rotate-style-3::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 15px;
+    height: 15px;
+    border-bottom: 3px solid var(--accent);
+    border-right: 3px solid var(--accent);
+    animation: cornerPulse 1.5s ease-in-out infinite;
+    z-index: 1;
+}
+
+@keyframes cornerPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Option 4: Shimmer/Shine Effect */
+.roster-table tbody tr.player-next.rotate-style-4 {
+    position: relative;
+    overflow: hidden;
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.roster-table tbody tr.player-next.rotate-style-4::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, 
+        transparent, 
+        rgba(255, 107, 53, 0.3), 
+        transparent);
+    animation: shimmer 2s infinite;
+    z-index: 1;
+    pointer-events: none;
+}
+
+@keyframes shimmer {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+/* Option 5: Rotating Arrow Indicator */
+.roster-table tbody tr.player-next.rotate-style-5 {
+    border-left: 5px solid var(--accent);
+    background: linear-gradient(90deg, 
+        rgba(255, 107, 53, 0.15), 
+        transparent);
+}
+
+.roster-table tbody tr.player-next.rotate-style-5 td:first-child::before {
+    content: '\27a4';
+    margin-right: 8px;
+    color: var(--accent);
+    font-size: 1.2rem;
+    animation: bounceArrow 0.8s ease-in-out infinite;
+}
+
+@keyframes bounceArrow {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(5px); }
+}
+
+/* Default to Option 1 if no specific style class */
+.roster-table tbody tr.player-next:not([class*="rotate-style-"]) {
+    border-left: 6px solid var(--accent);
+    box-shadow: -4px 0 12px rgba(255, 107, 53, 0.6);
+    animation: glowPulse 1.5s ease-in-out infinite;
 }
 
 .cb {
@@ -707,4 +840,300 @@ body.min-view .min-hidden {
 /* Hide table in rotation view */
 .rotation-view .panel {
     display: none;
+}
+
+/* Swipeable Roster for View_A */
+.swipeable-roster {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 400px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.swipeable-player-list {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 0;
+    flex: 1;
+}
+
+.swipeable-player-item {
+    position: relative;
+    width: 70%;
+    max-width: 320px;
+    min-height: var(--swipeable-item-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--swipeable-pad-v) var(--swipeable-pad-h);
+    border-radius: 6px;
+    border: 2px solid var(--border);
+    font-size: var(--swipeable-font-size);
+    font-weight: bold;
+    cursor: grab;
+    touch-action: pan-y;
+    user-select: none;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    overflow: visible;
+}
+
+.swipeable-player-item:active {
+    cursor: grabbing;
+}
+
+.swipeable-player-item.swiping {
+    transition: none;
+    z-index: 10;
+}
+
+.swipeable-player-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+
+.swipeable-player-item.drag-over {
+    border-color: var(--accent);
+    border-width: 3px;
+    box-shadow: 0 0 10px var(--accent);
+}
+
+/* Make player name editable */
+.player-name-text {
+    cursor: text;
+    padding: 2px;
+    border-radius: 3px;
+}
+
+.player-name-text[contenteditable="true"] {
+    background: rgba(255, 255, 255, 0.2);
+    outline: 2px solid var(--accent);
+}
+
+/* Player state colors - same as existing */
+.swipeable-player-item.player-field {
+    background-color: #00e676;
+    color: #222;
+}
+
+.swipeable-player-item.player-bench {
+    background-color: #8B4513;
+    color: #fff;
+}
+
+.swipeable-player-item.player-goalie {
+    background-color: #ffeb3b;
+    color: #222;
+}
+
+.swipeable-player-item.player-inactive {
+    background-color: #bdbdbd;
+    color: #222;
+}
+
+.swipeable-player-item.player-none {
+    background-color: #fff;
+    color: #222;
+}
+
+/* Swipe hint arrows */
+.swipe-hint {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.5rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.swipe-hint-left {
+    left: -30px;
+}
+
+.swipe-hint-right {
+    right: -30px;
+}
+
+.swipeable-player-item.swiping .swipe-hint-left {
+    opacity: 0.6;
+}
+
+.swipeable-player-item.swiping .swipe-hint-right {
+    opacity: 0.6;
+}
+
+/* Player counter in swipeable view */
+.swipeable-player-item .player-counter {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.75em;
+    font-weight: bold;
+    color: #222;
+    pointer-events: none;
+    background: rgba(255, 255, 255, 0.8);
+    padding: 2px 5px;
+    border-radius: 3px;
+}
+
+/* Next player highlighting in swipeable view - Base styles */
+.swipeable-player-item.player-next {
+    /* Default to Option 1 */
+}
+
+/* ===== ROTATION HIGHLIGHT OPTIONS ===== */
+
+/* Option 1: Glowing Left Border with Pulse (Default) */
+.swipeable-player-item.player-next.rotate-style-1 {
+    border-left: 6px solid var(--accent);
+    box-shadow: -4px 0 12px rgba(255, 107, 53, 0.6), 0 4px 15px rgba(0, 0, 0, 0.3);
+    animation: glowPulse 1.5s ease-in-out infinite;
+    transform: translateX(4px);
+}
+
+/* Option 2: Animated Gradient Border */
+.swipeable-player-item.player-next.rotate-style-2 {
+    border: 3px solid;
+    border-image: linear-gradient(45deg, var(--accent), #ff8555, var(--accent)) 1;
+    box-shadow: 0 0 15px rgba(255, 107, 53, 0.5);
+    animation: borderShift 2s linear infinite;
+}
+
+/* Option 3: Corner Markers with Elevation */
+.swipeable-player-item.player-next.rotate-style-3 {
+    position: relative;
+    transform: scale(1.05);
+    box-shadow: 0 8px 20px rgba(255, 107, 53, 0.4);
+    transition: all 0.3s ease;
+}
+
+.swipeable-player-item.player-next.rotate-style-3::before,
+.swipeable-player-item.player-next.rotate-style-3::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border: 3px solid var(--accent);
+    animation: cornerPulse 1.5s ease-in-out infinite;
+}
+
+.swipeable-player-item.player-next.rotate-style-3::before {
+    top: -2px;
+    left: -2px;
+    border-right: none;
+    border-bottom: none;
+}
+
+.swipeable-player-item.player-next.rotate-style-3::after {
+    bottom: -2px;
+    right: -2px;
+    border-left: none;
+    border-top: none;
+}
+
+/* Option 4: Shimmer/Shine Effect */
+.swipeable-player-item.player-next.rotate-style-4 {
+    position: relative;
+    overflow: hidden;
+    border: 2px solid var(--accent);
+}
+
+.swipeable-player-item.player-next.rotate-style-4::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, 
+        transparent, 
+        rgba(255, 107, 53, 0.3), 
+        transparent);
+    animation: shimmer 2s infinite;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* Option 5: Rotating Arrow Indicator */
+.swipeable-player-item.player-next.rotate-style-5 {
+    border-left: 5px solid var(--accent);
+    background: linear-gradient(90deg, 
+        rgba(255, 107, 53, 0.15), 
+        transparent);
+    padding-left: calc(var(--swipeable-pad-h) + 30px);
+}
+
+.swipeable-player-item.player-next.rotate-style-5::before {
+    content: '\27a4';
+    position: absolute;
+    left: 8px;
+    font-size: 1.5rem;
+    color: var(--accent);
+    animation: bounceArrow 0.8s ease-in-out infinite;
+    z-index: 1;
+}
+
+/* Default to Option 1 if no specific style class */
+.swipeable-player-item.player-next:not([class*="rotate-style-"]) {
+    border-left: 6px solid var(--accent);
+    box-shadow: -4px 0 12px rgba(255, 107, 53, 0.6), 0 4px 15px rgba(0, 0, 0, 0.3);
+    animation: glowPulse 1.5s ease-in-out infinite;
+    transform: translateX(4px);
+}
+
+/* Inactive player toggle section */
+.inactive-toggle-section {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    padding: 8px 0;
+}
+
+.inactive-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: rgba(136, 136, 136, 0.3);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.9rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.1s ease;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.inactive-toggle-btn:hover {
+    background: rgba(136, 136, 136, 0.4);
+}
+
+.inactive-toggle-btn:active {
+    transform: scale(0.98);
+}
+
+.inactive-count {
+    flex: 1;
+}
+
+.inactive-toggle-icon {
+    font-size: 1.2rem;
+    opacity: 0.8;
+}
+
+/* Dimmed inactive player items when shown */
+.swipeable-player-item.inactive-player-item {
+    opacity: 0.7;
 }

@@ -8,6 +8,12 @@ public partial class GamePage : ContentPage
     {
         InitializeComponent();
 
+        // Subscribe to rotation style changes
+        RotationStylePage.RotationStyleChanged += async (sender, styleNum) =>
+        {
+            await UpdateRotationStyle(styleNum);
+        };
+
 #if ANDROID
         // Configure WebView for Android
         Microsoft.Maui.Handlers.WebViewHandler.Mapper.AppendToMapping("CustomWebView", (handler, view) =>
@@ -47,6 +53,9 @@ public partial class GamePage : ContentPage
 
         // Sync theme from Preferences to WebView
         SyncThemeToWebView();
+
+        // Sync rotation style from Preferences to WebView
+        SyncRotationStyleToWebView();
     }
 
     private async void SyncThemeToWebView()
@@ -63,6 +72,36 @@ public partial class GamePage : ContentPage
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[Theme] Error syncing theme: {ex.Message}");
+        }
+    }
+
+    private async void SyncRotationStyleToWebView()
+    {
+        try
+        {
+            // Small delay to ensure WebView is fully loaded
+            await Task.Delay(150);
+
+            var rotationStyle = Preferences.Get("rotation_style", 1);
+            await webView.EvaluateJavaScriptAsync($"setRotationStyleFromMAUI({rotationStyle})");
+            System.Diagnostics.Debug.WriteLine($"[RotationStyle] Synced rotation style to WebView: {rotationStyle}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[RotationStyle] Error syncing rotation style: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateRotationStyle(int styleNum)
+    {
+        try
+        {
+            await webView.EvaluateJavaScriptAsync($"setRotationStyleFromMAUI({styleNum})");
+            System.Diagnostics.Debug.WriteLine($"[RotationStyle] Updated rotation style in WebView: {styleNum}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[RotationStyle] Error updating rotation style: {ex.Message}");
         }
     }
 

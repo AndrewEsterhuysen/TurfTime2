@@ -11,6 +11,10 @@ class RosterManager {
         this.countdownLabel = document.getElementById('countdownTimer');
         this.matchTimeLabelElement = document.querySelector('.top-controls .control-col:first-child .timer-label');
 
+        // Swipeable roster elements
+        this.swipeableRoster = document.getElementById('swipeableRoster');
+        this.swipeablePlayerList = document.getElementById('swipeablePlayerList');
+
         // Score tracking
         this.teamAScore = 0;
         this.teamBScore = 0;
@@ -44,6 +48,10 @@ class RosterManager {
         // Rotation count state
         this.rotationCount = 1;
 
+        // Rotation style (1-5)
+        this.rotationStyle = 1;
+        this.loadRotationStyle();
+
         // Storage
         this.STORAGE_KEY = 'roster.v1';
         this.STORAGE_VERSION = 2; // Increment when structure changes
@@ -71,7 +79,7 @@ class RosterManager {
         this.lastFieldIdx = -1;
         this.lastBenchIdx = -1;
 
-        this.viewMode = 0; // 0=Standard, 1=Less, 2=Rotation
+        this.viewMode = 0; // 0=Swipeable, 1=Less, 2=Rotation
         this.isEditingName = false; // skip sizing updates while editing a name
 
         // Drag and drop state
@@ -85,6 +93,7 @@ class RosterManager {
         this.buildRows();
         this.loadFromStorage();
         this.bindEvents();
+        this.initializeView(); // Initialize the correct view
         this.markNextPlayers();
         this.updateRotateButtonText(); // Initialize button text with rotation count
         this.updateViewButtonState(); // Initialize view button state
@@ -134,6 +143,12 @@ class RosterManager {
             }
             this.resetCountdown(this.timerRunning);
             this.saveDebounced();
+
+            // Rebuild swipeable roster if in View_A mode
+            if (this.viewMode === 0) {
+                this.buildSwipeableRoster();
+            }
+
             this.updateDynamicSizing();
 
             // Update rotation display if in View_D mode
@@ -224,6 +239,34 @@ class RosterManager {
         }
     }
 
+    // Initialize view based on current viewMode
+    initializeView() {
+        const panel = document.querySelector('.panel');
+        const rotationDisplay = document.getElementById('rotationDisplay');
+        const swipeableRoster = this.swipeableRoster;
+
+        if (this.viewMode === 0) {
+            // Swipeable view (default)
+            panel.style.display = 'none';
+            rotationDisplay.style.display = 'none';
+            swipeableRoster.style.display = '';
+            this.buildSwipeableRoster();
+        } else if (this.viewMode === 1) {
+            // Less view
+            document.body.classList.add('less-view');
+            panel.style.display = '';
+            rotationDisplay.style.display = 'none';
+            swipeableRoster.style.display = 'none';
+        } else if (this.viewMode === 2) {
+            // Rotation view
+            document.body.classList.add('rotation-view');
+            panel.style.display = 'none';
+            rotationDisplay.style.display = '';
+            swipeableRoster.style.display = 'none';
+            this.updateRotationDisplay();
+        }
+    }
+
     // Update Match Time label based on game state
     updateMatchTimeLabel() {
         if (this.currentHalf === 'setup') {
@@ -255,29 +298,35 @@ class RosterManager {
             });
         }
 
-        // Cycle through: 0 (Standard) -> 1 (Less) -> 2 (Rotation) -> 0
+        // Cycle through: 0 (Swipeable) -> 1 (Less) -> 2 (Rotation) -> 0
         this.viewMode = (this.viewMode + 1) % 3;
 
         // Update body classes
         document.body.classList.remove('less-view', 'min-view', 'rotation-view');
         const panel = document.querySelector('.panel');
         const rotationDisplay = document.getElementById('rotationDisplay');
+        const swipeableRoster = this.swipeableRoster;
 
-        if (this.viewMode === 1) {
+        if (this.viewMode === 0) {
+            // Swipeable view
+            this.viewlessBtn.textContent = 'View_A';
+            panel.style.display = 'none';
+            rotationDisplay.style.display = 'none';
+            swipeableRoster.style.display = '';
+            this.buildSwipeableRoster();
+        } else if (this.viewMode === 1) {
             document.body.classList.add('less-view');
             this.viewlessBtn.textContent = 'View_B';
             panel.style.display = '';
             rotationDisplay.style.display = 'none';
+            swipeableRoster.style.display = 'none';
         } else if (this.viewMode === 2) {
             document.body.classList.add('rotation-view');
             this.viewlessBtn.textContent = 'View_D';
             panel.style.display = 'none';
             rotationDisplay.style.display = '';
+            swipeableRoster.style.display = 'none';
             this.updateRotationDisplay();
-        } else {
-            this.viewlessBtn.textContent = 'View_A';
-            panel.style.display = '';
-            rotationDisplay.style.display = 'none';
         }
 
         // Update inactive row visibility
@@ -287,27 +336,604 @@ class RosterManager {
         setTimeout(() => this.updateDynamicSizing(), 100);
     }
 
+    // Build swipeable roster for View_A
+    buildSwipeableRoster() {
+        this.swipeablePlayerList.innerHTML = '';
+
+        // Determine if we should show inactive players
+        const hideInactive = this.currentHalf !== 'setup' && !this.showInactivePlayers;
+
+        // Separate active and inactive players
+        const activePlayers = [];
+        const inactivePlayers = [];
+
+        this.rows.forEach((row, idx) => {
+            if (row.cbInactive.checked) {
+                inactivePlayers.push({ row, idx });
+            } else {
+                activePlayers.push({ row, idx });
+            }
+        });
+
+        // Build active player items
+        activePlayers.forEach(({ row, idx }) => {
+            const playerItem = this.createSwipeablePlayerItem(row, idx);
+            this.swipeablePlayerList.appendChild(playerItem);
+        });
+
+        // Add inactive section toggle if there are inactive players and game has started
+        if (inactivePlayers.length > 0 && this.currentHalf !== 'setup') {
+            const toggleSection = document.createElement('div');
+            toggleSection.className = 'inactive-toggle-section';
+
+            const toggleButton = document.createElement('button');
+            toggleButton.className = 'inactive-toggle-btn';
+            toggleButton.innerHTML = `
+                <span class="inactive-count">${inactivePlayers.length} Inactive Player${inactivePlayers.length !== 1 ? 's' : ''}</span>
+                <span class="inactive-toggle-icon">${this.showInactivePlayers ? '▲' : '▼'}</span>
+            `;
+
+            toggleButton.addEventListener('click', () => {
+                this.showInactivePlayers = !this.showInactivePlayers;
+                this.buildSwipeableRoster(); // Rebuild to show/hide inactive players
+            });
+
+            toggleSection.appendChild(toggleButton);
+            this.swipeablePlayerList.appendChild(toggleSection);
+        }
+
+        // Build inactive player items (only if showing)
+        if (!hideInactive && inactivePlayers.length > 0) {
+            inactivePlayers.forEach(({ row, idx }) => {
+                const playerItem = this.createSwipeablePlayerItem(row, idx);
+                playerItem.classList.add('inactive-player-item'); // Add class for styling
+                this.swipeablePlayerList.appendChild(playerItem);
+            });
+        }
+
+        // Mark next players
+        this.markNextPlayersSwipeable();
+
+        // Trigger dynamic sizing after DOM has rendered
+        setTimeout(() => this.updateDynamicSizing(), 0);
+        setTimeout(() => this.updateDynamicSizing(), 50);
+    }
+
+    // Helper method to create a swipeable player item
+    createSwipeablePlayerItem(row, idx) {
+        const playerItem = document.createElement('div');
+        playerItem.className = 'swipeable-player-item';
+        playerItem.dataset.playerIndex = idx;
+
+        // Player name text (editable on click)
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'player-name-text';
+        nameSpan.contentEditable = 'false';
+        nameSpan.textContent = row.nameInput.value || `Player ${idx + 1}`;
+
+        // Make name editable on tap
+        nameSpan.addEventListener('click', (e) => {
+            if (nameSpan.contentEditable === 'false') {
+                e.stopPropagation();
+                nameSpan.contentEditable = 'true';
+                nameSpan.focus();
+                // Select all text
+                const range = document.createRange();
+                range.selectNodeContents(nameSpan);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        });
+
+        nameSpan.addEventListener('blur', () => {
+            nameSpan.contentEditable = 'false';
+            const newName = nameSpan.textContent.trim();
+            if (newName) {
+                row.nameInput.value = newName;
+                this.saveDebounced();
+            } else {
+                nameSpan.textContent = row.nameInput.value || `Player ${idx + 1}`;
+            }
+        });
+
+        nameSpan.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                nameSpan.blur();
+            }
+        });
+
+        playerItem.appendChild(nameSpan);
+
+        // Counter display
+        const counterSpan = document.createElement('span');
+        counterSpan.className = 'player-counter';
+        counterSpan.textContent = row.counterDisplay.textContent;
+        playerItem.appendChild(counterSpan);
+
+        // Swipe hint arrows
+        const leftHint = document.createElement('span');
+        leftHint.className = 'swipe-hint swipe-hint-left';
+        leftHint.textContent = '⬅';
+        playerItem.appendChild(leftHint);
+
+        const rightHint = document.createElement('span');
+        rightHint.className = 'swipe-hint swipe-hint-right';
+        rightHint.textContent = '➡';
+        playerItem.appendChild(rightHint);
+
+        // Apply current status color
+        this.updateSwipeablePlayerColor(playerItem, row);
+
+        // Add to player item for reference
+        row.swipeableElement = playerItem;
+
+        // Add swipe gesture handlers
+        this.enableSwipeGesture(playerItem, row);
+
+        // Add drag and drop for reordering
+        this.enableSwipeableDragAndDrop(playerItem, row);
+
+        return playerItem;
+    }
+
+    // Update swipeable player color based on current state
+    updateSwipeablePlayerColor(playerItem, row) {
+        playerItem.classList.remove('player-field', 'player-bench', 'player-goalie', 'player-inactive', 'player-none');
+
+        if (row.cbField.checked) {
+            playerItem.classList.add('player-field');
+        } else if (row.cbBench.checked) {
+            playerItem.classList.add('player-bench');
+        } else if (row.cbGoalie.checked) {
+            playerItem.classList.add('player-goalie');
+        } else if (row.cbInactive.checked) {
+            playerItem.classList.add('player-inactive');
+        } else {
+            playerItem.classList.add('player-none');
+        }
+    }
+
+    // Enable swipe gesture on player item
+    enableSwipeGesture(playerItem, row) {
+        let startX = 0;
+        let startY = 0;
+        let currentX = 0;
+        let currentY = 0;
+        let startTime = 0;
+        let longPressTimer = null;
+        let isLongPress = false;
+        let isDraggingReorder = false;
+        let dragOverIndex = -1;
+        const swipeThreshold = 50; // Reduced threshold for quicker response
+        const longPressDelay = 500; // 500ms for long press
+
+        const handleStart = (e) => {
+            startTime = Date.now();
+            startX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+            startY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+            currentX = startX;
+            currentY = startY;
+            isLongPress = false;
+            isDraggingReorder = false;
+            dragOverIndex = -1;
+
+            // Start long-press timer
+            longPressTimer = setTimeout(() => {
+                isLongPress = true;
+                isDraggingReorder = true;
+                playerItem.classList.add('dragging');
+                // Disable swipe hints during reorder
+                playerItem.style.cursor = 'grabbing';
+            }, longPressDelay);
+        };
+
+        const handleMove = (e) => {
+            currentX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+            currentY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+            const deltaX = currentX - startX;
+            const deltaY = currentY - startY;
+
+            // If long press activated, handle vertical reordering
+            if (isDraggingReorder) {
+                e.preventDefault();
+
+                // Visual feedback for vertical drag
+                playerItem.style.transform = `translateY(${deltaY}px)`;
+
+                // Find which player item we're over
+                const items = Array.from(this.swipeablePlayerList.children);
+                const myIndex = items.indexOf(playerItem);
+
+                items.forEach((item, idx) => {
+                    if (item === playerItem) return;
+                    const rect = item.getBoundingClientRect();
+                    const midY = rect.top + rect.height / 2;
+
+                    if (Math.abs(currentY - midY) < rect.height / 2) {
+                        item.classList.add('drag-over');
+                        dragOverIndex = idx;
+                    } else {
+                        item.classList.remove('drag-over');
+                    }
+                });
+                return;
+            }
+
+            // If not long press yet, check if we should cancel it (horizontal swipe detected)
+            if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            }
+
+            // Show horizontal swipe feedback
+            if (Math.abs(deltaX) > 5 && !isLongPress) {
+                playerItem.classList.add('swiping');
+                playerItem.style.transform = `translateX(${deltaX}px)`;
+                e.preventDefault();
+            }
+        };
+
+        const handleEnd = (e) => {
+            // Clear long press timer
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+
+            const deltaX = currentX - startX;
+            const duration = Date.now() - startTime;
+
+            // Handle reorder drop
+            if (isDraggingReorder) {
+                playerItem.classList.remove('dragging');
+                playerItem.style.transform = '';
+                playerItem.style.cursor = '';
+
+                // Remove all drag-over classes
+                Array.from(this.swipeablePlayerList.children).forEach(item => {
+                    item.classList.remove('drag-over');
+                });
+
+                // Execute reorder if valid drop target
+                if (dragOverIndex !== -1) {
+                    const myIndex = this.rows.indexOf(row);
+                    if (myIndex !== -1 && myIndex !== dragOverIndex) {
+                        // Reorder array
+                        this.rows.splice(myIndex, 1);
+                        this.rows.splice(dragOverIndex, 0, row);
+
+                        // Rebuild DOM
+                        this.rebuildDOM();
+                        setTimeout(() => {
+                            this.buildSwipeableRoster();
+                        }, 50);
+
+                        this.lastFieldIdx = -1;
+                        this.lastBenchIdx = -1;
+
+                        // Log reordering
+                        if (this.logger) {
+                            this.logger.log(
+                                this.logger.EVENT_TYPES.PLAYER_REORDERED,
+                                `${row.nameInput.value} moved from position ${myIndex + 1} to ${dragOverIndex + 1}`,
+                                row.nameInput.value,
+                                { fromIndex: myIndex, toIndex: dragOverIndex }
+                            );
+                        }
+
+                        this.saveDebounced();
+                    }
+                }
+
+                isDraggingReorder = false;
+                isLongPress = false;
+                return;
+            }
+
+            // Handle horizontal swipe
+            playerItem.classList.remove('swiping');
+            playerItem.style.transform = '';
+
+            // Quick swipe detection - lower threshold for quick swipes
+            const isQuickSwipe = duration < 300;
+            const effectiveThreshold = isQuickSwipe ? 30 : swipeThreshold;
+
+            if (Math.abs(deltaX) > effectiveThreshold) {
+                if (deltaX < 0) {
+                    this.handleSwipeLeft(row);
+                } else {
+                    this.handleSwipeRight(row);
+                }
+
+                // Update the visual appearance immediately on the current playerItem
+                this.updateSwipeablePlayerColor(playerItem, row);
+                this.markNextPlayersSwipeable();
+                this.updateViewButtonState();
+                this.updateStartButtonState();
+            }
+
+            isLongPress = false;
+        };
+
+        const handleCancel = () => {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+
+            playerItem.classList.remove('swiping', 'dragging');
+            playerItem.style.transform = '';
+            playerItem.style.cursor = '';
+
+            Array.from(this.swipeablePlayerList.children).forEach(item => {
+                item.classList.remove('drag-over');
+            });
+
+            isDraggingReorder = false;
+            isLongPress = false;
+        };
+
+        // Mouse events
+        playerItem.addEventListener('mousedown', handleStart);
+        playerItem.addEventListener('mousemove', handleMove);
+        playerItem.addEventListener('mouseup', handleEnd);
+        playerItem.addEventListener('mouseleave', handleCancel);
+
+        // Touch events
+        playerItem.addEventListener('touchstart', handleStart, { passive: false });
+        playerItem.addEventListener('touchmove', handleMove, { passive: false });
+        playerItem.addEventListener('touchend', handleEnd);
+        playerItem.addEventListener('touchcancel', handleCancel);
+    }
+
+    // Enable drag and drop for reordering in swipeable view - now handled in enableSwipeGesture
+    enableSwipeableDragAndDrop(playerItem, row) {
+        // This method is now integrated into enableSwipeGesture for better coordination
+        // Keeping it as a stub to avoid breaking the buildSwipeableRoster call
+    }
+
+    // Handle swipe left logic
+    handleSwipeLeft(row) {
+        const previousPosition = this.getCurrentPosition(row);
+
+        if (row.cbInactive.checked || (!row.cbField.checked && !row.cbBench.checked && !row.cbGoalie.checked)) {
+            // Inactive → Field
+            row.cbInactive.checked = false;
+            row.cbBench.checked = false;
+            row.cbGoalie.checked = false;
+            row.cbField.checked = true;
+            this.logPositionChange(row, previousPosition, 'field');
+            if (this.timerRunning) this.startCounter(row);
+        } else if (row.cbBench.checked) {
+            // Bench → Field
+            row.cbBench.checked = false;
+            row.cbInactive.checked = false;
+            row.cbGoalie.checked = false;
+            row.cbField.checked = true;
+            this.logPositionChange(row, previousPosition, 'field');
+            if (this.timerRunning) this.startCounter(row);
+        } else if (row.cbField.checked) {
+            // Field → Goalie
+            // Uncheck any other goalie first
+            this.rows.forEach(r => {
+                if (r !== row && r.cbGoalie.checked) {
+                    r.cbGoalie.checked = false;
+                    this.stopCounter(r);
+                    r.updatePlayerColor();
+                    // Update swipeable element if exists
+                    if (r.swipeableElement) {
+                        this.updateSwipeablePlayerColor(r.swipeableElement, r);
+                    }
+                }
+            });
+            row.cbField.checked = false;
+            row.cbBench.checked = false;
+            row.cbInactive.checked = false;
+            row.cbGoalie.checked = true;
+            this.logPositionChange(row, previousPosition, 'goalie');
+        } else if (row.cbGoalie.checked) {
+            // Goalie → Field
+            row.cbGoalie.checked = false;
+            row.cbBench.checked = false;
+            row.cbInactive.checked = false;
+            row.cbField.checked = true;
+            this.logPositionChange(row, previousPosition, 'field');
+        }
+
+        row.updatePlayerColor();
+        this.saveDebounced();
+    }
+
+    // Handle swipe right logic
+    handleSwipeRight(row) {
+        const previousPosition = this.getCurrentPosition(row);
+
+        if (row.cbInactive.checked || (!row.cbField.checked && !row.cbBench.checked && !row.cbGoalie.checked)) {
+            // Inactive → Bench
+            row.cbInactive.checked = false;
+            row.cbField.checked = false;
+            row.cbGoalie.checked = false;
+            row.cbBench.checked = true;
+            this.logPositionChange(row, previousPosition, 'bench');
+            this.stopCounter(row);
+        } else if (row.cbField.checked) {
+            // Field → Bench
+            row.cbField.checked = false;
+            row.cbInactive.checked = false;
+            row.cbGoalie.checked = false;
+            row.cbBench.checked = true;
+            this.logPositionChange(row, previousPosition, 'bench');
+            this.stopCounter(row);
+        } else if (row.cbGoalie.checked) {
+            // Goalie → Bench
+            row.cbGoalie.checked = false;
+            row.cbField.checked = false;
+            row.cbInactive.checked = false;
+            row.cbBench.checked = true;
+            this.logPositionChange(row, previousPosition, 'bench');
+            this.stopCounter(row);
+        } else if (row.cbBench.checked) {
+            // Bench → Inactive
+            row.cbBench.checked = false;
+            row.cbField.checked = false;
+            row.cbGoalie.checked = false;
+            row.cbInactive.checked = true;
+            this.logPositionChange(row, previousPosition, 'inactive');
+            this.stopCounter(row);
+        }
+
+        row.updatePlayerColor();
+        this.saveDebounced();
+    }
+
+    // Get current position of a player
+    getCurrentPosition(row) {
+        if (row.cbField.checked) return 'field';
+        if (row.cbBench.checked) return 'bench';
+        if (row.cbGoalie.checked) return 'goalie';
+        if (row.cbInactive.checked) return 'inactive';
+        return 'none';
+    }
+
+    // Log position change
+    logPositionChange(row, fromPosition, toPosition) {
+        if (!this.logger) return;
+
+        const playerName = row.nameInput.value;
+        const playerIndex = this.rows.indexOf(row);
+
+        const eventTypeMap = {
+            field: this.logger.EVENT_TYPES.PLAYER_TO_FIELD,
+            bench: this.logger.EVENT_TYPES.PLAYER_TO_BENCH,
+            goalie: this.logger.EVENT_TYPES.PLAYER_TO_GOALIE,
+            inactive: this.logger.EVENT_TYPES.PLAYER_TO_INACTIVE
+        };
+
+        const eventType = eventTypeMap[toPosition] || this.logger.EVENT_TYPES.PLAYER_TO_FIELD;
+
+        this.logger.log(
+            eventType,
+            `${playerName} moved to ${toPosition}`,
+            playerName,
+            {
+                fromPosition: fromPosition,
+                toPosition: toPosition,
+                playerIndex: playerIndex
+            }
+        );
+    }
+
+    // Mark next players in swipeable view
+    markNextPlayersSwipeable() {
+        if (this.viewMode !== 0) return;
+
+        const benchCandidates = [];
+        const fieldCandidates = [];
+        this.rows.forEach((r, idx) => {
+            if (r.cbBench.checked && !r.cbInactive.checked && !r.cbGoalie.checked) benchCandidates.push(idx);
+            if (r.cbField.checked && !r.cbInactive.checked && !r.cbGoalie.checked) fieldCandidates.push(idx);
+        });
+
+        // Remove all next markers and style classes
+        this.rows.forEach(r => {
+            if (r.swipeableElement) {
+                r.swipeableElement.classList.remove('player-next');
+                for (let i = 1; i <= 5; i++) {
+                    r.swipeableElement.classList.remove(`rotate-style-${i}`);
+                }
+            }
+        });
+
+        // Mark rotationCount number of players for rotation
+        const rotations = Math.min(this.rotationCount, benchCandidates.length, fieldCandidates.length);
+
+        for (let i = 0; i < rotations; i++) {
+            const nextFieldIdx = this._nextIndexFromWithOffset(fieldCandidates, this.lastFieldIdx, i);
+            const nextBenchIdx = this._nextIndexFromWithOffset(benchCandidates, this.lastBenchIdx, i);
+
+            if (nextFieldIdx !== -1 && this.rows[nextFieldIdx].swipeableElement) {
+                this.rows[nextFieldIdx].swipeableElement.classList.add('player-next');
+                this.rows[nextFieldIdx].swipeableElement.classList.add(`rotate-style-${this.rotationStyle}`);
+            }
+            if (nextBenchIdx !== -1 && this.rows[nextBenchIdx].swipeableElement) {
+                this.rows[nextBenchIdx].swipeableElement.classList.add('player-next');
+                this.rows[nextBenchIdx].swipeableElement.classList.add(`rotate-style-${this.rotationStyle}`);
+            }
+        }
+    }
+
     // Compute dynamic sizes for Less view based on viewport and visible rows
     updateDynamicSizing() {
         if (this.isEditingName) return;
-        if (this.viewMode === 0) { // Standard view
-            const b = document.body.style;
-            b.removeProperty('--row-h');
-            b.removeProperty('--cell-pad-v');
-            b.removeProperty('--cell-pad-h');
-            b.removeProperty('--input-h');
-            b.removeProperty('--input-fs');
-            b.removeProperty('--cb-scale');
-            b.removeProperty('--btn-font');
-            b.removeProperty('--btn-pad-v');
-            b.removeProperty('--btn-pad-h');
-            b.removeProperty('--timer-fs');
-            b.removeProperty('--timer-pad-v');
-            b.removeProperty('--timer-pad-h');
-            b.removeProperty('--rotation-name-fs');
-            b.removeProperty('--rotation-name-pad');
-            b.removeProperty('--rotation-title-fs');
-            b.removeProperty('--rotation-title-mb');
+        if (this.viewMode === 0) { // Swipeable view - dynamic sizing for all 16 players
+            const swipeableRoster = this.swipeableRoster;
+
+            if (!swipeableRoster || swipeableRoster.style.display === 'none') {
+                // Can't measure if not visible, clear properties and return
+                const b = document.body.style;
+                b.removeProperty('--swipeable-item-height');
+                b.removeProperty('--swipeable-font-size');
+                b.removeProperty('--swipeable-pad-v');
+                b.removeProperty('--swipeable-pad-h');
+                b.removeProperty('--swipeable-counter-fs');
+                return;
+            }
+
+            const bottomControls = document.querySelector('.bottom-controls');
+            const rosterRect = swipeableRoster.getBoundingClientRect();
+            const bottomH = bottomControls ? bottomControls.getBoundingClientRect().height : 0;
+            const bufferSpace = 30; // Large buffer for safety
+
+            // Calculate available height within the roster container
+            const available = Math.max(200, window.innerHeight - rosterRect.top - bottomH - bufferSpace);
+
+            // Account for swipeable roster padding and border
+            const rosterPadding = 16; // 8px top + 8px bottom
+            const rosterBorder = 2;
+
+            // Account for inactive toggle button if present
+            const inactiveCount = this.rows.filter(r => r.cbInactive.checked).length;
+            const toggleHeight = (inactiveCount > 0 && this.currentHalf !== 'setup') ? 58 : 0; // Toggle button + padding
+
+            const availableForPlayers = Math.max(150, available - rosterPadding - rosterBorder - toggleHeight);
+
+            // Always calculate for ALL 16 players to ensure they all fit
+            const playerCount = 16;
+            const gapCount = playerCount - 1;
+            const gapSize = 3; // Match CSS gap
+            const totalGapSpace = gapCount * gapSize;
+
+            // Very conservative calculation - absolute minimum to fit everything
+            const playerItemHeight = Math.max(22, Math.floor((availableForPlayers - totalGapSpace) / playerCount));
+
+            // Extremely conservative dynamic values - NO vertical padding to start
+            const playerFontSize = Math.max(0.6, Math.min(playerItemHeight * 0.032, 0.88));
+            const playerPadV = 0; // Remove all vertical padding
+            const playerPadH = Math.max(6, Math.min(playerItemHeight * 0.30, 14));
+            const counterFontSize = Math.max(0.5, Math.min(playerItemHeight * 0.026, 0.75));
+
+            const bodyStyle = document.body.style;
+            bodyStyle.setProperty('--swipeable-item-height', playerItemHeight + 'px');
+            bodyStyle.setProperty('--swipeable-font-size', playerFontSize + 'rem');
+            bodyStyle.setProperty('--swipeable-pad-v', playerPadV + 'px');
+            bodyStyle.setProperty('--swipeable-pad-h', playerPadH + 'px');
+            bodyStyle.setProperty('--swipeable-counter-fs', counterFontSize + 'rem');
+
+            // Clear other view properties
+            bodyStyle.removeProperty('--row-h');
+            bodyStyle.removeProperty('--cell-pad-v');
+            bodyStyle.removeProperty('--cell-pad-h');
+            bodyStyle.removeProperty('--input-h');
+            bodyStyle.removeProperty('--input-fs');
+            bodyStyle.removeProperty('--cb-scale');
+            bodyStyle.removeProperty('--rotation-name-fs');
+            bodyStyle.removeProperty('--rotation-name-pad');
+            bodyStyle.removeProperty('--rotation-title-fs');
+            bodyStyle.removeProperty('--rotation-title-mb');
             return;
         }
 
@@ -1008,6 +1634,12 @@ class RosterManager {
             }
         }
 
+        // Hide inactive players by default after game starts
+        if (this.currentHalf !== 'setup' && this.viewMode === 0) {
+            this.showInactivePlayers = false;
+            this.buildSwipeableRoster();
+        }
+
         this.timerRunning = true;
         this.startBtn.textContent = 'Pause';
         this.timerLabel.style.cursor = 'not-allowed';
@@ -1245,7 +1877,16 @@ class RosterManager {
     updateCounterDisplay(row) {
         const m = Math.floor(row.counterSeconds / 60);
         const s = row.counterSeconds % 60;
-        row.counterDisplay.textContent = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        const timeText = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        row.counterDisplay.textContent = timeText;
+
+        // Also update swipeable element counter if it exists
+        if (row.swipeableElement) {
+            const swipeableCounter = row.swipeableElement.querySelector('.player-counter');
+            if (swipeableCounter) {
+                swipeableCounter.textContent = timeText;
+            }
+        }
     }
 
     buildRows() {
@@ -1754,25 +2395,7 @@ class RosterManager {
 
             if (typeof model.viewMode === 'number' && model.viewMode >= 0 && model.viewMode <= 2) {
                 this.viewMode = model.viewMode;
-                // Apply view mode classes
-                const panel = document.querySelector('.panel');
-                const rotationDisplay = document.getElementById('rotationDisplay');
-
-                if (this.viewMode === 1) {
-                    document.body.classList.add('less-view');
-                    this.viewlessBtn.textContent = 'View_B';
-                    if (panel) panel.style.display = '';
-                    if (rotationDisplay) rotationDisplay.style.display = 'none';
-                } else if (this.viewMode === 2) {
-                    document.body.classList.add('rotation-view');
-                    this.viewlessBtn.textContent = 'View_D';
-                    if (panel) panel.style.display = 'none';
-                    if (rotationDisplay) rotationDisplay.style.display = '';
-                } else {
-                    this.viewlessBtn.textContent = 'View_A';
-                    if (panel) panel.style.display = '';
-                    if (rotationDisplay) rotationDisplay.style.display = 'none';
-                }
+                // View will be initialized by initializeView() after loadFromStorage completes
             }
             this.updateTimerDisplay();
             this.updateCountdownDisplay();
@@ -1796,7 +2419,13 @@ class RosterManager {
     }
 
     markNextPlayers() {
-        this.rows.forEach(r => r.tr.classList.remove('player-next'));
+        // Remove all rotation style classes first
+        this.rows.forEach(r => {
+            r.tr.classList.remove('player-next');
+            for (let i = 1; i <= 5; i++) {
+                r.tr.classList.remove(`rotate-style-${i}`);
+            }
+        });
 
         const benchCandidates = [];
         const fieldCandidates = [];
@@ -1812,9 +2441,18 @@ class RosterManager {
             const nextFieldIdx = this._nextIndexFromWithOffset(fieldCandidates, this.lastFieldIdx, i);
             const nextBenchIdx = this._nextIndexFromWithOffset(benchCandidates, this.lastBenchIdx, i);
 
-            if (nextFieldIdx !== -1) this.rows[nextFieldIdx].tr.classList.add('player-next');
-            if (nextBenchIdx !== -1) this.rows[nextBenchIdx].tr.classList.add('player-next');
+            if (nextFieldIdx !== -1) {
+                this.rows[nextFieldIdx].tr.classList.add('player-next');
+                this.rows[nextFieldIdx].tr.classList.add(`rotate-style-${this.rotationStyle}`);
+            }
+            if (nextBenchIdx !== -1) {
+                this.rows[nextBenchIdx].tr.classList.add('player-next');
+                this.rows[nextBenchIdx].tr.classList.add(`rotate-style-${this.rotationStyle}`);
+            }
         }
+
+        // Also mark in swipeable view if active
+        this.markNextPlayersSwipeable();
     }
 
     _nextIndexFrom(candidates, lastIdx) {
@@ -1847,6 +2485,24 @@ class RosterManager {
             t = setTimeout(() => fn.apply(this, args), ms);
         };
     }
+
+    loadRotationStyle() {
+        const saved = localStorage.getItem('rotation_style');
+        if (saved) {
+            const styleNum = parseInt(saved, 10);
+            if (styleNum >= 1 && styleNum <= 5) {
+                this.rotationStyle = styleNum;
+            }
+        }
+    }
+
+    setRotationStyle(styleNum) {
+        if (styleNum >= 1 && styleNum <= 5) {
+            this.rotationStyle = styleNum;
+            localStorage.setItem('rotation_style', styleNum.toString());
+            this.markNextPlayers(); // Re-apply highlighting with new style
+        }
+    }
 }
 
 // Theme switching function
@@ -1871,8 +2527,21 @@ function loadSavedTheme() {
     }
 }
 
+// Global roster manager instance
+let rosterManagerInstance = null;
+
+// Function callable from MAUI to set rotation style
+function setRotationStyleFromMAUI(styleNum) {
+    if (rosterManagerInstance) {
+        rosterManagerInstance.setRotationStyle(styleNum);
+    }
+}
+
 // Initialize when DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
     loadSavedTheme();
-    new RosterManager();
+    rosterManagerInstance = new RosterManager();
 });
+
+// Make functions available globally for MAUI to call
+window.setRotationStyleFromMAUI = setRotationStyleFromMAUI;
