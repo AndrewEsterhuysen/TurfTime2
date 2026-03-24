@@ -14,6 +14,12 @@ public partial class GamePage : ContentPage
             await UpdateRotationStyle(styleNum);
         };
 
+        // Subscribe to team view changes
+        TeamViewPage.TeamViewChanged += async (sender, viewType) =>
+        {
+            await UpdateTeamView(viewType);
+        };
+
 #if ANDROID
         // Configure WebView for Android
         Microsoft.Maui.Handlers.WebViewHandler.Mapper.AppendToMapping("CustomWebView", (handler, view) =>
@@ -56,6 +62,9 @@ public partial class GamePage : ContentPage
 
         // Sync rotation style from Preferences to WebView
         SyncRotationStyleToWebView();
+
+        // Sync team view preference from Preferences to WebView
+        SyncTeamViewToWebView();
     }
 
     private async void SyncThemeToWebView()
@@ -102,6 +111,36 @@ public partial class GamePage : ContentPage
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[RotationStyle] Error updating rotation style: {ex.Message}");
+        }
+    }
+
+    private async void SyncTeamViewToWebView()
+    {
+        try
+        {
+            // Small delay to ensure WebView is fully loaded
+            await Task.Delay(200);
+
+            var teamView = Preferences.Get("team_view_preference", "swipe");
+            await webView.EvaluateJavaScriptAsync($"setTeamViewFromMAUI('{teamView}')");
+            System.Diagnostics.Debug.WriteLine($"[TeamView] Synced team view to WebView: {teamView}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[TeamView] Error syncing team view: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateTeamView(string viewType)
+    {
+        try
+        {
+            await webView.EvaluateJavaScriptAsync($"setTeamViewFromMAUI('{viewType}')");
+            System.Diagnostics.Debug.WriteLine($"[TeamView] Updated team view in WebView: {viewType}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[TeamView] Error updating team view: {ex.Message}");
         }
     }
 

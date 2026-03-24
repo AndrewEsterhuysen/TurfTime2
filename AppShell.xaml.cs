@@ -10,6 +10,7 @@
             Routing.RegisterRoute("settings/log", typeof(LogPage));
             Routing.RegisterRoute("settings/skins", typeof(SkinsPage));
             Routing.RegisterRoute("settings/rotationstyle", typeof(RotationStylePage));
+            Routing.RegisterRoute("settings/teamview", typeof(TeamViewPage));
 
             // Handle navigation to clear stacks when switching to Settings tab
             this.Navigated += OnShellNavigated;

@@ -45,4 +45,17 @@ public partial class SettingsPage : ContentPage
             await DisplayAlertAsync("Error", "Could not navigate to Rotation Style page.", "OK");
         }
     }
+
+    private async void OnTeamViewTapped(object sender, EventArgs e)
+    {
+        try
+        {
+            await Shell.Current.GoToAsync("settings/teamview");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
+            await DisplayAlertAsync("Error", "Could not navigate to Team View page.", "OK");
+        }
+    }
 }

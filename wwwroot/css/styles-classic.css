@@ -1099,6 +1099,15 @@ body.min-view .min-hidden {
     padding: 8px 0;
 }
 
+/* Table inactive toggle section */
+.table-inactive-toggle-section {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    padding: 12px 8px 8px 8px;
+    background: var(--card);
+}
+
 .inactive-toggle-btn {
     display: flex;
     align-items: center;

@@ -45,12 +45,22 @@ class RosterManager {
         this.rotationDecrement = document.getElementById('rotationDecrement');
         this.rotationModalClose = document.getElementById('rotationModalClose');
 
+        // Table inactive toggle elements
+        this.tableInactiveToggle = document.getElementById('tableInactiveToggle');
+        this.tableInactiveToggleBtn = document.getElementById('tableInactiveToggleBtn');
+        this.tableInactiveCount = document.getElementById('tableInactiveCount');
+        this.tableInactiveIcon = document.getElementById('tableInactiveIcon');
+
         // Rotation count state
         this.rotationCount = 1;
 
         // Rotation style (1-5)
         this.rotationStyle = 1;
         this.loadRotationStyle();
+
+        // Team view preference (swipe or table)
+        this.preferredTeamView = 'swipe'; // Default to swipe
+        this.loadTeamViewPreference();
 
         // Storage
         this.STORAGE_KEY = 'roster.v1';
@@ -81,6 +91,7 @@ class RosterManager {
 
         this.viewMode = 0; // 0=Swipeable, 1=Less, 2=Rotation
         this.isEditingName = false; // skip sizing updates while editing a name
+        this.showInactivePlayers = false; // Toggle for showing inactive players in swipeable and table views
 
         // Drag and drop state
         this.draggedRow = null;
@@ -237,29 +248,43 @@ class RosterManager {
         if (this.teamBScoreBtn) {
             this.teamBScoreBtn.addEventListener('click', () => this.incrementTeamBScore());
         }
+
+        // Table inactive toggle button event
+        if (this.tableInactiveToggleBtn) {
+            this.tableInactiveToggleBtn.addEventListener('click', () => this.toggleTableInactive());
+        }
     }
 
-    // Initialize view based on current viewMode
+    // Initialize view based on current viewMode and team view preference
     initializeView() {
         const panel = document.querySelector('.panel');
         const rotationDisplay = document.getElementById('rotationDisplay');
         const swipeableRoster = this.swipeableRoster;
 
+        // Set viewMode based on team view preference if not in rotation view
+        if (this.viewMode !== 2) {
+            this.viewMode = this.preferredTeamView === 'swipe' ? 0 : 1;
+        }
+
         if (this.viewMode === 0) {
-            // Swipeable view (default)
+            // Swipeable view
+            this.viewlessBtn.textContent = 'VIEW_A';
             panel.style.display = 'none';
             rotationDisplay.style.display = 'none';
             swipeableRoster.style.display = '';
             this.buildSwipeableRoster();
         } else if (this.viewMode === 1) {
-            // Less view
+            // Table view
             document.body.classList.add('less-view');
+            this.viewlessBtn.textContent = 'VIEW_B';
             panel.style.display = '';
             rotationDisplay.style.display = 'none';
             swipeableRoster.style.display = 'none';
+            this.updateTableInactiveRows(); // Update inactive row visibility
         } else if (this.viewMode === 2) {
             // Rotation view
             document.body.classList.add('rotation-view');
+            this.viewlessBtn.textContent = 'VIEW_D';
             panel.style.display = 'none';
             rotationDisplay.style.display = '';
             swipeableRoster.style.display = 'none';
@@ -282,8 +307,11 @@ class RosterManager {
         }
     }
 
-    // Toggle Less/More view
+    // Toggle between preferred view and rotation view
     toggleLessView() {
+        // Determine the preferred team view mode (0 = swipe, 1 = table)
+        const preferredMode = this.preferredTeamView === 'swipe' ? 0 : 1;
+
         // If switching away from View_A during setup, auto-assign unassigned players to Inactive
         if (this.viewMode === 0 && this.currentHalf === 'setup') {
             this.rows.forEach(r => {
@@ -298,8 +326,14 @@ class RosterManager {
             });
         }
 
-        // Cycle through: 0 (Swipeable) -> 1 (Less) -> 2 (Rotation) -> 0
-        this.viewMode = (this.viewMode + 1) % 3;
+        // Toggle between preferred view and rotation view (VIEW_D)
+        if (this.viewMode === 2) {
+            // Currently in rotation view, switch to preferred view
+            this.viewMode = preferredMode;
+        } else {
+            // Currently in preferred view, switch to rotation view
+            this.viewMode = 2;
+        }
 
         // Update body classes
         document.body.classList.remove('less-view', 'min-view', 'rotation-view');
@@ -309,20 +343,22 @@ class RosterManager {
 
         if (this.viewMode === 0) {
             // Swipeable view
-            this.viewlessBtn.textContent = 'View_A';
+            this.viewlessBtn.textContent = 'VIEW_A';
             panel.style.display = 'none';
             rotationDisplay.style.display = 'none';
             swipeableRoster.style.display = '';
             this.buildSwipeableRoster();
         } else if (this.viewMode === 1) {
+            // Table view
             document.body.classList.add('less-view');
-            this.viewlessBtn.textContent = 'View_B';
+            this.viewlessBtn.textContent = 'VIEW_B';
             panel.style.display = '';
             rotationDisplay.style.display = 'none';
             swipeableRoster.style.display = 'none';
         } else if (this.viewMode === 2) {
+            // Rotation view
             document.body.classList.add('rotation-view');
-            this.viewlessBtn.textContent = 'View_D';
+            this.viewlessBtn.textContent = 'VIEW_D';
             panel.style.display = 'none';
             rotationDisplay.style.display = '';
             swipeableRoster.style.display = 'none';
@@ -332,8 +368,68 @@ class RosterManager {
         // Update inactive row visibility
         this.rows.forEach(r => r.tr.classList.toggle('inactive-row', !!r.cbInactive.checked));
 
+        // Update table inactive toggle visibility
+        this.updateTableInactiveRows();
+
         this.updateDynamicSizing();
         setTimeout(() => this.updateDynamicSizing(), 100);
+    }
+
+    // Toggle table inactive rows visibility
+    toggleTableInactive() {
+        this.showInactivePlayers = !this.showInactivePlayers;
+        this.updateTableInactiveRows();
+    }
+
+    // Update table inactive rows visibility and toggle button
+    updateTableInactiveRows() {
+        // Only apply to table view (viewMode 1)
+        if (this.viewMode !== 1) {
+            if (this.tableInactiveToggle) {
+                this.tableInactiveToggle.style.display = 'none';
+            }
+            return;
+        }
+
+        const inactiveRows = this.rows.filter(r => r.cbInactive.checked);
+        const inactiveCount = inactiveRows.length;
+
+        // Hide toggle if no inactive players or in setup phase
+        if (inactiveCount === 0 || this.currentHalf === 'setup') {
+            if (this.tableInactiveToggle) {
+                this.tableInactiveToggle.style.display = 'none';
+            }
+            // Show all rows in setup by removing inactive-row class
+            this.rows.forEach(r => {
+                r.tr.classList.remove('inactive-row');
+            });
+            return;
+        }
+
+        // Show toggle button
+        if (this.tableInactiveToggle) {
+            this.tableInactiveToggle.style.display = '';
+        }
+
+        // Update toggle button text and icon
+        if (this.tableInactiveCount) {
+            this.tableInactiveCount.textContent = `${inactiveCount} Inactive Player${inactiveCount !== 1 ? 's' : ''}`;
+        }
+        if (this.tableInactiveIcon) {
+            this.tableInactiveIcon.textContent = this.showInactivePlayers ? '▲' : '▼';
+        }
+
+        // Show/hide inactive rows by managing the inactive-row class
+        // The CSS rule .less-view tr.inactive-row { display: none; } will handle visibility
+        inactiveRows.forEach(r => {
+            if (this.showInactivePlayers) {
+                // Remove inactive-row class to show the row
+                r.tr.classList.remove('inactive-row');
+            } else {
+                // Add inactive-row class to hide the row
+                r.tr.classList.add('inactive-row');
+            }
+        });
     }
 
     // Build swipeable roster for View_A
@@ -1612,6 +1708,13 @@ class RosterManager {
             this.updateMatchTimeLabel();
             this.updateScoreVisibility(); // Show scores when game starts
 
+            // Update table inactive rows when game starts
+            this.updateTableInactiveRows();
+            // Rebuild swipeable roster to show inactive toggle
+            if (this.viewMode === 0) {
+                this.buildSwipeableRoster();
+            }
+
             // Start new game session
             if (this.logger) {
                 this.logger.startSession(
@@ -1793,6 +1896,11 @@ class RosterManager {
         this.resetScores(); // Reset scores when restarting game
         this.updateStartButtonState(); // Ensure button state is correct for setup phase
         this.updateScoreVisibility(); // Hide scores during setup
+        this.updateTableInactiveRows(); // Reset inactive toggle for table view
+        // Rebuild swipeable roster to reset inactive toggle
+        if (this.viewMode === 0) {
+            this.buildSwipeableRoster();
+        }
         this.saveDebounced();
     }
     
@@ -2011,14 +2119,14 @@ class RosterManager {
                 if (cbInactive.checked) {
                     // Get previous position BEFORE unchecking other boxes
                     const previousPosition = cbField.checked ? 'field' : cbBench.checked ? 'bench' : cbGoalie.checked ? 'goalie' : 'none';
-                    
+
                     cbField.checked = false;
                     cbBench.checked = false;
                     cbGoalie.checked = false;
-                    
+
                     const row = this.rows.find(r => r.nameInput === nameInput);
                     if (row) this.stopCounter(row);
-                    
+
                     // Log position change
                     if (this.logger) {
                         this.logger.log(
@@ -2034,6 +2142,8 @@ class RosterManager {
                     }
                 }
                 updatePlayerColor();
+                // Update table inactive toggle when inactive status changes
+                this.updateTableInactiveRows();
             });
 
             cbGoalie.addEventListener('change', () => {
@@ -2503,6 +2613,70 @@ class RosterManager {
             this.markNextPlayers(); // Re-apply highlighting with new style
         }
     }
+
+    loadTeamViewPreference() {
+        const saved = localStorage.getItem('team_view_preference');
+        if (saved && (saved === 'swipe' || saved === 'table')) {
+            this.preferredTeamView = saved;
+        } else {
+            this.preferredTeamView = 'swipe'; // Default
+        }
+    }
+
+    setTeamViewPreference(viewType) {
+        if (viewType === 'swipe' || viewType === 'table') {
+            this.preferredTeamView = viewType;
+            localStorage.setItem('team_view_preference', viewType);
+
+            // Switch to the newly preferred view
+            const targetMode = viewType === 'swipe' ? 0 : 1;
+            if (this.viewMode !== targetMode && this.viewMode !== 2) {
+                // If we're not in rotation view, switch to the new preferred view
+                this.switchToView(targetMode);
+            }
+        }
+    }
+
+    switchToView(targetMode) {
+        this.viewMode = targetMode;
+
+        // Update body classes
+        document.body.classList.remove('less-view', 'min-view', 'rotation-view');
+        const panel = document.querySelector('.panel');
+        const rotationDisplay = document.getElementById('rotationDisplay');
+        const swipeableRoster = this.swipeableRoster;
+
+        if (targetMode === 0) {
+            // Swipeable view
+            this.viewlessBtn.textContent = 'VIEW_A';
+            panel.style.display = 'none';
+            rotationDisplay.style.display = 'none';
+            swipeableRoster.style.display = '';
+            this.buildSwipeableRoster();
+        } else if (targetMode === 1) {
+            // Table view
+            document.body.classList.add('less-view');
+            this.viewlessBtn.textContent = 'VIEW_B';
+            panel.style.display = '';
+            rotationDisplay.style.display = 'none';
+            swipeableRoster.style.display = 'none';
+            this.updateTableInactiveRows();
+        } else if (targetMode === 2) {
+            // Rotation view
+            document.body.classList.add('rotation-view');
+            this.viewlessBtn.textContent = 'VIEW_D';
+            panel.style.display = 'none';
+            rotationDisplay.style.display = '';
+            swipeableRoster.style.display = 'none';
+            this.updateRotationDisplay();
+        }
+
+        // Update inactive row visibility
+        this.rows.forEach(r => r.tr.classList.toggle('inactive-row', !!r.cbInactive.checked));
+        this.updateTableInactiveRows();
+        this.updateDynamicSizing();
+        setTimeout(() => this.updateDynamicSizing(), 100);
+    }
 }
 
 // Theme switching function
@@ -2537,6 +2711,13 @@ function setRotationStyleFromMAUI(styleNum) {
     }
 }
 
+// Function callable from MAUI to set team view preference
+function setTeamViewFromMAUI(viewType) {
+    if (rosterManagerInstance) {
+        rosterManagerInstance.setTeamViewPreference(viewType);
+    }
+}
+
 // Initialize when DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
     loadSavedTheme();
@@ -2545,3 +2726,4 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // Make functions available globally for MAUI to call
 window.setRotationStyleFromMAUI = setRotationStyleFromMAUI;
+window.setTeamViewFromMAUI = setTeamViewFromMAUI;
