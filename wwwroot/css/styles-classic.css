@@ -61,6 +61,19 @@ body.flash-yellow {
     max-width: 900px;
     margin: 0 auto;
     padding: 12px;
+    display: flex;
+    flex-direction: column;
+    height: 97vh;
+}
+
+/* Content area - scrollable section between header and footer */
+.content-area {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    margin: 5px 0;  /* 10px total buffer (5px top + 5px bottom) */
 }
 
 /* Compact header */
@@ -72,6 +85,7 @@ h1 {
     align-items: center;
     justify-content: center;
     gap: 8px;
+    flex-shrink: 0;
 }
 
 .header-score {
@@ -99,11 +113,18 @@ h1 {
     gap: 16px;
     margin-bottom: 8px;
     flex-wrap: nowrap;
+    flex-shrink: 0;
+}
+
+.top-controls {
+    margin-bottom: 8px;
 }
 
 .bottom-controls {
     margin-top: 8px;
-    margin-bottom: 4px;
+    margin-bottom: 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
 }
 
 .control-col {
@@ -205,7 +226,8 @@ button:disabled {
     padding: 6px;
     overflow-y: auto;
     overflow-x: hidden;
-    max-height: calc(100vh - 140px);
+    flex: 1;
+    min-height: 0;
 }
 
 .roster-table {
@@ -284,86 +306,6 @@ button:disabled {
     }
 }
 
-/* Option 2: Animated Gradient Border */
-.roster-table tbody tr.player-next.rotate-style-2 {
-    outline: 3px solid;
-    outline-offset: -3px;
-    border-image: linear-gradient(45deg, var(--accent), #ff8555, var(--accent)) 1;
-    animation: borderShift 2s linear infinite;
-}
-
-@keyframes borderShift {
-    0% { filter: hue-rotate(0deg); }
-    100% { filter: hue-rotate(360deg); }
-}
-
-/* Option 3: Corner Markers with Elevation */
-.roster-table tbody tr.player-next.rotate-style-3 {
-    position: relative;
-    transform: scale(1.02);
-    box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
-}
-
-.roster-table tbody tr.player-next.rotate-style-3::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 15px;
-    height: 15px;
-    border-top: 3px solid var(--accent);
-    border-left: 3px solid var(--accent);
-    animation: cornerPulse 1.5s ease-in-out infinite;
-    z-index: 1;
-}
-
-.roster-table tbody tr.player-next.rotate-style-3::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    width: 15px;
-    height: 15px;
-    border-bottom: 3px solid var(--accent);
-    border-right: 3px solid var(--accent);
-    animation: cornerPulse 1.5s ease-in-out infinite;
-    z-index: 1;
-}
-
-@keyframes cornerPulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
-
-/* Option 4: Shimmer/Shine Effect */
-.roster-table tbody tr.player-next.rotate-style-4 {
-    position: relative;
-    overflow: hidden;
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-}
-
-.roster-table tbody tr.player-next.rotate-style-4::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, 
-        transparent, 
-        rgba(255, 107, 53, 0.3), 
-        transparent);
-    animation: shimmer 2s infinite;
-    z-index: 1;
-    pointer-events: none;
-}
-
-@keyframes shimmer {
-    0% { left: -100%; }
-    100% { left: 100%; }
-}
-
 /* Option 5: Rotating Arrow Indicator */
 .roster-table tbody tr.player-next.rotate-style-5 {
     border-left: 5px solid var(--accent);
@@ -386,7 +328,10 @@ button:disabled {
 }
 
 /* Default to Option 1 if no specific style class */
-.roster-table tbody tr.player-next:not([class*="rotate-style-"]) {
+.roster-table tbody tr.player-next:not([class*="rotate-style-"]),
+.roster-table tbody tr.player-next.rotate-style-2,
+.roster-table tbody tr.player-next.rotate-style-3,
+.roster-table tbody tr.player-next.rotate-style-4 {
     border-left: 6px solid var(--accent);
     box-shadow: -4px 0 12px rgba(255, 107, 53, 0.6);
     animation: glowPulse 1.5s ease-in-out infinite;
@@ -1001,69 +946,6 @@ body.min-view .min-hidden {
     transform: translateX(4px);
 }
 
-/* Option 2: Animated Gradient Border */
-.swipeable-player-item.player-next.rotate-style-2 {
-    border: 3px solid;
-    border-image: linear-gradient(45deg, var(--accent), #ff8555, var(--accent)) 1;
-    box-shadow: 0 0 15px rgba(255, 107, 53, 0.5);
-    animation: borderShift 2s linear infinite;
-}
-
-/* Option 3: Corner Markers with Elevation */
-.swipeable-player-item.player-next.rotate-style-3 {
-    position: relative;
-    transform: scale(1.05);
-    box-shadow: 0 8px 20px rgba(255, 107, 53, 0.4);
-    transition: all 0.3s ease;
-}
-
-.swipeable-player-item.player-next.rotate-style-3::before,
-.swipeable-player-item.player-next.rotate-style-3::after {
-    content: '';
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    border: 3px solid var(--accent);
-    animation: cornerPulse 1.5s ease-in-out infinite;
-}
-
-.swipeable-player-item.player-next.rotate-style-3::before {
-    top: -2px;
-    left: -2px;
-    border-right: none;
-    border-bottom: none;
-}
-
-.swipeable-player-item.player-next.rotate-style-3::after {
-    bottom: -2px;
-    right: -2px;
-    border-left: none;
-    border-top: none;
-}
-
-/* Option 4: Shimmer/Shine Effect */
-.swipeable-player-item.player-next.rotate-style-4 {
-    position: relative;
-    overflow: hidden;
-    border: 2px solid var(--accent);
-}
-
-.swipeable-player-item.player-next.rotate-style-4::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, 
-        transparent, 
-        rgba(255, 107, 53, 0.3), 
-        transparent);
-    animation: shimmer 2s infinite;
-    z-index: 1;
-    pointer-events: none;
-}
-
 /* Option 5: Rotating Arrow Indicator */
 .swipeable-player-item.player-next.rotate-style-5 {
     border-left: 5px solid var(--accent);
@@ -1084,7 +966,10 @@ body.min-view .min-hidden {
 }
 
 /* Default to Option 1 if no specific style class */
-.swipeable-player-item.player-next:not([class*="rotate-style-"]) {
+.swipeable-player-item.player-next:not([class*="rotate-style-"]),
+.swipeable-player-item.player-next.rotate-style-2,
+.swipeable-player-item.player-next.rotate-style-3,
+.swipeable-player-item.player-next.rotate-style-4 {
     border-left: 6px solid var(--accent);
     box-shadow: -4px 0 12px rgba(255, 107, 53, 0.6), 0 4px 15px rgba(0, 0, 0, 0.3);
     animation: glowPulse 1.5s ease-in-out infinite;

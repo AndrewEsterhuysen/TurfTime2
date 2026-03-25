@@ -30,51 +30,55 @@
             </div>
         </div>
 
-        <div class="panel">
-            <table class="roster-table" aria-label="Team Roster">
-                <thead>
-                    <tr>
-                        <th>Player</th>
-                        <th>Field</th>
-                        <th>Bench</th>
-                        <th>Goalie</th>
-                        <th>Inactive</th>
-                    </tr>
-                </thead>
-                <tbody id="rosterBody"></tbody>
-            </table>
-            <!-- Inactive toggle for table view -->
-            <div id="tableInactiveToggle" class="table-inactive-toggle-section" style="display: none;">
-                <button id="tableInactiveToggleBtn" class="inactive-toggle-btn">
-                    <span id="tableInactiveCount" class="inactive-count">0 Inactive Players</span>
-                    <span id="tableInactiveIcon" class="inactive-toggle-icon">▼</span>
-                </button>
-            </div>
-        </div>
-
-        <!-- Swipeable Player List for View_A -->
-        <div id="swipeableRoster" class="swipeable-roster" style="display: none;">
-            <div id="swipeablePlayerList" class="swipeable-player-list"></div>
-        </div>
-
-        <!-- Rotation Display for View_D with Score Buttons -->
-        <div id="rotationDisplay" class="rotation-display" style="display: none;">
-            <div class="rotation-content-wrapper">
-                <button id="teamAScoreBtn" class="score-button score-button-left">
-                    <div class="score-label">Us</div>
-                    <div class="score-value" id="teamAScore">0</div>
-                </button>
-                <div class="rotation-center">
-                    <div class="rotation-title">Next Rotation</div>
-                    <div id="rotationPairs" class="rotation-pairs"></div>
+        <!-- Content area (scrollable) -->
+        <div class="content-area">
+            <div class="panel">
+                <table class="roster-table" aria-label="Team Roster">
+                    <thead>
+                        <tr>
+                            <th>Player</th>
+                            <th>Field</th>
+                            <th>Bench</th>
+                            <th>Goalie</th>
+                            <th>Inactive</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rosterBody"></tbody>
+                </table>
+                <!-- Inactive toggle for table view -->
+                <div id="tableInactiveToggle" class="table-inactive-toggle-section" style="display: none;">
+                    <button id="tableInactiveToggleBtn" class="inactive-toggle-btn">
+                        <span id="tableInactiveCount" class="inactive-count">0 Inactive Players</span>
+                        <span id="tableInactiveIcon" class="inactive-toggle-icon">▼</span>
+                    </button>
                 </div>
-                <button id="teamBScoreBtn" class="score-button score-button-right">
-                    <div class="score-label">Them</div>
-                    <div class="score-value" id="teamBScore">0</div>
-                </button>
+            </div>
+
+            <!-- Swipeable Player List for View_A -->
+            <div id="swipeableRoster" class="swipeable-roster" style="display: none;">
+                <div id="swipeablePlayerList" class="swipeable-player-list"></div>
+            </div>
+
+            <!-- Rotation Display for VIEW_C with Score Buttons -->
+            <div id="rotationDisplay" class="rotation-display" style="display: none;">
+                <div class="rotation-content-wrapper">
+                    <button id="teamAScoreBtn" class="score-button score-button-left">
+                        <div class="score-label">Us</div>
+                        <div class="score-value" id="teamAScore">0</div>
+                    </button>
+                    <div class="rotation-center">
+                        <div class="rotation-title">Next Rotation</div>
+                        <div id="rotationPairs" class="rotation-pairs"></div>
+                    </div>
+                    <button id="teamBScoreBtn" class="score-button score-button-right">
+                        <div class="score-label">Them</div>
+                        <div class="score-value" id="teamBScore">0</div>
+                    </button>
+                </div>
             </div>
         </div>
 
+        <!-- Fixed controls at bottom -->
         <div class="bottom-controls">
             <div class="control-col">
                 <button id="startBtn">Start</button>

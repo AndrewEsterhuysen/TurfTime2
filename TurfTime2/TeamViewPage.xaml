@@ -81,7 +81,7 @@
                            FontSize="14"
                            FontAttributes="Bold"
                            TextColor="#00d9ff" />
-                    <Label Text="The view you select will appear at app startup. The VIEW button will cycle between your selected view and the Rotation Display (VIEW_D)." 
+                    <Label Text="The view you select will appear at app startup. The VIEW button will cycle between your selected view and the Rotation Display (VIEW_C)."
                            FontSize="13"
                            TextColor="#E0E0E0"
                            LineBreakMode="WordWrap" />

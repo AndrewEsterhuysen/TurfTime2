@@ -15,9 +15,9 @@ public partial class RotationStylePage : ContentPage
     {
         InitializeComponent();
 
-        // Store references to check marks and frames for easy access
-        checkMarks = new[] { Option1Check, Option2Check, Option3Check, Option4Check, Option5Check };
-        frames = new[] { Option1Frame, Option2Frame, Option3Frame, Option4Frame, Option5Frame };
+        // Store references to check marks and frames for easy access (only 2 options now)
+        checkMarks = new[] { Option1Check, Option5Check };
+        frames = new[] { Option1Frame, Option5Frame };
 
         LoadCurrentStyle();
         UpdateUI();
@@ -28,6 +28,11 @@ public partial class RotationStylePage : ContentPage
         if (Preferences.ContainsKey(RotationStyleKey))
         {
             currentStyle = Preferences.Get(RotationStyleKey, 1);
+            // Convert old style numbers to new ones (5 -> 5, 2/3/4 -> 1)
+            if (currentStyle == 2 || currentStyle == 3 || currentStyle == 4)
+            {
+                currentStyle = 1; // Default to glowing border
+            }
         }
         else
         {
@@ -54,31 +59,25 @@ public partial class RotationStylePage : ContentPage
             check.IsVisible = false;
         }
 
-        // Show the check mark for the current style (1-indexed)
-        if (currentStyle >= 1 && currentStyle <= 5)
+        // Show check mark based on style (only 1 and 5 are valid now)
+        if (currentStyle == 1)
         {
-            checkMarks[currentStyle - 1].IsVisible = true;
+            Option1Check.IsVisible = true;
+        }
+        else if (currentStyle == 5)
+        {
+            Option5Check.IsVisible = true;
+        }
+        else
+        {
+            // Fallback to option 1
+            Option1Check.IsVisible = true;
         }
     }
 
     private void OnOption1Tapped(object sender, EventArgs e)
     {
         SaveStyle(1);
-    }
-
-    private void OnOption2Tapped(object sender, EventArgs e)
-    {
-        SaveStyle(2);
-    }
-
-    private void OnOption3Tapped(object sender, EventArgs e)
-    {
-        SaveStyle(3);
-    }
-
-    private void OnOption4Tapped(object sender, EventArgs e)
-    {
-        SaveStyle(4);
     }
 
     private void OnOption5Tapped(object sender, EventArgs e)

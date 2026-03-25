@@ -108,8 +108,33 @@
 			<Generator>MSBuild:Compile</Generator>
 		</MauiXaml>
 		<MauiXaml Update="TurfTime2\TeamViewPage.xaml">
-		  <Generator>MSBuild:Compile</Generator>
+			<Generator>MSBuild:Compile</Generator>
 		</MauiXaml>
+	</ItemGroup>
+
+	<!-- Generate build metadata at compile time -->
+	<PropertyGroup>
+		<GetGitHashCommand>git rev-parse --short HEAD</GetGitHashCommand>
+		<GetGitHashCommand Condition="'$(OS)' == 'Windows_NT'">cmd /c git rev-parse --short HEAD</GetGitHashCommand>
+	</PropertyGroup>
+
+	<Target Name="GetBuildMetadata" BeforeTargets="BeforeBuild">
+		<Exec Command="$(GetGitHashCommand)" ConsoleToMSBuild="true" IgnoreExitCode="true">
+			<Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash" />
+		</Exec>
+
+		<PropertyGroup>
+			<GitCommitHash Condition="'$(GitCommitHash)' == ''">unknown</GitCommitHash>
+			<BuildTimestamp>$([System.DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm")) UTC</BuildTimestamp>
+		</PropertyGroup>
+
+		<Message Text="Build Metadata: Commit=$(GitCommitHash), Time=$(BuildTimestamp)" Importance="high" />
+	</Target>
+
+	<!-- Inject as assembly metadata -->
+	<ItemGroup>
+		<AssemblyMetadata Include="GitCommit" Value="$(GitCommitHash)" />
+		<AssemblyMetadata Include="BuildTime" Value="$(BuildTimestamp)" />
 	</ItemGroup>
 
 </Project>

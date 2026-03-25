@@ -284,7 +284,7 @@ class RosterManager {
         } else if (this.viewMode === 2) {
             // Rotation view
             document.body.classList.add('rotation-view');
-            this.viewlessBtn.textContent = 'VIEW_D';
+            this.viewlessBtn.textContent = 'VIEW_C';
             panel.style.display = 'none';
             rotationDisplay.style.display = '';
             swipeableRoster.style.display = 'none';
@@ -326,7 +326,7 @@ class RosterManager {
             });
         }
 
-        // Toggle between preferred view and rotation view (VIEW_D)
+        // Toggle between preferred view and rotation view (VIEW_C)
         if (this.viewMode === 2) {
             // Currently in rotation view, switch to preferred view
             this.viewMode = preferredMode;
@@ -358,7 +358,7 @@ class RosterManager {
         } else if (this.viewMode === 2) {
             // Rotation view
             document.body.classList.add('rotation-view');
-            this.viewlessBtn.textContent = 'VIEW_D';
+            this.viewlessBtn.textContent = 'VIEW_C';
             panel.style.display = 'none';
             rotationDisplay.style.display = '';
             swipeableRoster.style.display = 'none';
@@ -379,6 +379,9 @@ class RosterManager {
     toggleTableInactive() {
         this.showInactivePlayers = !this.showInactivePlayers;
         this.updateTableInactiveRows();
+        // Trigger dynamic sizing to scale up remaining players
+        this.updateDynamicSizing();
+        setTimeout(() => this.updateDynamicSizing(), 100);
     }
 
     // Update table inactive rows visibility and toggle button
@@ -681,7 +684,9 @@ class RosterManager {
             }
 
             const deltaX = currentX - startX;
+            const deltaY = currentY - startY;
             const duration = Date.now() - startTime;
+            const totalMovement = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
             // Handle reorder drop
             if (isDraggingReorder) {
@@ -698,6 +703,20 @@ class RosterManager {
                 if (dragOverIndex !== -1) {
                     const myIndex = this.rows.indexOf(row);
                     if (myIndex !== -1 && myIndex !== dragOverIndex) {
+                        // Find which rows are currently marked as "next" before reordering
+                        const benchCandidates = [];
+                        const fieldCandidates = [];
+                        this.rows.forEach((r, idx) => {
+                            if (r.cbBench.checked && !r.cbInactive.checked && !r.cbGoalie.checked) benchCandidates.push(idx);
+                            if (r.cbField.checked && !r.cbInactive.checked && !r.cbGoalie.checked) fieldCandidates.push(idx);
+                        });
+
+                        // Get the current "next" rows before reordering
+                        const nextFieldIdx = this._nextIndexFrom(fieldCandidates, this.lastFieldIdx);
+                        const nextBenchIdx = this._nextIndexFrom(benchCandidates, this.lastBenchIdx);
+                        const nextFieldRow = nextFieldIdx !== -1 ? this.rows[nextFieldIdx] : null;
+                        const nextBenchRow = nextBenchIdx !== -1 ? this.rows[nextBenchIdx] : null;
+
                         // Reorder array
                         this.rows.splice(myIndex, 1);
                         this.rows.splice(dragOverIndex, 0, row);
@@ -708,8 +727,21 @@ class RosterManager {
                             this.buildSwipeableRoster();
                         }, 50);
 
-                        this.lastFieldIdx = -1;
-                        this.lastBenchIdx = -1;
+                        // Update pointers to point to the new positions of the same "next" rows
+                        if (nextFieldRow) {
+                            const newFieldIdx = this.rows.indexOf(nextFieldRow);
+                            if (newFieldIdx !== -1) {
+                                // Set lastFieldIdx so that nextFieldRow is still the next one
+                                this.lastFieldIdx = (newFieldIdx - 1 + this.rows.length) % this.rows.length;
+                            }
+                        }
+                        if (nextBenchRow) {
+                            const newBenchIdx = this.rows.indexOf(nextBenchRow);
+                            if (newBenchIdx !== -1) {
+                                // Set lastBenchIdx so that nextBenchRow is still the next one
+                                this.lastBenchIdx = (newBenchIdx - 1 + this.rows.length) % this.rows.length;
+                            }
+                        }
 
                         // Log reordering
                         if (this.logger) {
@@ -726,6 +758,20 @@ class RosterManager {
                 }
 
                 isDraggingReorder = false;
+                isLongPress = false;
+                return;
+            }
+
+            // Detect short tap (< 200ms, minimal movement)
+            if (duration < 200 && totalMovement < 10) {
+                // Short tap detected
+                if (this.currentHalf === 'setup') {
+                    // During setup: allow name editing (handled by name span click event)
+                    // Do nothing here
+                } else {
+                    // After game starts: set as next player to rotate
+                    this.setNextPlayerToRotate(row);
+                }
                 isLongPress = false;
                 return;
             }
@@ -923,6 +969,48 @@ class RosterManager {
         );
     }
 
+    // Set next player to rotate (called when player item is tapped after game starts)
+    setNextPlayerToRotate(row) {
+        const playerIndex = this.rows.indexOf(row);
+        if (playerIndex === -1) return;
+
+        // Check if player is on field (and eligible for rotation)
+        if (row.cbField.checked && !row.cbInactive.checked && !row.cbGoalie.checked) {
+            // Set this as the next field player to rotate
+            this.lastFieldIdx = playerIndex - 1; // Set to previous so this becomes next
+            this.markNextPlayers();
+            this.markNextPlayersSwipeable();
+
+            // Log the action
+            if (this.logger) {
+                this.logger.log(
+                    this.logger.EVENT_TYPES.PLAYER_TO_FIELD, // Using existing event type
+                    `${row.nameInput.value} set as next field player to rotate`,
+                    row.nameInput.value,
+                    { playerIndex: playerIndex, action: 'set_next_to_rotate' }
+                );
+            }
+        }
+        // Check if player is on bench (and eligible for rotation)
+        else if (row.cbBench.checked && !row.cbInactive.checked && !row.cbGoalie.checked) {
+            // Set this as the next bench player to rotate
+            this.lastBenchIdx = playerIndex - 1; // Set to previous so this becomes next
+            this.markNextPlayers();
+            this.markNextPlayersSwipeable();
+
+            // Log the action
+            if (this.logger) {
+                this.logger.log(
+                    this.logger.EVENT_TYPES.PLAYER_TO_BENCH, // Using existing event type
+                    `${row.nameInput.value} set as next bench player to rotate`,
+                    row.nameInput.value,
+                    { playerIndex: playerIndex, action: 'set_next_to_rotate' }
+                );
+            }
+        }
+        // If player is goalie or inactive, do nothing
+    }
+
     // Mark next players in swipeable view
     markNextPlayersSwipeable() {
         if (this.viewMode !== 0) return;
@@ -997,20 +1085,27 @@ class RosterManager {
 
             const availableForPlayers = Math.max(150, available - rosterPadding - rosterBorder - toggleHeight);
 
-            // Always calculate for ALL 16 players to ensure they all fit
-            const playerCount = 16;
+            // Count VISIBLE players (exclude inactive if hidden)
+            let visiblePlayerCount = this.rows.length;
+            if (this.currentHalf !== 'setup' && !this.showInactivePlayers) {
+                // Count only non-inactive players
+                visiblePlayerCount = this.rows.filter(r => !r.cbInactive.checked).length;
+            }
+
+            // Ensure at least 1 player to avoid division by zero
+            const playerCount = Math.max(1, visiblePlayerCount);
             const gapCount = playerCount - 1;
             const gapSize = 3; // Match CSS gap
             const totalGapSpace = gapCount * gapSize;
 
-            // Very conservative calculation - absolute minimum to fit everything
+            // Calculate item height based on VISIBLE player count
             const playerItemHeight = Math.max(22, Math.floor((availableForPlayers - totalGapSpace) / playerCount));
 
-            // Extremely conservative dynamic values - NO vertical padding to start
-            const playerFontSize = Math.max(0.6, Math.min(playerItemHeight * 0.032, 0.88));
-            const playerPadV = 0; // Remove all vertical padding
-            const playerPadH = Math.max(6, Math.min(playerItemHeight * 0.30, 14));
-            const counterFontSize = Math.max(0.5, Math.min(playerItemHeight * 0.026, 0.75));
+            // Scale font and padding based on item height
+            const playerFontSize = Math.max(0.6, Math.min(playerItemHeight * 0.042, 1.2));
+            const playerPadV = Math.max(0, Math.min(playerItemHeight * 0.15, 12));
+            const playerPadH = Math.max(6, Math.min(playerItemHeight * 0.30, 20));
+            const counterFontSize = Math.max(0.5, Math.min(playerItemHeight * 0.035, 0.9));
 
             const bodyStyle = document.body.style;
             bodyStyle.setProperty('--swipeable-item-height', playerItemHeight + 'px');
@@ -1100,8 +1195,14 @@ class RosterManager {
         }
 
         // Less view (1) uses dynamic sizing for table rows
-        const visibleRows = this.rows.filter(r => !r.cbInactive.checked);
-        const count = visibleRows.length || 1;
+        // Count VISIBLE rows (exclude inactive if hidden)
+        let visibleRowCount = this.rows.length;
+        if (this.currentHalf !== 'setup' && !this.showInactivePlayers) {
+            // Count only non-inactive players
+            visibleRowCount = this.rows.filter(r => !r.cbInactive.checked).length;
+        }
+
+        const count = Math.max(1, visibleRowCount); // At least 1 to avoid division by zero
         const tbody = this.rosterBody;
         const table = tbody.closest('table');
 
@@ -1109,7 +1210,11 @@ class RosterManager {
         const thead = table.querySelector('thead');
         const theadH = thead ? thead.getBoundingClientRect().height : 30;
 
-        const available = Math.max(0, window.innerHeight - tbodyTop - bottomH - paddingBottom - bufferSpace);
+        // Account for inactive toggle button height if present
+        const inactiveCount = this.rows.filter(r => r.cbInactive.checked).length;
+        const toggleHeight = (inactiveCount > 0 && this.currentHalf !== 'setup') ? 58 : 0;
+
+        const available = Math.max(0, window.innerHeight - tbodyTop - bottomH - paddingBottom - bufferSpace - toggleHeight);
         const rowH = (available - theadH) / count;
 
         const cellPadV = rowH * 0.2;
@@ -2209,8 +2314,65 @@ class RosterManager {
                     }
                 }
             };
-            nameInput.addEventListener('click', handleSelectAsNext);
-            nameInput.addEventListener('touchend', handleSelectAsNext, { passive: true });
+
+            // Track touch/mouse movement to distinguish tap from scroll
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let touchStartTime = 0;
+            let touchStartScrollTop = 0;
+            let hasMoved = false;
+
+            const handleTouchStart = (e) => {
+                const touch = e.touches ? e.touches[0] : e;
+                touchStartX = touch.clientX;
+                touchStartY = touch.clientY;
+                touchStartTime = Date.now();
+                hasMoved = false;
+
+                // Track parent scroll position
+                const panel = nameInput.closest('.panel');
+                touchStartScrollTop = panel ? panel.scrollTop : 0;
+            };
+
+            const handleTouchMove = (e) => {
+                if (hasMoved) return;
+
+                const touch = e.touches ? e.touches[0] : e;
+                const deltaX = Math.abs(touch.clientX - touchStartX);
+                const deltaY = Math.abs(touch.clientY - touchStartY);
+
+                // If moved more than 10px, consider it a scroll
+                if (deltaX > 10 || deltaY > 10) {
+                    hasMoved = true;
+                }
+            };
+
+            const handleTouchEnd = (e) => {
+                const duration = Date.now() - touchStartTime;
+
+                // Check if parent scrolled
+                const panel = nameInput.closest('.panel');
+                const currentScrollTop = panel ? panel.scrollTop : 0;
+                const scrollChanged = Math.abs(currentScrollTop - touchStartScrollTop) > 2;
+
+                // Only trigger selection if:
+                // 1. Touch duration < 200ms (quick tap)
+                // 2. No significant movement detected
+                // 3. Parent container didn't scroll
+                if (duration < 200 && !hasMoved && !scrollChanged) {
+                    handleSelectAsNext(e);
+                }
+            };
+
+            // Use touch events for touch devices, mouse events for desktop
+            if ('ontouchstart' in window) {
+                nameInput.addEventListener('touchstart', handleTouchStart, { passive: true });
+                nameInput.addEventListener('touchmove', handleTouchMove, { passive: true });
+                nameInput.addEventListener('touchend', handleTouchEnd);
+            } else {
+                // Desktop: use click event (no scroll conflict on desktop)
+                nameInput.addEventListener('click', handleSelectAsNext);
+            }
 
             updatePlayerColor();
 
@@ -2282,6 +2444,21 @@ class RosterManager {
                         const targetIndex = this.rows.indexOf(this.dragOverRow);
 
                         if (draggedIndex !== -1 && targetIndex !== -1) {
+                            // Find which rows are currently marked as "next" before reordering
+                            const benchCandidates = [];
+                            const fieldCandidates = [];
+                            this.rows.forEach((r, idx) => {
+                                if (r.cbBench.checked && !r.cbInactive.checked && !r.cbGoalie.checked) benchCandidates.push(idx);
+                                if (r.cbField.checked && !r.cbInactive.checked && !r.cbGoalie.checked) fieldCandidates.push(idx);
+                            });
+
+                            // Get the current "next" rows before reordering
+                            const nextFieldIdx = this._nextIndexFrom(fieldCandidates, this.lastFieldIdx);
+                            const nextBenchIdx = this._nextIndexFrom(benchCandidates, this.lastBenchIdx);
+                            const nextFieldRow = nextFieldIdx !== -1 ? this.rows[nextFieldIdx] : null;
+                            const nextBenchRow = nextBenchIdx !== -1 ? this.rows[nextBenchIdx] : null;
+
+                            // Perform the reorder
                             this.rows.splice(draggedIndex, 1);
                             const newTargetIndex = draggedIndex < targetIndex ? targetIndex : targetIndex;
                             this.rows.splice(newTargetIndex, 0, this.draggedRow);
@@ -2289,9 +2466,22 @@ class RosterManager {
                             // Rebuild DOM with proper drag/drop
                             this.rebuildDOM();
 
-                            this.lastFieldIdx = -1;
-                            this.lastBenchIdx = -1;
-                            
+                            // Update pointers to point to the new positions of the same "next" rows
+                            if (nextFieldRow) {
+                                const newFieldIdx = this.rows.indexOf(nextFieldRow);
+                                if (newFieldIdx !== -1) {
+                                    // Set lastFieldIdx so that nextFieldRow is still the next one
+                                    this.lastFieldIdx = (newFieldIdx - 1 + this.rows.length) % this.rows.length;
+                                }
+                            }
+                            if (nextBenchRow) {
+                                const newBenchIdx = this.rows.indexOf(nextBenchRow);
+                                if (newBenchIdx !== -1) {
+                                    // Set lastBenchIdx so that nextBenchRow is still the next one
+                                    this.lastBenchIdx = (newBenchIdx - 1 + this.rows.length) % this.rows.length;
+                                }
+                            }
+
                             // Log player reordering
                             if (this.logger) {
                                 this.logger.log(
@@ -2664,7 +2854,7 @@ class RosterManager {
         } else if (targetMode === 2) {
             // Rotation view
             document.body.classList.add('rotation-view');
-            this.viewlessBtn.textContent = 'VIEW_D';
+            this.viewlessBtn.textContent = 'VIEW_C';
             panel.style.display = 'none';
             rotationDisplay.style.display = '';
             swipeableRoster.style.display = 'none';
