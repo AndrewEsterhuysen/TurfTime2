@@ -118,23 +118,36 @@
 		<GetGitHashCommand Condition="'$(OS)' == 'Windows_NT'">cmd /c git rev-parse --short HEAD</GetGitHashCommand>
 	</PropertyGroup>
 
-	<Target Name="GetBuildMetadata" BeforeTargets="BeforeBuild">
+	<Target Name="GenerateBuildMetadata" BeforeTargets="BeforeCompile">
 		<Exec Command="$(GetGitHashCommand)" ConsoleToMSBuild="true" IgnoreExitCode="true">
 			<Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash" />
 		</Exec>
 
 		<PropertyGroup>
 			<GitCommitHash Condition="'$(GitCommitHash)' == ''">unknown</GitCommitHash>
-			<BuildTimestamp>$([System.DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm")) UTC</BuildTimestamp>
+			<BuildTimestamp>$([System.DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm"))</BuildTimestamp>
+			<BuildInfoContent>
+// Auto-generated build metadata
+namespace TurfTime2%3B
+
+public static class BuildInfo
+{
+		public const string GitCommit = "$(GitCommitHash)"%3B
+		public const string BuildTime = "$(BuildTimestamp) UTC"%3B
+}
+			</BuildInfoContent>
 		</PropertyGroup>
 
-		<Message Text="Build Metadata: Commit=$(GitCommitHash), Time=$(BuildTimestamp)" Importance="high" />
-	</Target>
+		<WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.g.cs" 
+											Lines="$(BuildInfoContent)" 
+											Overwrite="true" 
+											WriteOnlyWhenDifferent="true" />
 
-	<!-- Inject as assembly metadata -->
-	<ItemGroup>
-		<AssemblyMetadata Include="GitCommit" Value="$(GitCommitHash)" />
-		<AssemblyMetadata Include="BuildTime" Value="$(BuildTimestamp)" />
-	</ItemGroup>
+		<ItemGroup>
+			<Compile Include="$(IntermediateOutputPath)BuildInfo.g.cs" />
+		</ItemGroup>
+
+		<Message Text="Build Metadata: Commit=$(GitCommitHash), Time=$(BuildTimestamp) UTC" Importance="high" />
+	</Target>
 
 </Project>

@@ -20,13 +20,9 @@ public partial class HelpPage : ContentPage
             var version = AppInfo.Current.VersionString;
             var buildNumber = AppInfo.Current.BuildString;
 
-            // Get git commit hash and build timestamp from assembly metadata
-            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-            var attributes = assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
-                .Cast<System.Reflection.AssemblyMetadataAttribute>();
-
-            var gitCommit = attributes.FirstOrDefault(a => a.Key == "GitCommit")?.Value ?? "unknown";
-            var buildTime = attributes.FirstOrDefault(a => a.Key == "BuildTime")?.Value ?? "unknown";
+            // Get git commit hash and build timestamp from generated BuildInfo class
+            var gitCommit = BuildInfo.GitCommit;
+            var buildTime = BuildInfo.BuildTime;
 
             // Format: v1.0.0 (Build 2) | abc123f | 2025-01-15 14:32 UTC
             return $"v{version} (Build {buildNumber}) | {gitCommit} | {buildTime}";
