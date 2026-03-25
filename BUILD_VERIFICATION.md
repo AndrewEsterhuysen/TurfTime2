@@ -8,7 +8,7 @@
 3. At the top, you'll see:
    ```
    Current Build
-   v1.0.0 (Build 2) | 1f43abe | 2026-03-24 23:57 UTC
+   v1.0.3 (Build 3) | 1f43abe | 2026-03-24 23:57 UTC
    ```
 
 ### On Your Computer
