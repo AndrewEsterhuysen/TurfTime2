@@ -508,7 +508,9 @@ class RosterManager {
         const nameSpan = document.createElement('span');
         nameSpan.className = 'player-name-text';
         nameSpan.contentEditable = 'false';
-        nameSpan.textContent = row.nameInput.value || `Player ${idx + 1}`;
+        const icon = this.getPositionIcon(row);
+        const playerName = row.nameInput.value || `Player ${idx + 1}`;
+        nameSpan.textContent = icon ? `${icon} ${playerName}` : playerName;
 
         // Make name editable on tap
         nameSpan.addEventListener('click', (e) => {
@@ -527,12 +529,19 @@ class RosterManager {
 
         nameSpan.addEventListener('blur', () => {
             nameSpan.contentEditable = 'false';
-            const newName = nameSpan.textContent.trim();
+            let newName = nameSpan.textContent.trim();
+            // Remove ALL icons if user included them
+            newName = newName.replace(/^([⚽💺🥅❌]\s*)+/, '');
             if (newName) {
                 row.nameInput.value = newName;
+                // Re-add icon
+                const icon = this.getPositionIcon(row);
+                nameSpan.textContent = icon ? `${icon} ${newName}` : newName;
                 this.saveDebounced();
             } else {
-                nameSpan.textContent = row.nameInput.value || `Player ${idx + 1}`;
+                const icon = this.getPositionIcon(row);
+                const playerName = row.nameInput.value || `Player ${idx + 1}`;
+                nameSpan.textContent = icon ? `${icon} ${playerName}` : playerName;
             }
         });
 
@@ -577,6 +586,15 @@ class RosterManager {
         return playerItem;
     }
 
+    // Get position icon for a player
+    getPositionIcon(row) {
+        if (row.cbField.checked) return '⚽';
+        if (row.cbBench.checked) return '💺';
+        if (row.cbGoalie.checked) return '🥅';
+        if (row.cbInactive.checked) return '❌';
+        return ''; // No icon for unassigned
+    }
+
     // Update swipeable player color based on current state
     updateSwipeablePlayerColor(playerItem, row) {
         playerItem.classList.remove('player-field', 'player-bench', 'player-goalie', 'player-inactive', 'player-none');
@@ -591,6 +609,16 @@ class RosterManager {
             playerItem.classList.add('player-inactive');
         } else {
             playerItem.classList.add('player-none');
+        }
+
+        // Update position icon in name text
+        const nameText = playerItem.querySelector('.player-name-text');
+        if (nameText) {
+            const icon = this.getPositionIcon(row);
+            const currentText = nameText.textContent;
+            // Remove ALL icons at the start (handles multiple icons if accumulated)
+            const nameWithoutIcon = currentText.replace(/^([⚽💺🥅❌]\s*)+/, '');
+            nameText.textContent = icon ? `${icon} ${nameWithoutIcon}` : nameWithoutIcon;
         }
     }
 
@@ -1328,19 +1356,20 @@ class RosterManager {
                 const fieldRow = this.rows[fieldIdx];
 
                 if (benchRow && fieldRow) {
-                    const benchName = benchRow.nameInput.value || `Player ${benchIdx + 1}`;
-                    const fieldName = fieldRow.nameInput.value || `Player ${fieldIdx + 1}`;
+                    // Strip icons from names before displaying (they already have icons in nameInput.value)
+                    const benchName = (benchRow.nameInput.value || `Player ${benchIdx + 1}`).replace(/^([⚽💺🥅❌]\s*)+/, '');
+                    const fieldName = (fieldRow.nameInput.value || `Player ${fieldIdx + 1}`).replace(/^([⚽💺🥅❌]\s*)+/, '');
 
                     // Bench player (left aligned)
                     const benchDiv = document.createElement('div');
                     benchDiv.className = 'rotation-name rotation-bench';
-                    benchDiv.textContent = `➜ ${benchName}`;
+                    benchDiv.textContent = `💺 ${benchName} ➜`;
                     rotationPairs.appendChild(benchDiv);
 
                     // Field player (right aligned)
                     const fieldDiv = document.createElement('div');
                     fieldDiv.className = 'rotation-name rotation-field';
-                    fieldDiv.textContent = `${fieldName} ➜`;
+                    fieldDiv.textContent = `➜ ⚽ ${fieldName}`;
                     rotationPairs.appendChild(fieldDiv);
                 }
             }
@@ -2152,6 +2181,17 @@ class RosterManager {
                 else if (cbInactive.checked) nameInput.classList.add('player-inactive');
                 else nameInput.classList.add('player-none');
                 tr.classList.toggle('inactive-row', !!cbInactive.checked);
+
+                // Update position icon in table view
+                const row = this.rows.find(r => r.nameInput === nameInput);
+                if (row) {
+                    const icon = this.getPositionIcon(row);
+                    const currentValue = nameInput.value;
+                    // Remove ALL icons at the start
+                    const valueWithoutIcon = currentValue.replace(/^([⚽💺🥅❌]\s*)+/, '');
+                    nameInput.value = icon ? `${icon} ${valueWithoutIcon}` : valueWithoutIcon;
+                }
+
                 this.markNextPlayers();
                 this.updateNameInputsEditability();
                 this.updateViewButtonState(); // Update view button state
@@ -2292,7 +2332,35 @@ class RosterManager {
             });
 
             nameInput.addEventListener('input', () => {
+                // Strip ALL icons when user is typing
+                const row = this.rows.find(r => r.nameInput === nameInput);
+                if (row && !nameInput.readOnly) {
+                    let value = nameInput.value;
+                    // Remove all icons if present
+                    const cleanValue = value.replace(/^([⚽💺🥅❌]\s*)+/, '');
+                    if (cleanValue !== value) {
+                        const cursorPos = nameInput.selectionStart;
+                        nameInput.value = cleanValue;
+                        // Adjust cursor position
+                        const removedChars = value.length - cleanValue.length;
+                        nameInput.setSelectionRange(Math.max(0, cursorPos - removedChars), Math.max(0, cursorPos - removedChars));
+                    }
+                }
                 this.saveDebounced();
+            });
+
+            nameInput.addEventListener('blur', () => {
+                // Re-add icon after editing
+                const row = this.rows.find(r => r.nameInput === nameInput);
+                if (row) {
+                    const icon = this.getPositionIcon(row);
+                    let value = nameInput.value.trim();
+                    // Remove ALL icons that might be present
+                    value = value.replace(/^([⚽💺🥅❌]\s*)+/, '');
+                    if (value) {
+                        nameInput.value = icon ? `${icon} ${value}` : value;
+                    }
+                }
             });
 
             const handleSelectAsNext = (evt) => {
@@ -2641,7 +2709,7 @@ class RosterManager {
                 teamAScore: this.teamAScore,
                 teamBScore: this.teamBScore,
                 players: this.rows.map(r => ({
-                    name: r.nameInput.value,
+                    name: r.nameInput.value.replace(/^([⚽💺🥅❌]\s*)+/, ''), // Strip ALL icons before saving
                     field: !!r.cbField.checked,
                     bench: !!r.cbBench.checked,
                     goalie: !!r.cbGoalie.checked,
