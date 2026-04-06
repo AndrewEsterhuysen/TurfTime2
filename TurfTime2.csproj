@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>net10.0-android;net10.0-ios</TargetFrameworks>
+		<TargetFrameworks>net10.0-android;net10.0-ios;net10.0-windows10.0.19041</TargetFrameworks>
+		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 
 		<!-- Note for MacCatalyst:
 		The default runtime is maccatalyst-x64, except in Release config, in which case the default is maccatalyst-x64;maccatalyst-arm64.
@@ -29,9 +30,15 @@
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
+		<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+		<EnableMsixTooling>true</EnableMsixTooling>
+		<PublishSingleFile Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041'">true</PublishSingleFile>
+		<SelfContained Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041'">true</SelfContained>
+		<RuntimeIdentifier Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041'">win-x64</RuntimeIdentifier>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 	</PropertyGroup>
 
 	<!-- iOS Release Configuration -->
@@ -73,6 +80,18 @@
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 		<MauiAsset Include="wwwroot\**" />
+	</ItemGroup>
+
+	<!-- Ensure wwwroot is copied to output for Windows -->
+	<ItemGroup Condition="$(TargetFramework.Contains('windows'))">
+		<Content Include="wwwroot\**\*.*">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<Link>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</Link>
+		</Content>
+	</ItemGroup>
+
+	<ItemGroup>
+	  <MauiAsset Remove="wwwroot\js\.editorconfig" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -117,6 +136,10 @@
 		<GetGitHashCommand>git rev-parse --short HEAD</GetGitHashCommand>
 		<GetGitHashCommand Condition="'$(OS)' == 'Windows_NT'">cmd /c git rev-parse --short HEAD</GetGitHashCommand>
 	</PropertyGroup>
+	<!-- Disabled: Having two Windows targets causes Windows App SDK errors with WindowsPackageType=None -->
+	<!--<PropertyGroup>
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.26100.1</TargetFrameworks>
+	</PropertyGroup>-->
 
 	<Target Name="GenerateBuildMetadata" BeforeTargets="BeforeCompile">
 		<Exec Command="$(GetGitHashCommand)" ConsoleToMSBuild="true" IgnoreExitCode="true">
@@ -138,10 +161,7 @@ public static class BuildInfo
 			</BuildInfoContent>
 		</PropertyGroup>
 
-		<WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.g.cs" 
-											Lines="$(BuildInfoContent)" 
-											Overwrite="true" 
-											WriteOnlyWhenDifferent="true" />
+		<WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.g.cs" Lines="$(BuildInfoContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
 
 		<ItemGroup>
 			<Compile Include="$(IntermediateOutputPath)BuildInfo.g.cs" />

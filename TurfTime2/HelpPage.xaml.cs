@@ -20,12 +20,17 @@ public partial class HelpPage : ContentPage
             var version = AppInfo.Current.VersionString;
             var buildNumber = AppInfo.Current.BuildString;
 
+#if ANDROID || IOS
             // Get git commit hash and build timestamp from generated BuildInfo class
             var gitCommit = BuildInfo.GitCommit;
             var buildTime = BuildInfo.BuildTime;
 
             // Format: v1.0.0 (Build 2) | abc123f | 2025-01-15 14:32 UTC
             return $"v{version} (Build {buildNumber}) | {gitCommit} | {buildTime}";
+#else
+            // Windows fallback
+            return $"v{version} (Build {buildNumber})";
+#endif
         }
         catch
         {

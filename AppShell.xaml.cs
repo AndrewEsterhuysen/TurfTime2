@@ -18,21 +18,16 @@
 
         private async void OnShellNavigated(object sender, ShellNavigatedEventArgs e)
         {
-            // When navigating to Settings tab from another tab, pop any navigation stack
+            // When navigating to Settings tab from another tab, ensure we're at the root Settings page
             if (e.Current.Location.ToString().Contains("SettingsPage") && 
                 e.Source == ShellNavigationSource.ShellItemChanged)
             {
-                // User clicked on Settings tab, ensure we're at the root
-                while (Navigation.NavigationStack.Count > 1)
+                // Check if we're on a sub-page (like settings/teamview)
+                var currentRoute = e.Current.Location.ToString();
+                if (currentRoute.Contains("settings/"))
                 {
-                    try
-                    {
-                        await Navigation.PopAsync(false);
-                    }
-                    catch
-                    {
-                        break;
-                    }
+                    // Navigate to the root SettingsPage using absolute navigation
+                    await Shell.Current.GoToAsync("//SettingsPage");
                 }
             }
         }

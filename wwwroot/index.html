@@ -123,6 +123,68 @@
 
     <script src="js/game-logger.js"></script>
     <script src="js/roster-manager.js"></script>
+
+    <!-- Firebase SDK v10 (Modular) - Loaded from CDN -->
+    <script type="module">
+        // Import Firebase SDK modules from CDN (no installation required!)
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, enableIndexedDbPersistence, doc, setDoc, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+        import { getStorage } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js';
+        import { getAnalytics } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-analytics.js';
+
+        // Your Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDAKivCFX5kYYZ6SkAQluBNdR92I320glk",
+            authDomain: "turf-timer.firebaseapp.com",
+            projectId: "turf-timer",
+            storageBucket: "turf-timer.firebasestorage.app",
+            messagingSenderId: "846410659178",
+            appId: "1:846410659178:web:f26efa105cf06cd241a113",
+            measurementId: "G-Q6H3LXGZ8B"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const storage = getStorage(app);
+        const analytics = getAnalytics(app);
+
+        // Enable offline persistence for Firestore (reduces cloud reads by 50-70%)
+        enableIndexedDbPersistence(db)
+            .then(() => {
+                console.log('[Firebase] Offline persistence enabled');
+            })
+            .catch((err) => {
+                if (err.code === 'failed-precondition') {
+                    console.warn('[Firebase] Multiple tabs open, persistence only in first tab');
+                } else if (err.code === 'unimplemented') {
+                    console.warn('[Firebase] Browser does not support persistence');
+                }
+            });
+
+        // Monitor authentication state
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                console.log('[Firebase] User signed in:', user.uid);
+                window.firebaseUser = user;
+            } else {
+                console.log('[Firebase] No user signed in');
+                window.firebaseUser = null;
+            }
+        });
+
+        // Make Firebase services and functions available globally for roster-manager.js
+        window.firebaseApp = app;
+        window.firebaseDb = { db, doc, setDoc, getDoc };
+        window.firebaseAuth = { auth, signInAnonymously, onAuthStateChanged };
+        window.firebaseStorage = storage;
+        window.firebaseAnalytics = analytics;
+
+        console.log('[Firebase] SDK loaded successfully from CDN');
+        console.log('[Firebase] Project:', firebaseConfig.projectId);
+    </script>
 </body>
 
 </html>

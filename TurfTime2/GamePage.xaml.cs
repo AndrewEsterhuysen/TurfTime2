@@ -1,3 +1,7 @@
+#if IOS || MACCATALYST
+using Foundation;
+#endif
+
 namespace TurfTime2;
 
 public partial class GamePage : ContentPage
@@ -7,6 +11,9 @@ public partial class GamePage : ContentPage
     public GamePage()
     {
         InitializeComponent();
+
+        // Set the WebView source based on platform
+        SetWebViewSource();
 
         // Subscribe to rotation style changes
         RotationStylePage.RotationStyleChanged += async (sender, styleNum) =>
@@ -18,6 +25,12 @@ public partial class GamePage : ContentPage
         TeamViewPage.TeamViewChanged += async (sender, viewType) =>
         {
             await UpdateTeamView(viewType);
+        };
+
+        // Subscribe to manual sync requests
+        CloudSyncHelper.ManualSyncRequested += async (sender, e) =>
+        {
+            await TriggerManualSync();
         };
 
 #if ANDROID
@@ -48,6 +61,39 @@ public partial class GamePage : ContentPage
             );
         });
 #endif
+    }
+
+    private void SetWebViewSource()
+    {
+#if ANDROID
+        webView.Source = "file:///android_asset/wwwroot/index.html";
+#elif IOS || MACCATALYST
+        var indexPath = Path.Combine(NSBundle.MainBundle.BundlePath, "wwwroot", "index.html");
+        webView.Source = new UrlWebViewSource { Url = $"file://{indexPath}" };
+#elif WINDOWS
+        // On Windows, wwwroot files are copied to the output directory
+        var indexPath = Path.Combine(AppContext.BaseDirectory, "wwwroot", "index.html");
+        System.Diagnostics.Debug.WriteLine($"[WebView] Windows path: {indexPath}, exists: {File.Exists(indexPath)}");
+        webView.Source = new UrlWebViewSource { Url = $"file:///{indexPath.Replace("\\", "/")}" };
+#endif
+        System.Diagnostics.Debug.WriteLine($"[WebView] Source set for platform");
+    }
+
+    private async Task TriggerManualSync()
+    {
+        try
+        {
+            System.Diagnostics.Debug.WriteLine("[CloudSync] Triggering manual sync via JavaScript");
+
+            // Call the JavaScript sync function
+            await webView.EvaluateJavaScriptAsync("if (window.rosterManagerInstance) { window.rosterManagerInstance.syncWithCloud(); }");
+
+            System.Diagnostics.Debug.WriteLine("[CloudSync] Manual sync triggered successfully");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudSync] Error triggering manual sync: {ex.Message}");
+        }
     }
 
     protected override void OnAppearing()

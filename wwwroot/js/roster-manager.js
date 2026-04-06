@@ -101,6 +101,10 @@ class RosterManager {
         this.logger = new GameLogger();
         this.logger.setRosterManager(this);
 
+        // Firebase initialization state
+        this.firebaseReady = false;
+        this.initFirebase(); // Initialize Firebase (async, non-blocking)
+
         this.buildRows();
         this.loadFromStorage();
         this.bindEvents();
@@ -117,6 +121,14 @@ class RosterManager {
         });
         window.addEventListener('beforeunload', () => this.saveToStorage());
         window.addEventListener('resize', () => this.updateDynamicSizing());
+
+        // Auto-sync when connection is restored (prevents data loss from offline games)
+        window.addEventListener('online', () => {
+            console.log('[Firebase] 🌐 Connection restored - syncing with cloud...');
+            if (this.firebaseReady) {
+                this.syncWithCloud();
+            }
+        });
     }
 
     bindEvents() {
@@ -2717,74 +2729,254 @@ class RosterManager {
                     counterSeconds: r.counterSeconds
                 }))
             };
+
+            // Save to localStorage (always works, even offline)
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(model));
+
+            // Also save to Firebase cloud (background, non-blocking)
+            if (this.firebaseReady) {
+                this.saveToFirestore(model).catch(err => {
+                    console.error('[RosterManager] Background cloud save failed:', err);
+                });
+            }
         } catch (error) {
             console.error('[RosterManager] Error saving to storage:', error);
         }
     }
 
     loadFromStorage() {
+        // Load from localStorage immediately (synchronous)
         try {
             const raw = localStorage.getItem(this.STORAGE_KEY);
-            if (!raw) return;
-            const model = JSON.parse(raw);
-            
-            // Check version and clear if incompatible
-            if (!model || !Array.isArray(model.players) || model.version !== this.STORAGE_VERSION) {
-                console.log('[RosterManager] Storage version mismatch or invalid data, clearing');
-                localStorage.removeItem(this.STORAGE_KEY);
+            if (raw) {
+                const model = JSON.parse(raw);
+                this.applyLoadedData(model);
+                console.log('[RosterManager] ✓ Loaded from localStorage');
+            }
+        } catch (error) {
+            console.error('[RosterManager] Error loading from localStorage:', error);
+            localStorage.removeItem(this.STORAGE_KEY);
+        }
+
+        // Try to load from Firebase cloud (asynchronous, will override if newer data exists)
+        // This happens automatically in initFirebase() when auth completes
+    }
+
+    // ============================================================================
+    // FIREBASE CLOUD SYNC METHODS
+    // ============================================================================
+
+    // Initialize Firebase authentication and sync
+    async initFirebase() {
+        try {
+            // Check if Firebase is available
+            if (typeof window.firebaseAuth === 'undefined' || typeof window.firebaseDb === 'undefined') {
+                console.log('[Firebase] ⚠️ Firebase not initialized - cloud sync disabled');
                 return;
             }
-            
-            if (typeof model.matchDurationSeconds === 'number') {
-                this.matchDurationSeconds = model.matchDurationSeconds;
-            }
-            if (typeof model.halfDurationSeconds === 'number') {
-                this.halfDurationSeconds = model.halfDurationSeconds;
-            }
-            if (typeof model.matchRemainingSeconds === 'number') {
-                this.matchRemainingSeconds = model.matchRemainingSeconds;
-            }
-            if (typeof model.currentHalf === 'string') {
-                this.currentHalf = model.currentHalf;
-            }
-            if (typeof model.countdownPreset === 'number') {
-                this.countdownPreset = model.countdownPreset;
-                this.countdownRemaining = this.countdownPreset;
-            }
-            if (typeof model.teamAScore === 'number') {
-                this.teamAScore = model.teamAScore;
-            }
-            if (typeof model.teamBScore === 'number') {
-                this.teamBScore = model.teamBScore;
-            }
-            this.updateScoreDisplays();
-            this.updateScoreVisibility();
 
-            if (typeof model.viewMode === 'number' && model.viewMode >= 0 && model.viewMode <= 2) {
-                this.viewMode = model.viewMode;
-                // View will be initialized by initializeView() after loadFromStorage completes
+            console.log('[Firebase] 🔄 Initializing Firebase authentication...');
+
+            // Get Firebase auth functions
+            const { auth, signInAnonymously, onAuthStateChanged } = window.firebaseAuth;
+
+            // Sign in anonymously
+            await signInAnonymously(auth);
+
+            // Listen for auth state changes
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    console.log('[Firebase] ✓ Authenticated anonymously:', user.uid);
+                    this.firebaseReady = true;
+
+                    // Trigger initial sync after authentication
+                    await this.syncWithCloud();
+                } else {
+                    console.log('[Firebase] ⚠️ Not authenticated');
+                    this.firebaseReady = false;
+                }
+            });
+        } catch (error) {
+            console.error('[Firebase] ❌ Initialization error:', error);
+            this.firebaseReady = false;
+        }
+    }
+
+    // Sync with cloud - uses timestamp-based conflict resolution
+    async syncWithCloud() {
+        if (!this.firebaseReady) {
+            console.log('[Firebase] ⚠️ Sync skipped - Firebase not ready');
+            return;
+        }
+
+        try {
+            console.log('[Firebase] 🔄 Starting sync check...');
+
+            // Get local data
+            const localRaw = localStorage.getItem(this.STORAGE_KEY);
+            if (!localRaw) {
+                console.log('[Firebase] ℹ️ No local data to sync');
+                // Try to download from cloud anyway
+                await this.loadFromFirestore();
+                return;
             }
-            this.updateTimerDisplay();
-            this.updateCountdownDisplay();
-            this.updateMatchTimeLabel();
-            model.players.forEach((p, i) => {
+
+            const localData = JSON.parse(localRaw);
+
+            // Get cloud data
+            const cloudData = await this.loadFromFirestore();
+
+            if (!cloudData) {
+                // No cloud data exists, upload local data
+                console.log('[Firebase] ⬆️ No cloud data - uploading local data');
+                await this.saveToFirestore(localData);
+                return;
+            }
+
+            // Compare timestamps
+            const localTimestamp = new Date(localData.lastModifiedUtc);
+            const cloudTimestamp = new Date(cloudData.lastModifiedUtc);
+
+            console.log('[Firebase] 📅 Local timestamp:', localData.lastModifiedUtc);
+            console.log('[Firebase] 📅 Cloud timestamp:', cloudData.lastModifiedUtc);
+
+            if (localTimestamp > cloudTimestamp) {
+                // Local is newer, upload to cloud
+                console.log('[Firebase] ⬆️ Local data is newer - uploading to cloud');
+                await this.saveToFirestore(localData);
+            } else if (cloudTimestamp > localTimestamp) {
+                // Cloud is newer, download and apply
+                console.log('[Firebase] ⬇️ Cloud data is newer - downloading');
+                this.applyLoadedData(cloudData);
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cloudData));
+                console.log('[Firebase] ✓ Applied cloud data to roster');
+            } else {
+                // Same timestamp, no sync needed
+                console.log('[Firebase] ✓ Data is in sync');
+            }
+        } catch (error) {
+            console.error('[Firebase] ❌ Sync error:', error);
+        }
+    }
+
+    // Save data to Firestore
+    async saveToFirestore(model) {
+        if (!this.firebaseReady) return;
+
+        try {
+            const { db, doc, setDoc } = window.firebaseDb;
+            const { auth } = window.firebaseAuth;
+            const userId = auth.currentUser?.uid;
+
+            if (!userId) {
+                console.error('[Firebase] ❌ No user ID for save');
+                return;
+            }
+
+            const docRef = doc(db, 'rosters', userId);
+            await setDoc(docRef, model);
+
+            console.log('[Firebase] ✓ Saved to cloud');
+        } catch (error) {
+            console.error('[Firebase] ❌ Save error:', error);
+        }
+    }
+
+    // Load data from Firestore
+    async loadFromFirestore() {
+        if (!this.firebaseReady) return null;
+
+        try {
+            const { db, doc, getDoc } = window.firebaseDb;
+            const { auth } = window.firebaseAuth;
+            const userId = auth.currentUser?.uid;
+
+            if (!userId) {
+                console.error('[Firebase] ❌ No user ID for load');
+                return null;
+            }
+
+            const docRef = doc(db, 'rosters', userId);
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists()) {
+                console.log('[Firebase] ✓ Loaded from cloud');
+                return docSnap.data();
+            } else {
+                console.log('[Firebase] ℹ️ No cloud data found');
+                return null;
+            }
+        } catch (error) {
+            console.error('[Firebase] ❌ Load error:', error);
+            return null;
+        }
+    }
+
+    // Apply loaded data to the roster UI
+    applyLoadedData(model) {
+        if (!model || !model.players) return;
+
+        // Restore game state
+        if (model.matchDurationSeconds !== undefined) {
+            this.matchDurationSeconds = model.matchDurationSeconds;
+        }
+        if (model.halfDurationSeconds !== undefined) {
+            this.halfDurationSeconds = model.halfDurationSeconds;
+        }
+        if (model.matchRemainingSeconds !== undefined) {
+            this.matchRemainingSeconds = model.matchRemainingSeconds;
+        }
+        if (model.currentHalf !== undefined) {
+            this.currentHalf = model.currentHalf;
+        }
+        if (model.countdownPreset !== undefined) {
+            this.countdownPreset = model.countdownPreset;
+            this.countdownRemaining = model.countdownPreset;
+        }
+        if (model.teamAScore !== undefined) {
+            this.teamAScore = model.teamAScore;
+        }
+        if (model.teamBScore !== undefined) {
+            this.teamBScore = model.teamBScore;
+        }
+
+        // Don't restore viewMode from saved data - always use preference
+        // This ensures the app starts with the user's preferred view
+
+        // Apply player data
+        model.players.forEach((p, i) => {
+            if (i < this.rows.length) {
                 const r = this.rows[i];
-                if (!r) return;
-                if (typeof p.name === 'string') r.nameInput.value = p.name;
+
+                // Set name (without icon)
+                r.nameInput.value = p.name || `Player ${i + 1}`;
+
+                // Set position
                 r.cbField.checked = !!p.field;
                 r.cbBench.checked = !!p.bench;
                 r.cbGoalie.checked = !!p.goalie;
                 r.cbInactive.checked = !!p.inactive;
-                if (typeof p.counterSeconds === 'number') r.counterSeconds = p.counterSeconds;
-                r.updatePlayerColor();
+
+                // Set counter
+                r.counterSeconds = p.counterSeconds || 0;
                 this.updateCounterDisplay(r);
-            });
-        } catch (error) {
-            console.error('[RosterManager] Error loading from storage:', error);
-            localStorage.removeItem(this.STORAGE_KEY);
-        }
+
+                // Update UI
+                r.updatePlayerColor();
+            }
+        });
+
+        // Update all displays
+        this.updateTimerDisplay();
+        this.updateCountdownDisplay();
+        this.updateScoreDisplays();
+        this.updateMatchTimeLabel();
+        this.markNextPlayers();
     }
+
+    // ============================================================================
+    // END FIREBASE CLOUD SYNC METHODS
+    // ============================================================================
 
     markNextPlayers() {
         // Remove all rotation style classes first
@@ -2980,6 +3172,8 @@ function setTeamViewFromMAUI(viewType) {
 window.addEventListener('DOMContentLoaded', () => {
     loadSavedTheme();
     rosterManagerInstance = new RosterManager();
+    // Expose instance to window for MAUI access
+    window.rosterManagerInstance = rosterManagerInstance;
 });
 
 // Make functions available globally for MAUI to call
