@@ -25,6 +25,11 @@
             Route="SetupPage" />
 
         <ShellContent
+            Title="Chat"
+            ContentTemplate="{DataTemplate local:ChatPage}"
+            Route="ChatPage" />
+
+        <ShellContent
             Title="Settings"
             ContentTemplate="{DataTemplate local:SettingsPage}"
             Route="SettingsPage" />

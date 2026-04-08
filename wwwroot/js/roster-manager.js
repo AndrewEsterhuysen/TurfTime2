@@ -1378,10 +1378,10 @@ class RosterManager {
                     benchDiv.textContent = `💺 ${benchName} ➜`;
                     rotationPairs.appendChild(benchDiv);
 
-                    // Field player (right aligned)
+                    // Field player (right aligned) - arrow points left to show opposite direction
                     const fieldDiv = document.createElement('div');
                     fieldDiv.className = 'rotation-name rotation-field';
-                    fieldDiv.textContent = `➜ ⚽ ${fieldName}`;
+                    fieldDiv.textContent = `⬅ ⚽ ${fieldName}`;
                     rotationPairs.appendChild(fieldDiv);
                 }
             }

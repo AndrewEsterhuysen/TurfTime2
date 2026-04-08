@@ -133,6 +133,12 @@ public partial class SetupPage : ContentPage
 	{
 		try
 		{
+#if WINDOWS
+			await DisplayAlertAsync("Not Available on Windows", 
+				"GPS location is not available on Windows desktop. Please enter coordinates manually or use the 'Search Location' or 'Paste Maps Link' features.", 
+				"OK");
+			return;
+#else
 			var location = await Geolocation.GetLastKnownLocationAsync();
 			
 			if (location == null)
@@ -153,6 +159,7 @@ public partial class SetupPage : ContentPage
 			{
 				await DisplayAlertAsync("Location Error", "Unable to get current location. Please enter coordinates manually.", "OK");
 			}
+#endif
 		}
 		catch (FeatureNotSupportedException)
 		{
@@ -208,6 +215,12 @@ public partial class SetupPage : ContentPage
 	{
 		try
 		{
+#if WINDOWS
+			await DisplayAlertAsync("Not Available on Windows", 
+				"Map picker is not available on Windows desktop. Please use 'Search Location' to open Google Maps in your browser, or paste a Google Maps link.", 
+				"OK");
+			return;
+#else
 			// Get current location or use default if available
 			double lat = 0;
 			double lon = 0;
@@ -253,6 +266,7 @@ public partial class SetupPage : ContentPage
 				"3. Tap the pin and copy the coordinates\n" +
 				"4. Return to this app and paste the coordinates", 
 				"OK");
+#endif
 		}
 		catch (Exception ex)
 		{
