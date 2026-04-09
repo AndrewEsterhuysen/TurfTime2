@@ -8,6 +8,9 @@ public partial class GamePage : ContentPage
 {
     private bool _keepScreenOn = false;
 
+    // Public property to expose WebView for Firebase interactions
+    public WebView? GameWebView => webView;
+
     public GamePage()
     {
         InitializeComponent();
@@ -103,6 +106,9 @@ public partial class GamePage : ContentPage
         // Keep screen on when page appears
         SetKeepScreenOn(true);
 
+        // Sync current team ID to WebView FIRST (before loading roster)
+        SyncTeamIdToWebView();
+
         // Sync theme from Preferences to WebView
         SyncThemeToWebView();
 
@@ -111,6 +117,75 @@ public partial class GamePage : ContentPage
 
         // Sync team view preference from Preferences to WebView
         SyncTeamViewToWebView();
+    }
+
+    private async void SyncTeamIdToWebView()
+    {
+        try
+        {
+            // Get current team ID from Preferences
+            var teamId = Preferences.Get("team_id", string.Empty);
+
+            // If no team selected, use default
+            if (string.IsNullOrEmpty(teamId))
+            {
+                teamId = "default";
+                System.Diagnostics.Debug.WriteLine($"[GamePage] ⚠️ No team selected, using default");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"[GamePage] 📋 Current team from Preferences: {teamId}");
+            }
+
+            // Wait longer to ensure WebView is fully loaded
+            await Task.Delay(300);
+
+            System.Diagnostics.Debug.WriteLine($"[GamePage] Syncing team ID to localStorage and reloading roster...");
+
+            // Set team_id in localStorage AND reload roster
+            var script = $@"
+                (function() {{
+                    try {{
+                        // Set team_id
+                        localStorage.setItem('team_id', '{EscapeJavaScript(teamId)}');
+                        console.log('[GamePage] Set team_id in localStorage:', '{EscapeJavaScript(teamId)}');
+
+                        // Force roster reload for this team
+                        if (typeof window.reloadRosterForTeam === 'function') {{
+                            window.reloadRosterForTeam('{EscapeJavaScript(teamId)}');
+                            return 'reloaded';
+                        }} else if (typeof window.rosterManagerInstance !== 'undefined' && window.rosterManagerInstance) {{
+                            // Fallback: directly call instance method
+                            window.rosterManagerInstance.reloadForTeam('{EscapeJavaScript(teamId)}');
+                            return 'reloaded_direct';
+                        }} else {{
+                            console.warn('[GamePage] RosterManager not ready yet, will use team_id on init');
+                            return 'pending';
+                        }}
+                    }} catch (error) {{
+                        console.error('[GamePage] Error:', error);
+                        return 'error: ' + error.message;
+                    }}
+                }})();
+            ";
+
+            var result = await webView.EvaluateJavaScriptAsync(script);
+            System.Diagnostics.Debug.WriteLine($"[GamePage] ✅ Team sync result: {result} for team: {teamId}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GamePage] ❌ Error syncing team ID: {ex.Message}");
+        }
+    }
+
+    private string EscapeJavaScript(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        return text.Replace("\\", "\\\\")
+                   .Replace("'", "\\'")
+                   .Replace("\"", "\\\"")
+                   .Replace("\n", "\\n")
+                   .Replace("\r", "\\r");
     }
 
     private async void SyncThemeToWebView()

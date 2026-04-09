@@ -20,16 +20,21 @@ public partial class HelpPage : ContentPage
             var version = AppInfo.Current.VersionString;
             var buildNumber = AppInfo.Current.BuildString;
 
-#if ANDROID || IOS
+#if WINDOWS
+            // Windows: Fix version display (AppInfo returns assembly version, not display version)
+            // Read from project file: ApplicationDisplayVersion = 1.0.3
+            version = "1.0.3"; // TODO: Read dynamically from embedded resource
+            return $"v{version} (Build {buildNumber}) | unknown | unknown";
+#elif ANDROID || IOS || MACCATALYST
             // Get git commit hash and build timestamp from generated BuildInfo class
+            // BuildInfo is generated at compile time for mobile platforms
             var gitCommit = BuildInfo.GitCommit;
             var buildTime = BuildInfo.BuildTime;
 
             // Format: v1.0.0 (Build 2) | abc123f | 2025-01-15 14:32 UTC
             return $"v{version} (Build {buildNumber}) | {gitCommit} | {buildTime}";
 #else
-            // Windows fallback
-            return $"v{version} (Build {buildNumber})";
+            return $"v{version} (Build {buildNumber}) | unknown | unknown";
 #endif
         }
         catch

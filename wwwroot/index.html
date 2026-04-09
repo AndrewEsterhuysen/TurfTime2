@@ -184,7 +184,16 @@
 
         console.log('[Firebase] SDK loaded successfully from CDN');
         console.log('[Firebase] Project:', firebaseConfig.projectId);
+
+        // Initialize team service after Firebase is ready
+        if (window.teamService) {
+            window.teamService.initialize(db, auth);
+            console.log('[Firebase] Team service initialized');
+        }
     </script>
+
+    <!-- Team Service -->
+    <script src="js/team-service.js"></script>
 </body>
 
 </html>

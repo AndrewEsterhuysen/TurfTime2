@@ -7,6 +7,19 @@ public partial class SettingsPage : ContentPage
         InitializeComponent();
     }
 
+    private async void OnTeamDetailsTapped(object sender, EventArgs e)
+    {
+        try
+        {
+            await Shell.Current.GoToAsync("settings/teamdetails");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
+            await DisplayAlert("Error", "Could not navigate to Team Details page.", "OK");
+        }
+    }
+
     private async void OnLogTapped(object sender, EventArgs e)
     {
         try

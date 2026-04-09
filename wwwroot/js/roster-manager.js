@@ -62,8 +62,9 @@ class RosterManager {
         this.preferredTeamView = 'swipe'; // Default to swipe
         this.loadTeamViewPreference();
 
-        // Storage
-        this.STORAGE_KEY = 'roster.v1';
+        // Storage - NOW TEAM-SCOPED
+        this.currentTeamId = this.getCurrentTeamId(); // Get current team from C# Preferences
+        this.STORAGE_KEY = this.getTeamStorageKey(); // Dynamic key based on team
         this.STORAGE_VERSION = 2; // Increment when structure changes
         this.saveDebounced = this._debounce(() => this.saveToStorage(), 300);
 
@@ -2752,14 +2753,58 @@ class RosterManager {
                 const model = JSON.parse(raw);
                 this.applyLoadedData(model);
                 console.log('[RosterManager] ✓ Loaded from localStorage');
+            } else {
+                // NO DATA for this team - reset to default empty roster
+                console.log(`[RosterManager] ℹ️ No saved data for key: ${this.STORAGE_KEY} - creating fresh roster`);
+                this.resetToDefaultRoster();
             }
         } catch (error) {
             console.error('[RosterManager] Error loading from localStorage:', error);
             localStorage.removeItem(this.STORAGE_KEY);
+            // On error, also reset to default
+            this.resetToDefaultRoster();
         }
 
         // Try to load from Firebase cloud (asynchronous, will override if newer data exists)
         // This happens automatically in initFirebase() when auth completes
+    }
+
+    // Reset roster to default empty state (20 empty players)
+    resetToDefaultRoster() {
+        console.log('[RosterManager] 🔄 Resetting roster to default empty state');
+
+        // Clear all player data
+        this.rows.forEach(r => {
+            r.nameInput.value = '';  // Clear name
+            r.cbField.checked = false;
+            r.cbBench.checked = false;
+            r.cbGoalie.checked = false;
+            r.cbInactive.checked = false;
+            r.counterSeconds = 0;
+            this.updateCounterDisplay(r);
+            r.updatePlayerColor();
+        });
+
+        // Reset game state to initial values
+        this.matchDurationSeconds = 90 * 60;
+        this.halfDurationSeconds = 0;
+        this.matchRemainingSeconds = this.matchDurationSeconds;
+        this.currentHalf = 'setup';
+        this.teamAScore = 0;
+        this.teamBScore = 0;
+
+        // Update all displays
+        this.updateTimerDisplay();
+        this.updateCountdownDisplay();
+        this.updateScoreDisplays();
+        this.updateMatchTimeLabel();
+        this.markNextPlayers();
+
+        // Rebuild swipeable roster if in that view
+        if (this.viewMode === 0) {
+            this.buildSwipeableRoster();
+            console.log('[RosterManager] 🔄 Rebuilt swipeable roster (reset to default)');
+        }
     }
 
     // ============================================================================
@@ -2859,7 +2904,7 @@ class RosterManager {
         }
     }
 
-    // Save data to Firestore
+    // Save data to Firestore (team-scoped)
     async saveToFirestore(model) {
         if (!this.firebaseReady) return;
 
@@ -2873,16 +2918,18 @@ class RosterManager {
                 return;
             }
 
-            const docRef = doc(db, 'rosters', userId);
+            // Use team-scoped path: rosters/{userId}/{teamId}
+            const teamId = this.currentTeamId;
+            const docRef = doc(db, 'rosters', userId, 'teams', teamId);
             await setDoc(docRef, model);
 
-            console.log('[Firebase] ✓ Saved to cloud');
+            console.log(`[Firebase] ✓ Saved to cloud (team: ${teamId})`);
         } catch (error) {
             console.error('[Firebase] ❌ Save error:', error);
         }
     }
 
-    // Load data from Firestore
+    // Load data from Firestore (team-scoped)
     async loadFromFirestore() {
         if (!this.firebaseReady) return null;
 
@@ -2896,14 +2943,16 @@ class RosterManager {
                 return null;
             }
 
-            const docRef = doc(db, 'rosters', userId);
+            // Use team-scoped path: rosters/{userId}/{teamId}
+            const teamId = this.currentTeamId;
+            const docRef = doc(db, 'rosters', userId, 'teams', teamId);
             const docSnap = await getDoc(docRef);
 
             if (docSnap.exists()) {
-                console.log('[Firebase] ✓ Loaded from cloud');
+                console.log(`[Firebase] ✓ Loaded from cloud (team: ${teamId})`);
                 return docSnap.data();
             } else {
-                console.log('[Firebase] ℹ️ No cloud data found');
+                console.log(`[Firebase] ℹ️ No cloud data found for team: ${teamId}`);
                 return null;
             }
         } catch (error) {
@@ -2972,6 +3021,12 @@ class RosterManager {
         this.updateScoreDisplays();
         this.updateMatchTimeLabel();
         this.markNextPlayers();
+
+        // CRITICAL: Rebuild swipeable roster to show updated player names
+        if (this.viewMode === 0) {
+            this.buildSwipeableRoster();
+            console.log('[RosterManager] 🔄 Rebuilt swipeable roster with loaded data');
+        }
     }
 
     // ============================================================================
@@ -3127,6 +3182,56 @@ class RosterManager {
         this.updateDynamicSizing();
         setTimeout(() => this.updateDynamicSizing(), 100);
     }
+
+    // ============================================================================
+    // TEAM-SCOPED STORAGE METHODS
+    // ============================================================================
+
+    // Get current team ID from MAUI Preferences (via localStorage bridge)
+    getCurrentTeamId() {
+        // Check localStorage for team_id (set by MAUI TeamDetailsPage)
+        const teamId = localStorage.getItem('team_id');
+
+        console.log(`[RosterManager] getCurrentTeamId() - Raw value: "${teamId}"`);
+        console.log(`[RosterManager] localStorage keys:`, Object.keys(localStorage));
+
+        if (!teamId || teamId === '' || teamId === 'null') {
+            console.log('[RosterManager] ⚠️ No team selected - using default roster');
+            return 'default'; // Fallback to default roster when no team is selected
+        }
+
+        console.log(`[RosterManager] ✅ Current team: ${teamId}`);
+        return teamId;
+    }
+
+    // Generate team-specific storage key
+    getTeamStorageKey() {
+        const teamId = this.currentTeamId;
+        const key = `roster_${teamId}.v1`;
+        console.log(`[RosterManager] 🔑 Storage key: ${key}`);
+        return key;
+    }
+
+    // Reload roster when team changes (called from MAUI)
+    reloadForTeam(newTeamId) {
+        console.log(`[RosterManager] 🔄 Switching to team: ${newTeamId}`);
+
+        // Save current roster before switching
+        this.saveToStorage();
+
+        // Update team ID and storage key
+        this.currentTeamId = newTeamId || 'default';
+        this.STORAGE_KEY = this.getTeamStorageKey();
+
+        // Load new team's roster
+        this.loadFromStorage();
+
+        console.log(`[RosterManager] ✅ Switched to team: ${this.currentTeamId}`);
+    }
+
+    // ============================================================================
+    // END TEAM-SCOPED STORAGE METHODS
+    // ============================================================================
 }
 
 // Theme switching function
@@ -3168,6 +3273,16 @@ function setTeamViewFromMAUI(viewType) {
     }
 }
 
+// Function callable from MAUI to reload roster for new team
+function reloadRosterForTeam(teamId) {
+    console.log(`[MAUI Bridge] Reload roster for team: ${teamId}`);
+    if (rosterManagerInstance) {
+        rosterManagerInstance.reloadForTeam(teamId);
+    } else {
+        console.warn('[MAUI Bridge] RosterManager not initialized yet');
+    }
+}
+
 // Initialize when DOM is ready
 window.addEventListener('DOMContentLoaded', () => {
     loadSavedTheme();
@@ -3179,3 +3294,4 @@ window.addEventListener('DOMContentLoaded', () => {
 // Make functions available globally for MAUI to call
 window.setRotationStyleFromMAUI = setRotationStyleFromMAUI;
 window.setTeamViewFromMAUI = setTeamViewFromMAUI;
+window.reloadRosterForTeam = reloadRosterForTeam;
