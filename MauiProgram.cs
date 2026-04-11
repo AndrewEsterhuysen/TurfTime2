@@ -16,7 +16,17 @@ namespace TurfTime2
                 });
 
 #if DEBUG
-    		builder.Logging.AddDebug();
+            builder.Logging.AddDebug();
+#endif
+
+#if ANDROID && DEBUG
+            // Bypass SSL certificate validation on Android emulators whose system CA
+            // trust store lacks Google Trust Services root certificates.
+            // This only affects Debug builds and is never included in Release.
+            Microsoft.Maui.Handlers.WebViewHandler.Mapper.AppendToMapping("DebugSslBypass", (handler, view) =>
+            {
+                handler.PlatformView.SetWebViewClient(new DebugSslWebViewClient());
+            });
 #endif
 
             return builder.Build();

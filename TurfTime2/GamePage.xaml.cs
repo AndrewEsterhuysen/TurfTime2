@@ -7,9 +7,18 @@ namespace TurfTime2;
 public partial class GamePage : ContentPage
 {
     private bool _keepScreenOn = false;
+    private string _lastLoadedTeamId = string.Empty; // Track last loaded team to avoid unnecessary reloads
+    private static bool _isInitializingForFirebase = false; // Flag to skip navigation when initializing Firebase
 
     // Public property to expose WebView for Firebase interactions
     public WebView? GameWebView => webView;
+
+    // Public method to indicate we're just initializing Firebase
+    public static void SetFirebaseInitializationMode(bool isInitializing)
+    {
+        _isInitializingForFirebase = isInitializing;
+        System.Diagnostics.Debug.WriteLine($"[GamePage] Firebase initialization mode: {isInitializing}");
+    }
 
     public GamePage()
     {
@@ -119,6 +128,13 @@ public partial class GamePage : ContentPage
         SyncTeamViewToWebView();
     }
 
+    // Public method to force roster reload (called when team changes)
+    public void ForceTeamReload()
+    {
+        System.Diagnostics.Debug.WriteLine($"[GamePage] 🔄 Force reload requested - clearing last loaded team");
+        _lastLoadedTeamId = string.Empty; // Reset to force reload on next OnAppearing
+    }
+
     private async void SyncTeamIdToWebView()
     {
         try
@@ -126,16 +142,37 @@ public partial class GamePage : ContentPage
             // Get current team ID from Preferences
             var teamId = Preferences.Get("team_id", string.Empty);
 
-            // If no team selected, use default
+            // If no team selected, don't load game data
             if (string.IsNullOrEmpty(teamId))
             {
-                teamId = "default";
-                System.Diagnostics.Debug.WriteLine($"[GamePage] ⚠️ No team selected, using default");
+                System.Diagnostics.Debug.WriteLine($"[GamePage] ❌ No team selected - skipping roster load");
+
+                // If we're just initializing for Firebase, don't navigate away
+                if (_isInitializingForFirebase)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[GamePage] In Firebase initialization mode - skipping navigation");
+                    return;
+                }
+
+                // Show alert to user
+                await DisplayAlert("No Team Selected", 
+                    "Please select or create a team in Settings → Team Details before using the Game page.", 
+                    "Go to Settings");
+
+                // Navigate to Team Details
+                await Shell.Current.GoToAsync("//SettingsPage/settings/teamdetails");
+                return;
             }
-            else
+
+            // Check if team has changed since last load
+            if (teamId == _lastLoadedTeamId && !string.IsNullOrEmpty(_lastLoadedTeamId))
             {
-                System.Diagnostics.Debug.WriteLine($"[GamePage] 📋 Current team from Preferences: {teamId}");
+                System.Diagnostics.Debug.WriteLine($"[GamePage] ℹ️ Team unchanged ({teamId}) - skipping roster reload to preserve game state");
+                return; // Don't reload if team hasn't changed
             }
+
+            System.Diagnostics.Debug.WriteLine($"[GamePage] 📋 Team changed: '{_lastLoadedTeamId}' → '{teamId}' - reloading roster");
+            _lastLoadedTeamId = teamId; // Update last loaded team
 
             // Wait longer to ensure WebView is fully loaded
             await Task.Delay(300);

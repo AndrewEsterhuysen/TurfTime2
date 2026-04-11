@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<TargetFrameworks>net10.0-android;net10.0-ios;net10.0-windows10.0.19041</TargetFrameworks>
@@ -89,9 +89,8 @@
 			<Link>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</Link>
 		</Content>
 	</ItemGroup>
-
 	<ItemGroup>
-	  <MauiAsset Remove="wwwroot\js\.editorconfig" />
+		<MauiAsset Remove="wwwroot\js\.editorconfig" />
 	</ItemGroup>
 
 	<ItemGroup>

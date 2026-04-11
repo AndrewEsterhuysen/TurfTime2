@@ -113,8 +113,17 @@
                                         Margin="0,0,0,10">
                             <CollectionView.ItemTemplate>
                                 <DataTemplate>
-                                    <!-- SwipeView for delete gesture -->
+                                    <!-- SwipeView for rename/delete gestures -->
                                     <SwipeView>
+                                        <SwipeView.LeftItems>
+                                            <SwipeItems Mode="Execute">
+                                                <SwipeItem Text="Rename"
+                                                           BackgroundColor="#2196F3"
+                                                           Command="{Binding Source={x:Reference LocalTeamsCollection}, Path=BindingContext.RenameTeamCommand}"
+                                                           CommandParameter="{Binding .}"
+                                                           Invoked="OnRenameTeamSwipe"/>
+                                            </SwipeItems>
+                                        </SwipeView.LeftItems>
                                         <SwipeView.RightItems>
                                             <SwipeItems Mode="Execute">
                                                 <SwipeItem Text="Delete"

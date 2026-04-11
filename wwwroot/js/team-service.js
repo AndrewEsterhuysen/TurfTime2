@@ -16,16 +16,38 @@ class TeamService {
         this.auth = auth;
         
         // Listen for auth state changes
-        this.auth.onAuthStateChanged((user) => {
-            if (user) {
-                this.currentUserId = user.uid;
-                console.log('[TeamService] User authenticated:', user.uid.substring(0, 8));
-            } else {
-                this.currentUserId = null;
-                console.log('[TeamService] User signed out');
-            }
-        });
-    }
+            this.auth.onAuthStateChanged((user) => {
+                if (user) {
+                    this.currentUserId = user.uid;
+                    console.log('[TeamService] User authenticated:', user.uid.substring(0, 8));
+                } else {
+                    this.currentUserId = null;
+                    console.log('[TeamService] User signed out');
+                }
+            });
+        }
+
+        // Wait for Firebase authentication to complete (up to 10 seconds)
+        async waitForAuth(timeoutMs = 10000) {
+            if (this.currentUserId) return;
+
+            return new Promise((resolve) => {
+                const timeout = setTimeout(() => {
+                    console.warn('[TeamService] Auth wait timed out');
+                    resolve();
+                }, timeoutMs);
+
+                const unsubscribe = this.auth.onAuthStateChanged((user) => {
+                    if (user) {
+                        this.currentUserId = user.uid;
+                        console.log('[TeamService] Auth resolved:', user.uid.substring(0, 8));
+                        clearTimeout(timeout);
+                        unsubscribe();
+                        resolve();
+                    }
+                });
+            });
+        }
 
     // Set current team ID
     setCurrentTeam(teamId) {
@@ -48,6 +70,12 @@ class TeamService {
 
     // Create a new team
     async createTeam(teamId, teamName, inviteCode) {
+        // Wait for authentication if not yet ready
+        if (!this.currentUserId) {
+            console.log('[TeamService] Waiting for authentication...');
+            await this.waitForAuth();
+        }
+
         if (!this.currentUserId) {
             throw new Error('User not authenticated');
         }
@@ -88,6 +116,12 @@ class TeamService {
 
     // Join an existing team using invite code
     async joinTeam(inviteCode) {
+        // Wait for authentication if not yet ready
+        if (!this.currentUserId) {
+            console.log('[TeamService] Waiting for authentication...');
+            await this.waitForAuth();
+        }
+
         if (!this.currentUserId) {
             throw new Error('User not authenticated');
         }

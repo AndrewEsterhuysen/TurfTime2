@@ -1,5 +1,6 @@
-using System.Text;
+﻿using System.Text;
 using System.Collections.ObjectModel;
+using TurfTime2.Services;
 
 namespace TurfTime2;
 
@@ -23,6 +24,20 @@ public partial class TeamDetailsPage : ContentPage
 	{
 		base.OnAppearing();
 		LoadCurrentTeam();
+
+		// Auto-select appropriate checkbox based on current team mode
+		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+		if (!string.IsNullOrEmpty(teamMode))
+		{
+			if (teamMode == "local")
+			{
+				LocalCheckbox.IsChecked = true;  // This will trigger LoadLocalTeams()
+			}
+			else if (teamMode == "shared")
+			{
+				SharedCheckbox.IsChecked = true;
+			}
+		}
 	}
 
 	private void LoadCurrentTeam()
@@ -191,6 +206,9 @@ public partial class TeamDetailsPage : ContentPage
 			// Sync team ID to localStorage for JavaScript roster manager
 			SyncTeamIdToLocalStorage(selectedTeam.TeamId);
 
+			// Trigger AppShell to update menu item availability
+			RefreshAppShellMenu();
+
 			// Clear selection immediately to prevent double-tap issues on Android
 			LocalTeamsCollection.SelectedItem = null;
 
@@ -209,6 +227,24 @@ public partial class TeamDetailsPage : ContentPage
 				// Refresh UI AFTER dialog closes to ensure it's visible
 				LoadCurrentTeam();
 				LoadLocalTeams();
+
+				// Force reload Game page if user is currently on it or will navigate to it
+				var gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
+					?.FirstOrDefault(p => p is GamePage) as GamePage;
+				if (gamePage != null)
+				{
+					System.Diagnostics.Debug.WriteLine($"[TeamDetails] Forcing Game page reload after team switch");
+					gamePage.ForceTeamReload();
+
+					// If currently on Game page, navigate away and back
+					var currentPage = Application.Current?.MainPage?.Navigation?.NavigationStack?.LastOrDefault();
+					if (currentPage is GamePage)
+					{
+						await Shell.Current.GoToAsync("//SettingsPage");
+						await Task.Delay(100);
+						await Shell.Current.GoToAsync("//GamePage");
+					}
+				}
 
 				System.Diagnostics.Debug.WriteLine($"[TeamDetails] UI refresh complete");
 			});
@@ -322,6 +358,66 @@ public partial class TeamDetailsPage : ContentPage
 			{
 				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Delete cancelled by user");
 			}
+		}
+	}
+
+	// Rename team handler (invoked by swipe gesture)
+	private async void OnRenameTeamSwipe(object sender, EventArgs e)
+	{
+		if (sender is SwipeItem swipeItem && swipeItem.CommandParameter is LocalTeamItem teamToRename)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Rename swipe triggered for: {teamToRename.TeamName}");
+
+			// Prompt user for new name
+			string newName = await DisplayPromptAsync(
+				"Rename Team", 
+				$"Enter new name for '{teamToRename.TeamName}':",
+				initialValue: teamToRename.TeamName,
+				maxLength: 50,
+				keyboard: Keyboard.Text);
+
+			if (!string.IsNullOrWhiteSpace(newName) && newName.Trim() != teamToRename.TeamName)
+			{
+				await RenameLocalTeam(teamToRename, newName.Trim());
+			}
+			else
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Rename cancelled or unchanged");
+			}
+		}
+	}
+
+	private async Task RenameLocalTeam(LocalTeamItem team, string newName)
+	{
+		try
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Renaming team: {team.TeamName} → {newName}");
+
+			// Update team name in Preferences
+			Preferences.Set($"{team.TeamId}_name", newName);
+
+			// If this is the current team, update current team name too
+			var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			if (currentTeamId == team.TeamId)
+			{
+				Preferences.Set(TEAM_NAME_KEY, newName);
+				LoadCurrentTeam();  // Refresh current team display
+			}
+
+			// Refresh team list to show new name
+			LoadLocalTeams();
+
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✅ Team renamed successfully");
+
+			await DisplayAlert("Team Renamed", 
+				$"'{team.TeamName}' has been renamed to '{newName}'.\n\n" +
+				"All data (roster, logs, chat history) remains intact.", 
+				"OK");
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ❌ Rename error: {ex.Message}");
+			await DisplayAlert("Error", $"Failed to rename team: {ex.Message}", "OK");
 		}
 	}
 
@@ -523,43 +619,126 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
-	private async Task<string> CreateTeamInFirestore(string teamId, string teamName, string inviteCode)
-	{
-		// Get WebView from GamePage (it has Firebase initialized)
-		var gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
-			?.FirstOrDefault(p => p is GamePage) as GamePage;
+	#if ANDROID && DEBUG
+private static readonly HttpClient _httpClient = new HttpClient(new HttpClientHandler
+{
+	ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+});
+#elif ANDROID
+private static readonly HttpClient _httpClient = new HttpClient(new Xamarin.Android.Net.AndroidMessageHandler());
+#else
+private static readonly HttpClient _httpClient = new HttpClient();
+#endif
+private static string? _firebaseIdToken;
+private static string? _firebaseUserId;
+private const string FirebaseApiKey = "AIzaSyDAKivCFX5kYYZ6SkAQluBNdR92I320glk";
+private const string FirebaseProjectId = "turf-timer";
 
-		if (gamePage?.GameWebView != null)
-		{
-			try
-			{
-				var script = $@"
-					(async function() {{
-						try {{
-							if (typeof teamService === 'undefined') {{
-								return 'error: Team service not initialized';
-							}}
-							const result = await teamService.createTeam('{teamId}', '{EscapeJavaScript(teamName)}', '{inviteCode}');
-							return result.success ? 'success' : 'error';
-						}} catch (error) {{
-							return 'error: ' + error.message;
-						}}
-					}})();
-				";
+private async Task<bool> EnsureFirebaseAuthAsync()
+{
+if (!string.IsNullOrEmpty(_firebaseIdToken))
+return true;
 
-				var result = await gamePage.GameWebView.EvaluateJavaScriptAsync(script);
-				return result ?? "error: No response";
-			}
-			catch (Exception ex)
-			{
-				return $"error: {ex.Message}";
-			}
-		}
+try
+{
+System.Diagnostics.Debug.WriteLine("[Firebase] Signing in anonymously via REST API...");
+var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
+var body = System.Text.Json.JsonSerializer.Serialize(new { returnSecureToken = true });
+var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+var response = await _httpClient.PostAsync(url, content);
+var json = await response.Content.ReadAsStringAsync();
+System.Diagnostics.Debug.WriteLine($"[Firebase] Auth response: {response.StatusCode}");
+if (!response.IsSuccessStatusCode)
+{
+System.Diagnostics.Debug.WriteLine($"[Firebase] Auth failed: {json}");
+return false;
+}
+var doc = System.Text.Json.JsonDocument.Parse(json);
+_firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
+_firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
+System.Diagnostics.Debug.WriteLine($"[Firebase] Authenticated as user: {_firebaseUserId?.Substring(0, 8)}...");
+return true;
+}
+catch (Exception ex)
+{
+System.Diagnostics.Debug.WriteLine($"[Firebase] Auth exception: {ex.Message}");
+return false;
+}
+}
 
-		return "error: Firebase not available. Please open the Game page first.";
-	}
+private async Task<string> CreateTeamInFirestore(string teamId, string teamName, string inviteCode)
+{
+System.Diagnostics.Debug.WriteLine($"[TeamDetails] CreateTeamInFirestore called for team: {teamName}");
 
-	private void RegisterTeamId(string teamId)
+if (!await EnsureFirebaseAuthAsync())
+return "error: Could not authenticate with Firebase. Please check your internet connection.";
+
+try
+{
+var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
+_httpClient.DefaultRequestHeaders.Authorization =
+new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
+
+// 1. Create team metadata
+var metadataUrl = $"{baseUrl}/teams/{teamId}/metadata?documentId=info";
+var metadataBody = System.Text.Json.JsonSerializer.Serialize(new
+{
+fields = new
+{
+teamName = new { stringValue = teamName },
+inviteCode = new { stringValue = inviteCode },
+createdBy = new { stringValue = _firebaseUserId },
+isActive = new { booleanValue = true }
+}
+});
+var metadataResponse = await _httpClient.PostAsync(metadataUrl,
+new StringContent(metadataBody, System.Text.Encoding.UTF8, "application/json"));
+if (!metadataResponse.IsSuccessStatusCode)
+{
+var err = await metadataResponse.Content.ReadAsStringAsync();
+System.Diagnostics.Debug.WriteLine($"[Firebase] Metadata write failed: {err}");
+return $"error: {err}";
+}
+System.Diagnostics.Debug.WriteLine("[Firebase] Team metadata created");
+
+// 2. Add creator as admin member
+var memberUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
+var memberBody = System.Text.Json.JsonSerializer.Serialize(new
+{
+fields = new
+{
+role = new { stringValue = "admin" },
+displayName = new { stringValue = "Admin" }
+}
+});
+await _httpClient.PostAsync(memberUrl,
+new StringContent(memberBody, System.Text.Encoding.UTF8, "application/json"));
+System.Diagnostics.Debug.WriteLine("[Firebase] Admin member added");
+
+// 3. Initialize empty roster
+var rosterUrl = $"{baseUrl}/teams/{teamId}/roster?documentId=data";
+var rosterBody = System.Text.Json.JsonSerializer.Serialize(new
+{
+fields = new
+{
+version = new { integerValue = "2" },
+players = new { arrayValue = new { values = Array.Empty<object>() } }
+}
+});
+await _httpClient.PostAsync(rosterUrl,
+new StringContent(rosterBody, System.Text.Encoding.UTF8, "application/json"));
+System.Diagnostics.Debug.WriteLine("[Firebase] Empty roster initialized");
+
+System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team '{teamName}' created successfully in Firestore");
+return "success";
+}
+catch (Exception ex)
+{
+System.Diagnostics.Debug.WriteLine($"[TeamDetails] Exception creating team: {ex.Message}");
+return $"error: {ex.Message}";
+}
+}
+private void RegisterTeamId(string teamId)
 	{
 		var teamListJson = Preferences.Get("team_id_list", "[]");
 
@@ -681,10 +860,44 @@ public partial class TeamDetailsPage : ContentPage
 
 	private async Task<string> JoinTeamInFirestore(string inviteCode)
 	{
+		// Always use GamePage WebView
 		var gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
 			?.FirstOrDefault(p => p is GamePage) as GamePage;
 
-		if (gamePage?.GameWebView != null)
+		WebView? webView = gamePage?.GameWebView;
+
+		// If GamePage hasn't been loaded yet, initialize it first
+		if (webView == null)
+		{
+			System.Diagnostics.Debug.WriteLine("[TeamDetails] GamePage not loaded - initializing...");
+			await DisplayAlert("Please Wait", 
+				"Initializing cloud services...\n\nThis only happens once on first use.", 
+				"OK");
+
+			// Set flag so GamePage doesn't navigate away
+			GamePage.SetFirebaseInitializationMode(true);
+
+			try
+			{
+				await Shell.Current.GoToAsync("//GamePage");
+				await Task.Delay(3000);
+
+				// Get WebView reference BEFORE navigating away
+				gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
+					?.FirstOrDefault(p => p is GamePage) as GamePage;
+				webView = gamePage?.GameWebView;
+
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] WebView obtained: {(webView != null ? "YES" : "NO")}");
+
+				await Shell.Current.GoToAsync("//SettingsPage/settings/teamdetails");
+			}
+			finally
+			{
+				GamePage.SetFirebaseInitializationMode(false);
+			}
+		}
+
+		if (webView != null)
 		{
 			try
 			{
@@ -708,7 +921,7 @@ public partial class TeamDetailsPage : ContentPage
 					}})();
 				";
 
-				var result = await gamePage.GameWebView.EvaluateJavaScriptAsync(script);
+				var result = await webView.EvaluateJavaScriptAsync(script);
 				return result ?? "error: No response";
 			}
 			catch (Exception ex)
@@ -717,7 +930,7 @@ public partial class TeamDetailsPage : ContentPage
 			}
 		}
 
-		return "error: Firebase not available";
+		return "error: Firebase not available. Please open the Game page first, then try again.";
 	}
 
 	private TeamInfo? FindTeamByInviteCode(string inviteCode)
@@ -813,6 +1026,9 @@ public partial class TeamDetailsPage : ContentPage
 			// Sync team ID to JavaScript
 			SyncTeamIdToLocalStorage(teamId);
 
+			// Trigger menu refresh
+			RefreshAppShellMenu();
+
 			await DisplayAlert("Local Team Created",
 				$"Team: {teamName}\n\n" +
 				"This team is stored on your device only.\n" +
@@ -822,6 +1038,24 @@ public partial class TeamDetailsPage : ContentPage
 			LoadCurrentTeam();
 			LoadLocalTeams();
 			LocalTeamNameEntry.Text = string.Empty;
+
+			// Force reload Game page on next navigation
+			var gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
+				?.FirstOrDefault(p => p is GamePage) as GamePage;
+			if (gamePage != null)
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Marking Game page for reload after team creation");
+				gamePage.ForceTeamReload();
+
+				// If currently on Game page, navigate away and back
+				var currentPage = Application.Current?.MainPage?.Navigation?.NavigationStack?.LastOrDefault();
+				if (currentPage is GamePage)
+				{
+					await Shell.Current.GoToAsync("//SettingsPage");
+					await Task.Delay(100);
+					await Shell.Current.GoToAsync("//GamePage");
+				}
+			}
 		}
 		catch (Exception ex)
 		{
@@ -955,14 +1189,32 @@ public partial class TeamDetailsPage : ContentPage
 		const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Exclude ambiguous chars (0,O,1,I)
 		var random = new Random();
 		var code = new StringBuilder(8);
-		
+
 		for (int i = 0; i < 8; i++)
 		{
 			code.Append(chars[random.Next(chars.Length)]);
 			if (i == 3) code.Append('-'); // Add dash in middle for readability
 		}
-		
+
 		return code.ToString();
+	}
+
+	// Trigger AppShell to refresh menu item availability
+	private void RefreshAppShellMenu()
+	{
+		try
+		{
+			// Force AppShell to re-evaluate menu item availability
+			if (Application.Current?.MainPage is AppShell appShell)
+			{
+				appShell.RefreshMenu();
+				System.Diagnostics.Debug.WriteLine("[TeamDetails] Menu refresh triggered");
+			}
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Error refreshing menu: {ex.Message}");
+		}
 	}
 }
 
