@@ -108,6 +108,7 @@ class RosterManager {
 
         this.buildRows();
         this.loadFromStorage();
+        this.updateTeamNameDisplay();
         this.bindEvents();
         this.initializeView(); // Initialize the correct view
         this.markNextPlayers();
@@ -2769,13 +2770,13 @@ class RosterManager {
         // This happens automatically in initFirebase() when auth completes
     }
 
-    // Reset roster to default empty state (20 empty players)
+    // Reset roster to default state with placeholder names
     resetToDefaultRoster() {
-        console.log('[RosterManager] 🔄 Resetting roster to default empty state');
+        console.log('[RosterManager] 🔄 Resetting roster to default state');
 
-        // Clear all player data
-        this.rows.forEach(r => {
-            r.nameInput.value = '';  // Clear name
+        // Set default player names and clear positions
+        this.rows.forEach((r, i) => {
+            r.nameInput.value = `Player ${i + 1}`;
             r.cbField.checked = false;
             r.cbBench.checked = false;
             r.cbGoalie.checked = false;
@@ -2860,9 +2861,13 @@ class RosterManager {
             // Get local data
             const localRaw = localStorage.getItem(this.STORAGE_KEY);
             if (!localRaw) {
-                console.log('[Firebase] ℹ️ No local data to sync');
-                // Try to download from cloud anyway
-                await this.loadFromFirestore();
+                console.log('[Firebase] ℹ️ No local data - checking cloud...');
+                const cloudData = await this.loadFromFirestore();
+                if (cloudData) {
+                    console.log('[Firebase] ⬇️ Applying cloud data (no local data existed)');
+                    this.applyLoadedData(cloudData);
+                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cloudData));
+                }
                 return;
             }
 
@@ -3223,10 +3228,24 @@ class RosterManager {
         this.currentTeamId = newTeamId || 'default';
         this.STORAGE_KEY = this.getTeamStorageKey();
 
-        // Load new team's roster
+        // Load new team's roster from localStorage
         this.loadFromStorage();
+        this.updateTeamNameDisplay();
+
+        // Download cloud roster for this team if Firebase is ready
+        if (this.firebaseReady) {
+            this.syncWithCloud();
+        }
 
         console.log(`[RosterManager] ✅ Switched to team: ${this.currentTeamId}`);
+    }
+
+    // Update the team name label between the two timers
+    updateTeamNameDisplay() {
+        const display = document.getElementById('teamNameDisplay');
+        if (!display) return;
+        const teamName = localStorage.getItem('team_name') || '';
+        display.textContent = teamName;
     }
 
     // ============================================================================

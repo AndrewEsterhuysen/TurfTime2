@@ -141,6 +141,7 @@ public partial class GamePage : ContentPage
         {
             // Get current team ID from Preferences
             var teamId = Preferences.Get("team_id", string.Empty);
+            var teamName = Preferences.Get("team_name", string.Empty);
 
             // If no team selected, don't load game data
             if (string.IsNullOrEmpty(teamId))
@@ -185,6 +186,7 @@ public partial class GamePage : ContentPage
                     try {{
                         // Set team_id
                         localStorage.setItem('team_id', '{EscapeJavaScript(teamId)}');
+                        localStorage.setItem('team_name', '{EscapeJavaScript(teamName)}');
                         console.log('[GamePage] Set team_id in localStorage:', '{EscapeJavaScript(teamId)}');
 
                         // Force roster reload for this team

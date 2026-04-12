@@ -9,30 +9,74 @@
     </ContentPage.Resources>
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="15">
-            
-            <!-- Current Team Display -->
+
+            <!-- 1. Current Team Display -->
             <Frame BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
                    BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
                    Padding="15"
                    CornerRadius="8">
                 <VerticalStackLayout Spacing="5">
                     <Label Text="Current Team" FontAttributes="Bold" FontSize="16"/>
-                    <Label x:Name="CurrentTeamLabel" 
-                           Text="No team selected" 
+                    <Label x:Name="CurrentTeamLabel"
+                           Text="No team selected"
                            FontSize="14"
                            TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
                     <Label x:Name="TeamModeLabel"
                            Text="Mode: Not configured"
                            FontSize="12"
                            TextColor="{AppThemeBinding Light=#999, Dark=#888}"/>
+                    <Button x:Name="LeaveTeamButton"
+                            Text="Leave Current Team"
+                            IsVisible="False"
+                            Clicked="OnLeaveTeamClicked"
+                            BackgroundColor="#F44336"
+                            TextColor="White"
+                            Margin="0,10,0,0"/>
                 </VerticalStackLayout>
             </Frame>
 
-            <!-- Shared Mode Section -->
+            <!-- 2. Admin Panel (visible only for shared-team admins) -->
+            <Frame x:Name="AdminPanel"
+                   IsVisible="False"
+                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                   Padding="15"
+                   CornerRadius="8">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Admin Panel" FontAttributes="Bold" FontSize="16"/>
+                    <Frame BackgroundColor="{AppThemeBinding Light=#FFF3CD, Dark=#4A3C1E}"
+                           Padding="10"
+                           CornerRadius="5">
+                        <VerticalStackLayout Spacing="5">
+                            <Label Text="Invite Code" FontAttributes="Bold" FontSize="12"/>
+                            <Label x:Name="InviteCodeDisplay"
+                                   Text="Loading..."
+                                   FontSize="20"
+                                   FontAttributes="Bold"
+                                   HorizontalOptions="Center"/>
+                            <Label Text="Share this code with your team members"
+                                   FontSize="10"
+                                   HorizontalOptions="Center"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                        </VerticalStackLayout>
+                    </Frame>
+                    <Button Text="View Team Members"
+                            Clicked="OnViewMembersClicked"
+                            BackgroundColor="#9C27B0"
+                            TextColor="White"/>
+                    <Button Text="Regenerate Invite Code"
+                            Clicked="OnRegenerateCodeClicked"
+                            BackgroundColor="#F44336"
+                            TextColor="White"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- 3. Team Type Selection + Selectable Team Lists -->
             <Frame BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
                    Padding="15"
                    CornerRadius="8">
                 <VerticalStackLayout Spacing="10">
+                    <Label Text="Select Team Type" FontAttributes="Bold" FontSize="16"/>
+
                     <HorizontalStackLayout Spacing="10">
                         <CheckBox x:Name="SharedCheckbox"
                                   CheckedChanged="OnSharedCheckboxChanged"/>
@@ -41,53 +85,6 @@
                                VerticalOptions="Center"/>
                     </HorizontalStackLayout>
 
-                    <!-- Create New Team -->
-                    <StackLayout x:Name="CreateTeamSection" IsVisible="False" Spacing="10">
-                        <Label Text="Create New Team" FontAttributes="Bold" FontSize="16" Margin="0,10,0,0"/>
-
-                        <Label Text="Club &amp; Team" FontSize="12" TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                        <Entry x:Name="ClubEntry"
-                               Placeholder="Club name (e.g., Manchester United FC)"
-                               TextChanged="OnClubTeamChanged"/>
-                        <Entry x:Name="TeamEntry"
-                               Placeholder="Team name (e.g., U17 Boys)"
-                               TextChanged="OnClubTeamChanged"/>
-
-                        <Label Text="OR" HorizontalOptions="Center" FontAttributes="Bold" Margin="0,5"/>
-
-                        <Label Text="Nickname" FontSize="12" TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                        <Entry x:Name="NicknameEntry"
-                               Placeholder="Team nickname (e.g., Socceroos)"
-                               TextChanged="OnNicknameChanged"/>
-
-                        <Button Text="Create Team &amp; Become Admin"
-                                Clicked="OnCreateTeamClicked"
-                                BackgroundColor="#4CAF50"
-                                TextColor="White"
-                                Margin="0,10,0,0"/>
-                    </StackLayout>
-
-                    <!-- Join Existing Team -->
-                    <StackLayout x:Name="JoinTeamSection" IsVisible="False" Spacing="10">
-                        <Label Text="Join Existing Team" FontAttributes="Bold" FontSize="16" Margin="0,10,0,0"/>
-
-                        <Entry x:Name="InviteCodeEntry"
-                               Placeholder="Enter invite code"
-                               MaxLength="20"/>
-
-                        <Button Text="Join as Member"
-                                Clicked="OnJoinTeamClicked"
-                                BackgroundColor="#2196F3"
-                                TextColor="White"/>
-                    </StackLayout>
-                </VerticalStackLayout>
-            </Frame>
-
-            <!-- Local Mode Section -->
-            <Frame BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
-                   Padding="15"
-                   CornerRadius="8">
-                <VerticalStackLayout Spacing="10">
                     <HorizontalStackLayout Spacing="10">
                         <CheckBox x:Name="LocalCheckbox"
                                   CheckedChanged="OnLocalCheckboxChanged"/>
@@ -96,30 +93,27 @@
                                VerticalOptions="Center"/>
                     </HorizontalStackLayout>
 
+                    <!-- Local Teams List (visible when Local is selected) -->
                     <StackLayout x:Name="LocalTeamSection" IsVisible="False" Spacing="10">
 
-                        <!-- Switch Between Local Teams (shown FIRST if teams exist) -->
                         <Label x:Name="LocalTeamSwitcherLabel"
                                Text="Your Teams"
                                FontAttributes="Bold"
-                               FontSize="16"
-                               Margin="0,10,0,0"
+                               FontSize="14"
                                IsVisible="False"/>
 
                         <CollectionView x:Name="LocalTeamsCollection"
                                         IsVisible="False"
                                         SelectionMode="Single"
                                         SelectionChanged="OnLocalTeamSelectionChanged"
-                                        Margin="0,0,0,10">
+                                        Margin="0,0,0,5">
                             <CollectionView.ItemTemplate>
                                 <DataTemplate>
-                                    <!-- SwipeView for rename/delete gestures -->
                                     <SwipeView>
                                         <SwipeView.LeftItems>
                                             <SwipeItems Mode="Execute">
                                                 <SwipeItem Text="Rename"
                                                            BackgroundColor="#2196F3"
-                                                           Command="{Binding Source={x:Reference LocalTeamsCollection}, Path=BindingContext.RenameTeamCommand}"
                                                            CommandParameter="{Binding .}"
                                                            Invoked="OnRenameTeamSwipe"/>
                                             </SwipeItems>
@@ -128,21 +122,19 @@
                                             <SwipeItems Mode="Execute">
                                                 <SwipeItem Text="Delete"
                                                            BackgroundColor="Red"
-                                                           Command="{Binding Source={x:Reference LocalTeamsCollection}, Path=BindingContext.DeleteTeamCommand}"
                                                            CommandParameter="{Binding .}"
                                                            Invoked="OnDeleteTeamSwipe"/>
                                             </SwipeItems>
                                         </SwipeView.RightItems>
-
                                         <Frame Padding="10"
-                                               Margin="0,5"
+                                               Margin="0,3"
                                                BackgroundColor="{AppThemeBinding Light=#F5F5F5, Dark=#3C3C3C}"
                                                BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#505050}"
                                                CornerRadius="5"
                                                HasShadow="False"
                                                InputTransparent="False">
                                             <Frame.GestureRecognizers>
-                                                <TapGestureRecognizer Tapped="OnTeamItemTapped" />
+                                                <TapGestureRecognizer Tapped="OnTeamItemTapped"/>
                                             </Frame.GestureRecognizers>
                                             <HorizontalStackLayout Spacing="10">
                                                 <Label Text="{Binding IsActive, Converter={StaticResource BoolToCheckConverter}}"
@@ -163,75 +155,128 @@
                             </CollectionView.ItemTemplate>
                         </CollectionView>
 
-                        <!-- Separator between existing teams and create section -->
                         <BoxView x:Name="TeamSeparator"
                                  HeightRequest="1"
                                  Color="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
-                                 Margin="0,10,0,0"
                                  IsVisible="False"/>
 
-                        <!-- Create New Local Team (shown AFTER existing teams) -->
-                        <Label Text="Create New Team" 
-                               FontAttributes="Bold" 
-                               FontSize="16" 
-                               Margin="0,10,0,0"/>
-
-                        <Entry x:Name="LocalTeamNameEntry"
-                               Placeholder="Team name (local only)"/>
-
-                        <Button Text="Create Local Team"
-                                Clicked="OnSetLocalTeamClicked"
-                                BackgroundColor="#FF9800"
-                                TextColor="White"/>
                     </StackLayout>
                 </VerticalStackLayout>
             </Frame>
 
-            <!-- Admin Panel (visible only for admins) -->
-            <Frame x:Name="AdminPanel"
+            <!-- 4. Join Existing Team (visible when Shared is selected) -->
+            <Frame x:Name="JoinTeamSection"
                    IsVisible="False"
                    BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
                    Padding="15"
                    CornerRadius="8">
                 <VerticalStackLayout Spacing="10">
-                    <Label Text="Admin Panel" FontAttributes="Bold" FontSize="16"/>
-                    
-                    <Frame BackgroundColor="{AppThemeBinding Light=#FFF3CD, Dark=#4A3C1E}"
-                           Padding="10"
-                           CornerRadius="5">
-                        <VerticalStackLayout Spacing="5">
-                            <Label Text="Invite Code" FontAttributes="Bold" FontSize="12"/>
-                            <Label x:Name="InviteCodeDisplay"
-                                   Text="Loading..."
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   HorizontalOptions="Center"/>
-                            <Label Text="Share this code with your team members"
-                                   FontSize="10"
-                                   HorizontalOptions="Center"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                        </VerticalStackLayout>
-                    </Frame>
-                    
-                    <Button Text="View Team Members"
-                            Clicked="OnViewMembersClicked"
-                            BackgroundColor="#9C27B0"
-                            TextColor="White"/>
-                    
-                    <Button Text="Regenerate Invite Code"
-                            Clicked="OnRegenerateCodeClicked"
-                            BackgroundColor="#F44336"
+                    <Label Text="Join Existing Team" FontAttributes="Bold" FontSize="16"/>
+                    <Label Text="Enter the invite code shared by your team admin."
+                           FontSize="12"
+                           TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                    <Entry x:Name="InviteCodeEntry"
+                           Placeholder="Enter invite code (e.g. ABCD-EFGH)"
+                           MaxLength="20"/>
+                    <Button Text="Join as Member"
+                            Clicked="OnJoinTeamClicked"
+                            BackgroundColor="#2196F3"
                             TextColor="White"/>
                 </VerticalStackLayout>
             </Frame>
 
-            <!-- Leave Team Button -->
-            <Button x:Name="LeaveTeamButton"
-                    Text="Leave Current Team"
-                    IsVisible="False"
-                    Clicked="OnLeaveTeamClicked"
-                    BackgroundColor="#F44336"
-                    TextColor="White"/>
+            <!-- 5. Create New Team (collapsible, collapsed by default) -->
+            <Frame BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                   Padding="15"
+                   CornerRadius="8">
+                <VerticalStackLayout Spacing="8">
+
+                    <!-- Tappable header -->
+                    <Grid ColumnDefinitions="*, Auto">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnCreateTeamHeaderTapped"/>
+                        </Grid.GestureRecognizers>
+                        <Label Text="Create New Team"
+                               FontAttributes="Bold"
+                               FontSize="16"
+                               VerticalOptions="Center"/>
+                        <Label x:Name="CreateTeamToggleIcon"
+                               Grid.Column="1"
+                               Text="▼"
+                               FontSize="16"
+                               VerticalOptions="Center"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                    </Grid>
+
+                    <Label x:Name="CreateTeamHint"
+                           Text="Tap to expand — most users join with an invite code above"
+                           FontSize="11"
+                           TextColor="{AppThemeBinding Light=#999, Dark=#888}"/>
+
+                    <!-- Expanded content (hidden by default) -->
+                    <StackLayout x:Name="CreateTeamContent" IsVisible="False" Spacing="10">
+
+                        <Label x:Name="CreateTeamNoModeLabel"
+                               Text="Please select Shared or Local above to see creation options."
+                               FontSize="12"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+
+                        <!-- Shared team creation -->
+                        <StackLayout x:Name="CreateSharedSection" IsVisible="False" Spacing="10">
+                            <Label Text="☁️ New Shared Team" FontAttributes="Bold" FontSize="14" Margin="0,5,0,0"/>
+                            <Label Text="Club &amp; Team" FontSize="12" TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                            <Entry x:Name="ClubEntry"
+                                   Placeholder="Club name (e.g., Manchester United FC)"
+                                   TextChanged="OnClubTeamChanged"/>
+                            <Entry x:Name="TeamEntry"
+                                   Placeholder="Team name (e.g., U17 Boys)"
+                                   TextChanged="OnClubTeamChanged"/>
+                            <Label Text="OR" HorizontalOptions="Center" FontAttributes="Bold" Margin="0,3"/>
+                            <Label Text="Nickname" FontSize="12" TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                            <Entry x:Name="NicknameEntry"
+                                   Placeholder="Team nickname (e.g., Socceroos)"
+                                   TextChanged="OnNicknameChanged"/>
+                            <Button x:Name="CreateSharedTeamButton"
+                                    Text="Create Team &amp; Become Admin"
+                                    Clicked="OnCreateTeamClicked"
+                                    BackgroundColor="#4CAF50"
+                                    TextColor="White"
+                                    Margin="0,5,0,0"/>
+
+                            <!-- Loading indicator shown while Firestore creates the team -->
+                            <HorizontalStackLayout x:Name="CreateTeamLoadingSection"
+                                                   IsVisible="False"
+                                                   HorizontalOptions="Center"
+                                                   Spacing="10"
+                                                   Margin="0,4,0,0">
+                                <ActivityIndicator x:Name="CreateTeamSpinner"
+                                                   IsRunning="False"
+                                                   Color="#4CAF50"
+                                                   WidthRequest="22"
+                                                   HeightRequest="22"
+                                                   VerticalOptions="Center"/>
+                                <Label Text="Setting up team in the cloud..."
+                                       FontSize="13"
+                                       TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"
+                                       VerticalOptions="Center"/>
+                            </HorizontalStackLayout>
+                        </StackLayout>
+
+                        <!-- Local team creation -->
+                        <StackLayout x:Name="CreateLocalSection" IsVisible="False" Spacing="10">
+                            <Label Text="📱 New Local Team" FontAttributes="Bold" FontSize="14" Margin="0,5,0,0"/>
+                            <Entry x:Name="LocalTeamNameEntry"
+                                   Placeholder="Team name (stored on this device only)"/>
+                            <Button Text="Create Local Team"
+                                    Clicked="OnSetLocalTeamClicked"
+                                    BackgroundColor="#FF9800"
+                                    TextColor="White"/>
+                        </StackLayout>
+
+                    </StackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

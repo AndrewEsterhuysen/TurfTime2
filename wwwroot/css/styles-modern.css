@@ -199,6 +199,21 @@ button:disabled {
     letter-spacing: 0.5px;
 }
 
+.team-name-display {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    color: var(--text);
+    opacity: 0.85;
+    padding: 2px 4px;
+    margin-top: 6px;
+}
+
 /* Rotate attention pulse */
 .rotate-attention {
     background: var(--danger) !important;

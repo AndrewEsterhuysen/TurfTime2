@@ -74,44 +74,59 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
+	private bool _createTeamExpanded = false;
+
 	private void OnSharedCheckboxChanged(object sender, CheckedChangedEventArgs e)
 	{
 		if (e.Value)
 		{
-			// Shared checked - show create/join options, disable local
 			LocalCheckbox.IsChecked = false;
-			CreateTeamSection.IsVisible = true;
 			JoinTeamSection.IsVisible = true;
 			LocalTeamSection.IsVisible = false;
 		}
 		else
 		{
-			// Shared unchecked - hide create/join options
-			CreateTeamSection.IsVisible = false;
 			JoinTeamSection.IsVisible = false;
 		}
+		UpdateCreateTeamSubSections();
 	}
 
 	private void OnLocalCheckboxChanged(object sender, CheckedChangedEventArgs e)
 	{
 		if (e.Value)
 		{
-			// Local checked - show local team management, disable shared
 			SharedCheckbox.IsChecked = false;
 			LocalTeamSection.IsVisible = true;
-			CreateTeamSection.IsVisible = false;
 			JoinTeamSection.IsVisible = false;
-
-			// Load and display all local teams
 			LoadLocalTeams();
 		}
 		else
 		{
-			// Local unchecked - hide local team input
 			LocalTeamSection.IsVisible = false;
 			LocalTeamsCollection.IsVisible = false;
 			LocalTeamSwitcherLabel.IsVisible = false;
 		}
+		UpdateCreateTeamSubSections();
+	}
+
+	private void OnCreateTeamHeaderTapped(object sender, EventArgs e)
+	{
+		_createTeamExpanded = !_createTeamExpanded;
+		CreateTeamContent.IsVisible = _createTeamExpanded;
+		CreateTeamToggleIcon.Text = _createTeamExpanded ? "▲" : "▼";
+		CreateTeamHint.IsVisible = !_createTeamExpanded;
+		if (_createTeamExpanded)
+			UpdateCreateTeamSubSections();
+	}
+
+	private void UpdateCreateTeamSubSections()
+	{
+		if (!_createTeamExpanded) return;
+		bool isShared = SharedCheckbox.IsChecked;
+		bool isLocal = LocalCheckbox.IsChecked;
+		CreateTeamNoModeLabel.IsVisible = !isShared && !isLocal;
+		CreateSharedSection.IsVisible = isShared;
+		CreateLocalSection.IsVisible = isLocal;
 	}
 
 	private void LoadLocalTeams()
@@ -287,10 +302,12 @@ public partial class TeamDetailsPage : ContentPage
 				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Syncing team ID to localStorage: {teamId}");
 
 				// Set team_id in localStorage and trigger roster reload
+				var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
 				var script = $@"
 					(function() {{
 						try {{
 							localStorage.setItem('team_id', '{EscapeJavaScript(teamId)}');
+							localStorage.setItem('team_name', '{EscapeJavaScript(teamName)}');
 							if (typeof window.reloadRosterForTeam === 'function') {{
 								window.reloadRosterForTeam('{EscapeJavaScript(teamId)}');
 								return 'success';
@@ -550,34 +567,36 @@ public partial class TeamDetailsPage : ContentPage
 
 	private async void OnCreateTeamClicked(object sender, EventArgs e)
 	{
+		string teamName;
+		string teamId;
+
+		// Validate input before showing the spinner
+		if (!string.IsNullOrWhiteSpace(NicknameEntry.Text))
+		{
+			teamName = NicknameEntry.Text.Trim();
+			teamId = GenerateTeamId(teamName);
+		}
+		else if (!string.IsNullOrWhiteSpace(ClubEntry.Text) && !string.IsNullOrWhiteSpace(TeamEntry.Text))
+		{
+			var club = ClubEntry.Text.Trim();
+			var team = TeamEntry.Text.Trim();
+			teamName = $"{club} - {team}";
+			teamId = GenerateTeamId(club, team);
+		}
+		else
+		{
+			await DisplayAlert("Invalid Input", "Please enter either Club + Team or a Nickname.", "OK");
+			return;
+		}
+
+		// Show loading state
+		CreateSharedTeamButton.IsEnabled = false;
+		CreateTeamLoadingSection.IsVisible = true;
+		CreateTeamSpinner.IsRunning = true;
+
 		try
 		{
-			string teamName;
-			string teamId;
-
-			// Validate input
-			if (!string.IsNullOrWhiteSpace(NicknameEntry.Text))
-			{
-				teamName = NicknameEntry.Text.Trim();
-				teamId = GenerateTeamId(teamName);
-			}
-			else if (!string.IsNullOrWhiteSpace(ClubEntry.Text) && !string.IsNullOrWhiteSpace(TeamEntry.Text))
-			{
-				var club = ClubEntry.Text.Trim();
-				var team = TeamEntry.Text.Trim();
-				teamName = $"{club} - {team}";
-				teamId = GenerateTeamId(club, team);
-			}
-			else
-			{
-				await DisplayAlert("Invalid Input", "Please enter either Club + Team or a Nickname.", "OK");
-				return;
-			}
-
-			// Generate invite code
 			var inviteCode = GenerateInviteCode();
-
-			// Create team in Firestore via JavaScript
 			var result = await CreateTeamInFirestore(teamId, teamName, inviteCode);
 
 			if (result == "success")
@@ -601,6 +620,7 @@ public partial class TeamDetailsPage : ContentPage
 					"Team data is now synced to the cloud!", 
 					"OK");
 
+				RefreshAppShellMenu();
 				LoadCurrentTeam();
 
 				// Clear inputs
@@ -617,12 +637,19 @@ public partial class TeamDetailsPage : ContentPage
 		{
 			await DisplayAlert("Error", $"Failed to create team: {ex.Message}", "OK");
 		}
+		finally
+		{
+			// Always restore UI regardless of success or failure
+			CreateTeamSpinner.IsRunning = false;
+			CreateTeamLoadingSection.IsVisible = false;
+			CreateSharedTeamButton.IsEnabled = true;
+		}
 	}
 
 	#if ANDROID && DEBUG
-private static readonly HttpClient _httpClient = new HttpClient(new HttpClientHandler
+private static readonly HttpClient _httpClient = new HttpClient(new Xamarin.Android.Net.AndroidMessageHandler
 {
-	ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+	ServerCertificateCustomValidationCallback = (_, _, _, _) => true
 });
 #elif ANDROID
 private static readonly HttpClient _httpClient = new HttpClient(new Xamarin.Android.Net.AndroidMessageHandler());
@@ -638,6 +665,12 @@ private async Task<bool> EnsureFirebaseAuthAsync()
 {
 if (!string.IsNullOrEmpty(_firebaseIdToken))
 return true;
+
+if (Connectivity.NetworkAccess != NetworkAccess.Internet)
+{
+System.Diagnostics.Debug.WriteLine("[Firebase] No internet connection - skipping auth");
+return false;
+}
 
 try
 {
@@ -795,6 +828,7 @@ private void RegisterTeamId(string teamId)
 						"You can now collaborate with your team.", 
 						"OK");
 
+					RefreshAppShellMenu();
 					LoadCurrentTeam();
 					InviteCodeEntry.Text = string.Empty;
 					return;
