@@ -12,11 +12,13 @@ public partial class TeamDetailsPage : ContentPage
 	private const string USER_ROLE_KEY = "user_role"; // "admin" or "member"
 
 	private ObservableCollection<LocalTeamItem> _localTeams = new();
+	private ObservableCollection<SharedTeamItem> _sharedTeams = new();
 
 	public TeamDetailsPage()
 	{
 		InitializeComponent();
 		LocalTeamsCollection.ItemsSource = _localTeams;
+		SharedTeamsCollection.ItemsSource = _sharedTeams;
 		LoadCurrentTeam();
 	}
 
@@ -81,11 +83,14 @@ public partial class TeamDetailsPage : ContentPage
 		if (e.Value)
 		{
 			LocalCheckbox.IsChecked = false;
+			SharedTeamSection.IsVisible = true;
 			JoinTeamSection.IsVisible = true;
 			LocalTeamSection.IsVisible = false;
+			LoadSharedTeams();
 		}
 		else
 		{
+			SharedTeamSection.IsVisible = false;
 			JoinTeamSection.IsVisible = false;
 		}
 		UpdateCreateTeamSubSections();
@@ -189,6 +194,106 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
+	private void LoadSharedTeams()
+	{
+		var teamListJson = Preferences.Get("team_id_list", "[]");
+
+		try
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Loading shared teams...");
+
+			var teamIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(teamListJson) ?? new List<string>();
+			var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var currentTeamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+
+			var newTeams = new List<SharedTeamItem>();
+
+			foreach (var teamId in teamIds)
+			{
+				var teamName = Preferences.Get($"{teamId}_name", string.Empty);
+				if (!string.IsNullOrEmpty(teamName))
+				{
+					var isActive = currentTeamMode == "shared" && currentTeamId == teamId;
+					var role = Preferences.Get($"{teamId}_role", "member");
+					newTeams.Add(new SharedTeamItem
+					{
+						TeamId = teamId,
+						TeamName = teamName,
+						IsActive = isActive,
+						Role = char.ToUpperInvariant(role[0]) + role[1..]
+					});
+				}
+			}
+
+			_sharedTeams.Clear();
+			foreach (var team in newTeams)
+				_sharedTeams.Add(team);
+
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Found {_sharedTeams.Count} shared teams");
+
+			if (_sharedTeams.Count > 0)
+			{
+				SharedTeamSwitcherLabel.Text = $"Your Shared Teams ({_sharedTeams.Count})";
+				SharedTeamsCollection.IsVisible = true;
+				SharedTeamSwitcherLabel.IsVisible = true;
+				SharedTeamSeparator.IsVisible = true;
+			}
+			else
+			{
+				SharedTeamsCollection.IsVisible = false;
+				SharedTeamSwitcherLabel.IsVisible = false;
+				SharedTeamSeparator.IsVisible = false;
+			}
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"Error loading shared teams: {ex.Message}");
+		}
+	}
+
+	private void OnSharedTeamSelectionChanged(object sender, SelectionChangedEventArgs e)
+	{
+		if (e.CurrentSelection.FirstOrDefault() is not SharedTeamItem selectedTeam)
+			return;
+
+		var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+
+		if (currentTeamId == selectedTeam.TeamId)
+		{
+			SharedTeamsCollection.SelectedItem = null;
+			return;
+		}
+
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] Switching to shared team: {selectedTeam.TeamName}");
+
+		var storedRole = Preferences.Get($"{selectedTeam.TeamId}_role", "member");
+		Preferences.Set(TEAM_MODE_KEY, "shared");
+		Preferences.Set(TEAM_ID_KEY, selectedTeam.TeamId);
+		Preferences.Set(TEAM_NAME_KEY, selectedTeam.TeamName);
+		Preferences.Set(USER_ROLE_KEY, storedRole);
+
+		SyncTeamIdToLocalStorage(selectedTeam.TeamId);
+		RefreshAppShellMenu();
+		SharedTeamsCollection.SelectedItem = null;
+
+		MainThread.BeginInvokeOnMainThread(async () =>
+		{
+			await DisplayAlert("Team Switched",
+				$"Now managing: {selectedTeam.TeamName}\n\n" +
+				$"Role: {selectedTeam.Role}",
+				"OK");
+
+			LoadCurrentTeam();
+			LoadSharedTeams();
+		});
+	}
+
+	private void OnSharedTeamItemTapped(object sender, EventArgs e)
+	{
+		if (sender is Frame frame && frame.BindingContext is SharedTeamItem tappedTeam)
+			SharedTeamsCollection.SelectedItem = tappedTeam;
+	}
+
 	private void OnLocalTeamSelectionChanged(object sender, SelectionChangedEventArgs e)
 	{
 		// DEBUG: Log that event fired
@@ -244,8 +349,7 @@ public partial class TeamDetailsPage : ContentPage
 				LoadLocalTeams();
 
 				// Force reload Game page if user is currently on it or will navigate to it
-				var gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
-					?.FirstOrDefault(p => p is GamePage) as GamePage;
+					var gamePage = FindGamePage();
 				if (gamePage != null)
 				{
 					System.Diagnostics.Debug.WriteLine($"[TeamDetails] Forcing Game page reload after team switch");
@@ -289,13 +393,32 @@ public partial class TeamDetailsPage : ContentPage
 	}
 
 	// Sync team ID to localStorage and trigger JavaScript roster reload
+	// Find the GamePage regardless of platform navigation model
+	private static GamePage? FindGamePage()
+	{
+		// NavigationStack works on Android / iOS modal navigation
+		var fromStack = Application.Current?.MainPage?.Navigation?.NavigationStack
+			?.OfType<GamePage>().FirstOrDefault();
+		if (fromStack != null) return fromStack;
+
+		// Shell item traversal — required on Windows where tab pages are not in NavigationStack
+		if (Shell.Current is { } shell)
+		{
+			foreach (var item in shell.Items)
+				foreach (var section in item.Items)
+					foreach (var content in section.Items)
+						if (content.Content is GamePage gp)
+							return gp;
+		}
+
+		return null;
+	}
+
 	private void SyncTeamIdToLocalStorage(string teamId)
 	{
 		try
 		{
-			// Get GamePage WebView to execute JavaScript
-			var gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
-				?.FirstOrDefault(p => p is GamePage) as GamePage;
+			var gamePage = FindGamePage();
 
 			if (gamePage?.GameWebView != null)
 			{
@@ -607,10 +730,11 @@ public partial class TeamDetailsPage : ContentPage
 				RegisterTeamId(teamId);
 
 				// Set as current team
-				Preferences.Set(TEAM_MODE_KEY, "shared");
-				Preferences.Set(TEAM_ID_KEY, teamId);
-				Preferences.Set(TEAM_NAME_KEY, teamName);
-				Preferences.Set(USER_ROLE_KEY, "admin");
+					Preferences.Set(TEAM_MODE_KEY, "shared");
+					Preferences.Set(TEAM_ID_KEY, teamId);
+					Preferences.Set(TEAM_NAME_KEY, teamName);
+					Preferences.Set(USER_ROLE_KEY, "admin");
+					Preferences.Set($"{teamId}_role", "admin");
 
 				await DisplayAlert("Team Created!", 
 					$"Team: {teamName}\n\n" +
@@ -762,6 +886,25 @@ await _httpClient.PostAsync(rosterUrl,
 new StringContent(rosterBody, System.Text.Encoding.UTF8, "application/json"));
 System.Diagnostics.Debug.WriteLine("[Firebase] Empty roster initialized");
 
+// 4. Write invite code lookup document — enables O(1) GET lookup at join time
+// (avoids a collectionGroup query which requires special Firestore security rules)
+var inviteCodeLookupUrl = $"{baseUrl}/invite_codes?documentId={inviteCode}";
+var inviteCodeLookupBody = System.Text.Json.JsonSerializer.Serialize(new
+{
+	fields = new
+	{
+		teamId = new { stringValue = teamId },
+		teamName = new { stringValue = teamName },
+		createdBy = new { stringValue = _firebaseUserId }
+	}
+});
+var inviteCodeLookupResponse = await _httpClient.PostAsync(inviteCodeLookupUrl,
+	new StringContent(inviteCodeLookupBody, System.Text.Encoding.UTF8, "application/json"));
+if (inviteCodeLookupResponse.IsSuccessStatusCode)
+	System.Diagnostics.Debug.WriteLine("[Firebase] Invite code lookup document created");
+else
+	System.Diagnostics.Debug.WriteLine($"[Firebase] Invite code lookup write failed (non-fatal): {await inviteCodeLookupResponse.Content.ReadAsStringAsync()}");
+
 System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team '{teamName}' created successfully in Firestore");
 return "success";
 }
@@ -809,8 +952,8 @@ private void RegisterTeamId(string teamId)
 
 			if (result.StartsWith("success:"))
 			{
-				// Parse result: "success:teamId:teamName"
-				var parts = result.Split(':');
+				// Parse result: "success:teamId:teamName" — limit to 3 parts so colons in team name are preserved
+				var parts = result.Split(':', 3);
 				if (parts.Length >= 3)
 				{
 					var teamId = parts[1];
@@ -821,6 +964,9 @@ private void RegisterTeamId(string teamId)
 					Preferences.Set(TEAM_ID_KEY, teamId);
 					Preferences.Set(TEAM_NAME_KEY, teamName);
 					Preferences.Set(USER_ROLE_KEY, "member");
+					Preferences.Set($"{teamId}_role", "member");
+					Preferences.Set($"{teamId}_name", teamName);
+					RegisterTeamId(teamId);
 
 					await DisplayAlert("Joined Team!", 
 						$"Successfully joined: {teamName}\n\n" +
@@ -836,7 +982,7 @@ private void RegisterTeamId(string teamId)
 			}
 			else if (result.StartsWith("already_member:"))
 			{
-				var parts = result.Split(':');
+				var parts = result.Split(':', 3);
 				if (parts.Length >= 3)
 				{
 					var teamName = parts[2];
@@ -866,6 +1012,8 @@ private void RegisterTeamId(string teamId)
 					Preferences.Set(TEAM_ID_KEY, foundTeam.TeamId);
 					Preferences.Set(TEAM_NAME_KEY, foundTeam.TeamName);
 					Preferences.Set(USER_ROLE_KEY, "member");
+					Preferences.Set($"{foundTeam.TeamId}_role", "member");
+					RegisterTeamId(foundTeam.TeamId);
 
 					await DisplayAlert("Joined Team!", 
 						$"Successfully joined: {foundTeam.TeamName}\n\n" +
@@ -894,77 +1042,91 @@ private void RegisterTeamId(string teamId)
 
 	private async Task<string> JoinTeamInFirestore(string inviteCode)
 	{
-		// Always use GamePage WebView
-		var gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
-			?.FirstOrDefault(p => p is GamePage) as GamePage;
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] JoinTeamInFirestore - invite code: {inviteCode}");
 
-		WebView? webView = gamePage?.GameWebView;
+		if (!await EnsureFirebaseAuthAsync())
+			return "error: Could not authenticate with Firebase. Please check your internet connection.";
 
-		// If GamePage hasn't been loaded yet, initialize it first
-		if (webView == null)
+		try
 		{
-			System.Diagnostics.Debug.WriteLine("[TeamDetails] GamePage not loaded - initializing...");
-			await DisplayAlert("Please Wait", 
-				"Initializing cloud services...\n\nThis only happens once on first use.", 
-				"OK");
+			var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
+			_httpClient.DefaultRequestHeaders.Authorization =
+				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
 
-			// Set flag so GamePage doesn't navigate away
-			GamePage.SetFirebaseInitializationMode(true);
+			// 1. Look up the invite code via the flat lookup document (O(1) GET, no collectionGroup query needed)
+			var lookupUrl = $"{baseUrl}/invite_codes/{inviteCode.ToUpperInvariant()}";
+			var lookupResponse = await _httpClient.GetAsync(lookupUrl);
 
-			try
+			if (!lookupResponse.IsSuccessStatusCode)
 			{
-				await Shell.Current.GoToAsync("//GamePage");
-				await Task.Delay(3000);
-
-				// Get WebView reference BEFORE navigating away
-				gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
-					?.FirstOrDefault(p => p is GamePage) as GamePage;
-				webView = gamePage?.GameWebView;
-
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] WebView obtained: {(webView != null ? "YES" : "NO")}");
-
-				await Shell.Current.GoToAsync("//SettingsPage/settings/teamdetails");
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Invite code not found: {inviteCode}");
+				return $"error: Invite code '{inviteCode}' not found. Please check the code and try again.";
 			}
-			finally
+
+			var lookupJson = await lookupResponse.Content.ReadAsStringAsync();
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Lookup response: {lookupJson}");
+
+			// 2. Parse teamId and teamName from the lookup document
+			string? teamId = null;
+			string? teamName = null;
+
+			using var lookupDoc = System.Text.Json.JsonDocument.Parse(lookupJson);
+			if (lookupDoc.RootElement.TryGetProperty("fields", out var fields))
 			{
-				GamePage.SetFirebaseInitializationMode(false);
+				if (fields.TryGetProperty("teamId", out var tid) &&
+					tid.TryGetProperty("stringValue", out var tidVal))
+					teamId = tidVal.GetString();
+
+				if (fields.TryGetProperty("teamName", out var tn) &&
+					tn.TryGetProperty("stringValue", out var tnVal))
+					teamName = tnVal.GetString();
 			}
+
+			if (string.IsNullOrEmpty(teamId))
+				return $"error: Invite code '{inviteCode}' not found. Please check the code and try again.";
+
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Found team: {teamId} ({teamName})");
+
+			// 3. Check if already a member
+			var memberUrl = $"{baseUrl}/teams/{teamId}/members/{_firebaseUserId}";
+			var memberCheck = await _httpClient.GetAsync(memberUrl);
+
+			if (memberCheck.IsSuccessStatusCode)
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Already a member of: {teamId}");
+				return $"already_member:{teamId}:{teamName}";
+			}
+
+			// 4. Add self as member
+			var addMemberUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
+			var addMemberBody = System.Text.Json.JsonSerializer.Serialize(new
+			{
+				fields = new
+				{
+					role = new { stringValue = "member" },
+					joinedAt = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") },
+					displayName = new { stringValue = "Member" }
+				}
+			});
+
+			var addMemberResponse = await _httpClient.PostAsync(addMemberUrl,
+				new StringContent(addMemberBody, System.Text.Encoding.UTF8, "application/json"));
+
+			if (!addMemberResponse.IsSuccessStatusCode)
+			{
+				var err = await addMemberResponse.Content.ReadAsStringAsync();
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Add member failed: {err}");
+				return $"error: Failed to join team: {err}";
+			}
+
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✅ Joined team: {teamId}");
+			return $"success:{teamId}:{teamName}";
 		}
-
-		if (webView != null)
+		catch (Exception ex)
 		{
-			try
-			{
-				var script = $@"
-					(async function() {{
-						try {{
-							if (typeof teamService === 'undefined') {{
-								return 'error: Team service not initialized';
-							}}
-							const result = await teamService.joinTeam('{inviteCode}');
-							if (result.success) {{
-								if (result.alreadyMember) {{
-									return 'already_member:' + result.teamId + ':' + result.teamName;
-								}}
-								return 'success:' + result.teamId + ':' + result.teamName;
-							}}
-							return 'error: Failed to join team';
-						}} catch (error) {{
-							return 'error: ' + error.message;
-						}}
-					}})();
-				";
-
-				var result = await webView.EvaluateJavaScriptAsync(script);
-				return result ?? "error: No response";
-			}
-			catch (Exception ex)
-			{
-				return $"error: {ex.Message}";
-			}
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] JoinTeamInFirestore error: {ex.Message}");
+			return $"error: {ex.Message}";
 		}
-
-		return "error: Firebase not available. Please open the Game page first, then try again.";
 	}
 
 	private TeamInfo? FindTeamByInviteCode(string inviteCode)
@@ -1074,15 +1236,14 @@ private void RegisterTeamId(string teamId)
 			LocalTeamNameEntry.Text = string.Empty;
 
 			// Force reload Game page on next navigation
-			var gamePage = Application.Current?.MainPage?.Navigation?.NavigationStack
-				?.FirstOrDefault(p => p is GamePage) as GamePage;
+			var gamePage = FindGamePage();
 			if (gamePage != null)
 			{
 				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Marking Game page for reload after team creation");
 				gamePage.ForceTeamReload();
 
 				// If currently on Game page, navigate away and back
-				var currentPage = Application.Current?.MainPage?.Navigation?.NavigationStack?.LastOrDefault();
+				var currentPage = Shell.Current.CurrentPage;
 				if (currentPage is GamePage)
 				{
 					await Shell.Current.GoToAsync("//SettingsPage");
@@ -1130,20 +1291,70 @@ private void RegisterTeamId(string teamId)
 			"Team members using the old code will not be able to join.", 
 			"Regenerate", "Cancel");
 
-		if (confirm)
+		if (!confirm) return;
+
+		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		var oldCode = Preferences.Get($"{teamId}_invite_code", string.Empty);
+		var newCode = GenerateInviteCode();
+
+		// Save locally immediately
+		Preferences.Set($"{teamId}_invite_code", newCode);
+		LoadInviteCode();
+
+		// Sync to Firestore in the background (non-blocking)
+		_ = Task.Run(async () =>
 		{
-			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
-			var newCode = GenerateInviteCode();
-			
-			Preferences.Set($"{teamId}_invite_code", newCode);
-			
-			await DisplayAlert("Code Regenerated", 
-				$"New Invite Code: {newCode}\n\n" +
-				"Share this with new members.", 
-				"OK");
-			
-			LoadInviteCode();
-		}
+			try
+			{
+				if (!await EnsureFirebaseAuthAsync()) return;
+
+				var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
+				_httpClient.DefaultRequestHeaders.Authorization =
+					new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
+
+				// 1. Update the team metadata document with the new invite code
+				var metadataUrl = $"{baseUrl}/teams/{teamId}/metadata/info?updateMask.fieldPaths=inviteCode";
+				var metadataBody = System.Text.Json.JsonSerializer.Serialize(new
+				{
+					fields = new { inviteCode = new { stringValue = newCode } }
+				});
+				await _httpClient.PatchAsync(metadataUrl,
+					new StringContent(metadataBody, System.Text.Encoding.UTF8, "application/json"));
+				System.Diagnostics.Debug.WriteLine("[Firebase] Team metadata updated with new invite code");
+
+				// 2. Delete the old invite_codes lookup document (best-effort)
+				if (!string.IsNullOrEmpty(oldCode))
+				{
+					await _httpClient.DeleteAsync($"{baseUrl}/invite_codes/{oldCode}");
+					System.Diagnostics.Debug.WriteLine($"[Firebase] Old invite code lookup deleted: {oldCode}");
+				}
+
+				// 3. Create the new invite_codes lookup document
+				var inviteCodeLookupUrl = $"{baseUrl}/invite_codes?documentId={newCode}";
+				var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
+				var lookupBody = System.Text.Json.JsonSerializer.Serialize(new
+				{
+					fields = new
+					{
+						teamId = new { stringValue = teamId },
+						teamName = new { stringValue = teamName },
+						createdBy = new { stringValue = _firebaseUserId }
+					}
+				});
+				await _httpClient.PostAsync(inviteCodeLookupUrl,
+					new StringContent(lookupBody, System.Text.Encoding.UTF8, "application/json"));
+				System.Diagnostics.Debug.WriteLine($"[Firebase] New invite code lookup created: {newCode}");
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[Firebase] Invite code sync error (non-fatal): {ex.Message}");
+			}
+		});
+
+		await DisplayAlert("Code Regenerated", 
+			$"New Invite Code: {newCode}\n\n" +
+			"Share this with new members.", 
+			"OK");
 	}
 
 	private async void OnLeaveTeamClicked(object sender, EventArgs e)
@@ -1258,6 +1469,15 @@ public class LocalTeamItem
 	public string TeamId { get; set; } = string.Empty;
 	public string TeamName { get; set; } = string.Empty;
 	public bool IsActive { get; set; }
+}
+
+// Shared (cloud) team item for UI binding
+public class SharedTeamItem
+{
+	public string TeamId { get; set; } = string.Empty;
+	public string TeamName { get; set; } = string.Empty;
+	public bool IsActive { get; set; }
+	public string Role { get; set; } = string.Empty;
 }
 
 // Converter to show checkmark for active team
