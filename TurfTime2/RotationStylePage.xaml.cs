@@ -11,6 +11,13 @@ public partial class RotationStylePage : ContentPage
     // Static event for notifying style changes
     public static event EventHandler<int> RotationStyleChanged;
 
+    // Helper to get team-specific key
+    private string GetTeamKey(string baseKey)
+    {
+        var teamId = Preferences.Get("selected_team_id", "");
+        return string.IsNullOrEmpty(teamId) ? baseKey : $"{baseKey}_{teamId}";
+    }
+
     public RotationStylePage()
     {
         InitializeComponent();
@@ -25,9 +32,10 @@ public partial class RotationStylePage : ContentPage
 
     private void LoadCurrentStyle()
     {
-        if (Preferences.ContainsKey(RotationStyleKey))
+        var key = GetTeamKey(RotationStyleKey);
+        if (Preferences.ContainsKey(key))
         {
-            currentStyle = Preferences.Get(RotationStyleKey, 1);
+            currentStyle = Preferences.Get(key, 1);
             // Convert old style numbers to new ones (5 -> 5, 2/3/4 -> 1)
             if (currentStyle == 2 || currentStyle == 3 || currentStyle == 4)
             {
@@ -43,7 +51,7 @@ public partial class RotationStylePage : ContentPage
     private void SaveStyle(int styleNumber)
     {
         currentStyle = styleNumber;
-        Preferences.Set(RotationStyleKey, styleNumber);
+        Preferences.Set(GetTeamKey(RotationStyleKey), styleNumber);
 
         // Notify the WebView to update the style
         RotationStyleChanged?.Invoke(this, styleNumber);

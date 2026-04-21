@@ -5,16 +5,35 @@ class TeamService {
     constructor() {
         this.db = null;
         this.auth = null;
+        this.firestoreFunctions = null; // Store modular Firestore functions
         this.currentTeamId = null;
         this.currentUserId = null;
         this.onTeamChangeCallback = null;
     }
 
     // Initialize with Firebase instances
-    initialize(db, auth) {
+    initialize(db, auth, firestoreFunctions = null) {
         this.db = db;
         this.auth = auth;
-        
+
+        // Store Firestore modular functions if provided
+        if (firestoreFunctions) {
+            this.firestoreFunctions = firestoreFunctions;
+        } else if (window.firebaseDb) {
+            // Get from global if not provided
+            this.firestoreFunctions = {
+                doc: window.firebaseDb.doc,
+                getDoc: window.firebaseDb.getDoc,
+                setDoc: window.firebaseDb.setDoc,
+                collection: window.firebase_collection,
+                getDocs: window.firebase_getDocs,
+                query: window.firebase_query,
+                where: window.firebase_where,
+                collectionGroup: window.firebase_collectionGroup,
+                limit: window.firebase_limit
+            };
+        }
+
         // Listen for auth state changes
             this.auth.onAuthStateChanged((user) => {
                 if (user) {
@@ -223,12 +242,19 @@ class TeamService {
         if (!uid) return null;
 
         try {
-            const memberDoc = await this.db.collection('teams').doc(teamId)
-                .collection('members').doc(uid).get();
-            
-            if (memberDoc.exists) {
-                return memberDoc.data().role;
+            // Use modular Firestore API
+            const { doc, getDoc } = window.firebaseDb;
+
+            const memberDocRef = doc(this.db, 'teams', teamId, 'members', uid);
+            const memberDocSnap = await getDoc(memberDocRef);
+
+            if (memberDocSnap.exists()) {
+                const data = memberDocSnap.data();
+                console.log(`[TeamService] Role for user ${uid.substring(0, 8)} in team ${teamId}: ${data.role}`);
+                return data.role;
             }
+
+            console.log(`[TeamService] User ${uid.substring(0, 8)} not a member of team ${teamId}`);
             return null;
         } catch (error) {
             console.error('[TeamService] Get user role error:', error);

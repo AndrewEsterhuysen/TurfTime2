@@ -6,6 +6,13 @@ public partial class SetupPage : ContentPage
 	private const string SETUP_DATA_KEY = "setup_data.v1";
 	private bool _isLoadingData = false;
 
+	// Helper to get team-specific key
+	private string GetTeamKey(string baseKey)
+	{
+		var teamId = Preferences.Get("selected_team_id", "");
+		return string.IsNullOrEmpty(teamId) ? baseKey : $"{baseKey}_{teamId}";
+	}
+
 	public SetupPage()
 	{
 		InitializeComponent();
@@ -43,15 +50,15 @@ public partial class SetupPage : ContentPage
 		{
 			_isLoadingData = true;
 
-			// Load from Preferences
-			var teamName = Preferences.Get("setup_team", string.Empty);
-			var matchDate = Preferences.Get("setup_match_date", DateTime.Today.ToString("O"));
-			var matchTime = Preferences.Get("setup_match_time", DateTime.Now.ToString("HH:mm:ss"));
-			var duration = Preferences.Get("setup_duration", string.Empty);
-			var locationName = Preferences.Get("setup_location_name", string.Empty);
-			var latitude = Preferences.Get("setup_latitude", string.Empty);
-			var longitude = Preferences.Get("setup_longitude", string.Empty);
-			var mapsLink = Preferences.Get("setup_maps_link", string.Empty);
+			// Load from Preferences (team-specific keys)
+			var teamName = Preferences.Get(GetTeamKey("setup_team"), string.Empty);
+			var matchDate = Preferences.Get(GetTeamKey("setup_match_date"), DateTime.Today.ToString("O"));
+			var matchTime = Preferences.Get(GetTeamKey("setup_match_time"), DateTime.Now.ToString("HH:mm:ss"));
+			var duration = Preferences.Get(GetTeamKey("setup_duration"), string.Empty);
+			var locationName = Preferences.Get(GetTeamKey("setup_location_name"), string.Empty);
+			var latitude = Preferences.Get(GetTeamKey("setup_latitude"), string.Empty);
+			var longitude = Preferences.Get(GetTeamKey("setup_longitude"), string.Empty);
+			var mapsLink = Preferences.Get(GetTeamKey("setup_maps_link"), string.Empty);
 
 			// Populate fields
 			if (!string.IsNullOrEmpty(teamName))
@@ -92,15 +99,15 @@ public partial class SetupPage : ContentPage
 	{
 		try
 		{
-			// Save all fields to Preferences
-			Preferences.Set("setup_team", TeamEntry.Text ?? string.Empty);
-			Preferences.Set("setup_match_date", value: MatchDatePicker.Date.ToString());
-			Preferences.Set("setup_match_time", MatchTimePicker.Time.ToString());
-			Preferences.Set("setup_duration", DurationEntry.Text ?? string.Empty);
-			Preferences.Set("setup_location_name", LocationNameEntry.Text ?? string.Empty);
-			Preferences.Set("setup_latitude", LatitudeEntry.Text ?? string.Empty);
-			Preferences.Set("setup_longitude", LongitudeEntry.Text ?? string.Empty);
-			Preferences.Set("setup_maps_link", MapsLinkEntry.Text ?? string.Empty);
+			// Save all fields to Preferences (team-specific keys)
+			Preferences.Set(GetTeamKey("setup_team"), TeamEntry.Text ?? string.Empty);
+			Preferences.Set(GetTeamKey("setup_match_date"), MatchDatePicker.Date.ToString());
+			Preferences.Set(GetTeamKey("setup_match_time"), MatchTimePicker.Time.ToString());
+			Preferences.Set(GetTeamKey("setup_duration"), DurationEntry.Text ?? string.Empty);
+			Preferences.Set(GetTeamKey("setup_location_name"), LocationNameEntry.Text ?? string.Empty);
+			Preferences.Set(GetTeamKey("setup_latitude"), LatitudeEntry.Text ?? string.Empty);
+			Preferences.Set(GetTeamKey("setup_longitude"), LongitudeEntry.Text ?? string.Empty);
+			Preferences.Set(GetTeamKey("setup_maps_link"), MapsLinkEntry.Text ?? string.Empty);
 
 			System.Diagnostics.Debug.WriteLine("Match data saved successfully");
 		}

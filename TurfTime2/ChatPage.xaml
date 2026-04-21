@@ -11,23 +11,29 @@
                  VerticalOptions="FillAndExpand"/>
 
         <!-- Message input at bottom -->
-        <Grid Grid.Row="1" 
+        <Grid x:Name="InputBar"
+              Grid.Row="1" 
               ColumnDefinitions="*, Auto"
               Padding="10"
-              BackgroundColor="{AppThemeBinding Light=#F0F0F0, Dark=#2C2C2C}">
+              BackgroundColor="#2e7d32">
             <Entry x:Name="MessageEntry"
                    Grid.Column="0"
                    Placeholder="Type a message..."
+                   PlaceholderColor="rgba(255,255,255,0.6)"
+                   TextColor="White"
                    MaxLength="500"
                    VerticalOptions="Center"
                    ReturnType="Send"
                    ReturnCommand="{Binding SendCommand}"/>
-            <Button Grid.Column="1"
+            <Button x:Name="SendButton"
+                    Grid.Column="1"
                     Text="Send"
                     Clicked="OnSendClicked"
                     Margin="10,0,0,0"
                     VerticalOptions="Center"
-                    WidthRequest="80"/>
+                    WidthRequest="80"
+                    BackgroundColor="#FF6B35"
+                    TextColor="White"/>
         </Grid>
     </Grid>
 </ContentPage>

@@ -426,16 +426,74 @@ public partial class TeamDetailsPage : ContentPage
 
 				// Set team_id in localStorage and trigger roster reload
 				var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
+				var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty); // "shared" or "local"
+				var userRole = Preferences.Get(USER_ROLE_KEY, string.Empty); // "admin" or "member"
+
+				// Download roster data from Firestore if in shared mode
+				string rosterDataJson = "null";
+				if (teamMode == "shared")
+				{
+					System.Diagnostics.Debug.WriteLine($"[TeamDetails] Downloading roster for shared team: {teamId}");
+					_ = Task.Run(async () =>
+					{
+						try
+						{
+							var rosterData = await DownloadRosterFromFirestore(teamId);
+							if (rosterData != null)
+							{
+								System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✓ Downloaded roster data ({rosterData.Length} chars)");
+
+								// Inject roster data into localStorage
+								await MainThread.InvokeOnMainThreadAsync(async () =>
+								{
+									var injectScript = $@"
+										(function() {{
+											try {{
+												const rosterData = {rosterData};
+												const storageKey = 'roster_{EscapeJavaScript(teamId)}.v1';
+												localStorage.setItem(storageKey, JSON.stringify(rosterData));
+												console.log('[TeamSync] ✓ Injected roster data for team {EscapeJavaScript(teamId)}');
+
+												// Trigger roster reload with the new data
+												if (window.rosterManagerInstance) {{
+													window.rosterManagerInstance.reloadForTeam('{EscapeJavaScript(teamId)}');
+												}}
+												return 'roster_injected';
+											}} catch (error) {{
+												console.error('[TeamSync] Roster injection error:', error);
+												return 'error: ' + error.message;
+											}}
+										}})();
+									";
+
+									await gamePage.GameWebView.EvaluateJavaScriptAsync(injectScript);
+									System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✓ Roster data injected to localStorage");
+								});
+							}
+						}
+						catch (Exception ex)
+						{
+							System.Diagnostics.Debug.WriteLine($"[TeamDetails] Roster download error: {ex.Message}");
+						}
+					});
+				}
+
 				var script = $@"
 					(function() {{
 						try {{
 							localStorage.setItem('team_id', '{EscapeJavaScript(teamId)}');
 							localStorage.setItem('team_name', '{EscapeJavaScript(teamName)}');
-							if (typeof window.reloadRosterForTeam === 'function') {{
+							localStorage.setItem('team_mode', '{EscapeJavaScript(teamMode)}');
+							localStorage.setItem('user_role', '{EscapeJavaScript(userRole)}');
+							console.log('[TeamSync] ✓ Synced to localStorage: team_mode=' + '{EscapeJavaScript(teamMode)}' + ', user_role=' + '{EscapeJavaScript(userRole)}');
+							if (typeof window.reloadRosterForTeam === 'function' && window.rosterManagerInstance) {{
 								window.reloadRosterForTeam('{EscapeJavaScript(teamId)}');
 								return 'success';
+							}} else if (window.rosterManagerInstance) {{
+								window.rosterManagerInstance.reloadForTeam('{EscapeJavaScript(teamId)}');
+								return 'success';
 							}} else {{
-								console.warn('[TeamSync] reloadRosterForTeam not available yet');
+								console.warn('[TeamSync] RosterManager not ready yet');
 								return 'pending';
 							}}
 						}} catch (error) {{
@@ -468,6 +526,146 @@ public partial class TeamDetailsPage : ContentPage
 		{
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] SyncTeamIdToLocalStorage error: {ex.Message}");
 		}
+	}
+
+	private async Task<string?> DownloadRosterFromFirestore(string teamId)
+	{
+		return await DownloadRosterFromFirestoreStatic(teamId);
+	}
+
+	// Static wrapper for GamePage polling
+	public static async Task<string?> DownloadRosterFromFirestoreStatic(string teamId)
+	{
+		try
+		{
+			// Ensure Firebase auth (static instance)
+			if (string.IsNullOrEmpty(_firebaseIdToken))
+			{
+				var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
+				var body = System.Text.Json.JsonSerializer.Serialize(new { returnSecureToken = true });
+				var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+				var response = await _httpClient.PostAsync(url, content);
+				if (!response.IsSuccessStatusCode) return null;
+
+				var json = await response.Content.ReadAsStringAsync();
+				var doc = System.Text.Json.JsonDocument.Parse(json);
+				_firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
+				_firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
+			}
+
+			var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
+			_httpClient.DefaultRequestHeaders.Authorization =
+				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
+
+			var rosterUrl = $"{baseUrl}/teams/{teamId}/roster/data";
+			var response2 = await _httpClient.GetAsync(rosterUrl);
+
+			if (!response2.IsSuccessStatusCode)
+			{
+				return null;
+			}
+
+			var json2 = await response2.Content.ReadAsStringAsync();
+
+			// Parse Firestore document and convert to roster format
+			using var doc2 = System.Text.Json.JsonDocument.Parse(json2);
+			if (!doc2.RootElement.TryGetProperty("fields", out var fields))
+				return null;
+
+			var rosterDataBuilder = new System.Text.StringBuilder();
+			rosterDataBuilder.Append("{");
+
+			if (fields.TryGetProperty("lastModified", out var timestamp) &&
+				timestamp.TryGetProperty("timestampValue", out var ts))
+			{
+				rosterDataBuilder.Append($"\"lastModified\":\"{ts.GetString()}\",");
+			}
+
+			if (fields.TryGetProperty("players", out var players) &&
+				players.TryGetProperty("arrayValue", out var playersArray) &&
+				playersArray.TryGetProperty("values", out var values))
+			{
+				rosterDataBuilder.Append("\"players\":[");
+
+				bool first = true;
+				foreach (var player in values.EnumerateArray())
+				{
+					if (!first) rosterDataBuilder.Append(",");
+					first = false;
+
+					var simplePlayer = ConvertFirestorePlayerToJson(player);
+					rosterDataBuilder.Append(simplePlayer);
+				}
+
+				rosterDataBuilder.Append("]");
+			}
+			else
+			{
+				rosterDataBuilder.Append("\"players\":[]");
+			}
+
+			rosterDataBuilder.Append("}");
+
+			var finalJson = rosterDataBuilder.ToString();
+
+			return finalJson;
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] DownloadRosterStatic error: {ex.Message}");
+			return null;
+		}
+	}
+
+	private static string ConvertFirestorePlayerToJson(System.Text.Json.JsonElement firestorePlayer)
+	{
+		var playerBuilder = new System.Text.StringBuilder();
+		playerBuilder.Append("{");
+
+		if (firestorePlayer.TryGetProperty("mapValue", out var mapValue) &&
+			mapValue.TryGetProperty("fields", out var playerFields))
+		{
+			bool firstField = true;
+
+			foreach (var field in playerFields.EnumerateObject())
+			{
+				if (!firstField) playerBuilder.Append(",");
+				firstField = false;
+
+				playerBuilder.Append($"\"{field.Name}\":");
+
+				// Convert Firestore value to simple JSON value
+				var value = field.Value;
+				if (value.TryGetProperty("stringValue", out var stringVal))
+				{
+					playerBuilder.Append($"\"{stringVal.GetString()}\"");
+				}
+				else if (value.TryGetProperty("integerValue", out var intVal))
+				{
+					playerBuilder.Append(intVal.GetString());
+				}
+				else if (value.TryGetProperty("booleanValue", out var boolVal))
+				{
+					playerBuilder.Append(boolVal.GetBoolean() ? "true" : "false");
+				}
+				else if (value.TryGetProperty("doubleValue", out var doubleVal))
+				{
+					playerBuilder.Append(doubleVal.GetDouble());
+				}
+				else if (value.TryGetProperty("nullValue", out _))
+				{
+					playerBuilder.Append("null");
+				}
+				else
+				{
+					// Fallback: use empty string
+					playerBuilder.Append("\"\"");
+				}
+			}
+		}
+
+		playerBuilder.Append("}");
+		return playerBuilder.ToString();
 	}
 
 	// Delete team handler (invoked by swipe gesture)
@@ -736,7 +934,11 @@ public partial class TeamDetailsPage : ContentPage
 					Preferences.Set(USER_ROLE_KEY, "admin");
 					Preferences.Set($"{teamId}_role", "admin");
 
-				await DisplayAlert("Team Created!", 
+					// ALSO store per-team keys for GamePage polling
+					Preferences.Set($"team_mode_{teamId}", "shared");
+					Preferences.Set($"user_role_{teamId}", "admin");
+
+				await DisplayAlert("Team Created!",
 					$"Team: {teamName}\n\n" +
 					$"Team ID: {teamId}\n\n" +
 					$"Invite Code: {inviteCode}\n\n" +
@@ -966,18 +1168,24 @@ private void RegisterTeamId(string teamId)
 					Preferences.Set(USER_ROLE_KEY, "member");
 					Preferences.Set($"{teamId}_role", "member");
 					Preferences.Set($"{teamId}_name", teamName);
+
+					// ALSO store per-team keys for GamePage polling
+					Preferences.Set($"team_mode_{teamId}", "shared");
+					Preferences.Set($"user_role_{teamId}", "member");
+
 					RegisterTeamId(teamId);
 
 					await DisplayAlert("Joined Team!", 
-						$"Successfully joined: {teamName}\n\n" +
-						$"Role: Member\n\n" +
-						"You can now collaborate with your team.", 
-						"OK");
+							$"Successfully joined: {teamName}\n\n" +
+							$"Role: Member\n\n" +
+							"You can now collaborate with your team.", 
+							"OK");
 
-					RefreshAppShellMenu();
-					LoadCurrentTeam();
-					InviteCodeEntry.Text = string.Empty;
-					return;
+						SyncTeamIdToLocalStorage(teamId);
+						RefreshAppShellMenu();
+						LoadCurrentTeam();
+						InviteCodeEntry.Text = string.Empty;
+						return;
 				}
 			}
 			else if (result.StartsWith("already_member:"))
@@ -1013,6 +1221,11 @@ private void RegisterTeamId(string teamId)
 					Preferences.Set(TEAM_NAME_KEY, foundTeam.TeamName);
 					Preferences.Set(USER_ROLE_KEY, "member");
 					Preferences.Set($"{foundTeam.TeamId}_role", "member");
+
+					// ALSO store per-team keys for GamePage polling
+					Preferences.Set($"team_mode_{foundTeam.TeamId}", "shared");
+					Preferences.Set($"user_role_{foundTeam.TeamId}", "member");
+
 					RegisterTeamId(foundTeam.TeamId);
 
 					await DisplayAlert("Joined Team!", 
@@ -1120,6 +1333,24 @@ private void RegisterTeamId(string teamId)
 			}
 
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✅ Joined team: {teamId}");
+
+			// Download roster data immediately after joining
+			try
+			{
+				var rosterData = await DownloadRosterFromFirestore(teamId);
+				if (rosterData != null)
+				{
+					// Store roster in Preferences so GamePage can load it
+					Preferences.Set($"roster_{teamId}_json", rosterData);
+					System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✓ Downloaded and cached roster for {teamId}");
+				}
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] ⚠️ Roster download failed: {ex.Message}");
+				// Don't fail the join if roster download fails - user can still join
+			}
+
 			return $"success:{teamId}:{teamName}";
 		}
 		catch (Exception ex)

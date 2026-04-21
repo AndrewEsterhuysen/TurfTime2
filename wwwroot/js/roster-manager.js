@@ -66,7 +66,11 @@ class RosterManager {
         this.currentTeamId = this.getCurrentTeamId(); // Get current team from C# Preferences
         this.STORAGE_KEY = this.getTeamStorageKey(); // Dynamic key based on team
         this.STORAGE_VERSION = 2; // Increment when structure changes
-        this.saveDebounced = this._debounce(() => this.saveToStorage(), 300);
+        this.saveDebounced = this._debounce(() => {
+            // Skip auto-saves while applying cloud data
+            if (this.isApplyingCloudData) return;
+            this.saveToStorage();
+        }, 300);
 
         // Match timer (countdown from 90 minutes, split into halves)
         this.matchDurationSeconds = 90 * 60; // default 90 minutes (total game)
@@ -104,7 +108,40 @@ class RosterManager {
 
         // Firebase initialization state
         this.firebaseReady = false;
-        this.initFirebase(); // Initialize Firebase (async, non-blocking)
+        this.rosterUnsubscribe = null; // Store real-time listener unsubscribe function
+        this.lastCloudTimestamp = null; // Store last known cloud timestamp to avoid overwriting with local saves
+        this.isApplyingCloudData = false; // Flag to prevent saves while applying cloud data
+        this.userRole = null; // 'admin' or 'member' for shared teams, null for local teams
+        this.memberPollInterval = null; // 10-second polling timer for members
+
+        // Listen for Firebase ready event (dispatched when module loads)
+        window.addEventListener('firebaseReady', () => {
+            console.log('[RosterManager] Received firebaseReady event');
+            this.initFirebase(); // Initialize Firebase (async, non-blocking)
+        });
+
+        // Also try immediate initialization in case Firebase loaded first
+        if (typeof window.firebaseAuth !== 'undefined' && typeof window.firebaseDb !== 'undefined') {
+            console.log('[RosterManager] Firebase already available, initializing immediately');
+            this.initFirebase();
+        } else {
+            console.log('[RosterManager] Firebase not yet available - waiting for firebaseReady event...');
+
+            // Fallback: Poll for Firebase availability (max 30 seconds)
+            let attempts = 0;
+            const maxAttempts = 60; // 60 * 500ms = 30 seconds
+            const pollInterval = setInterval(() => {
+                attempts++;
+                if (typeof window.firebaseAuth !== 'undefined' && typeof window.firebaseDb !== 'undefined') {
+                    console.log(`[RosterManager] ✓ Firebase became available after ${attempts * 500}ms`);
+                    clearInterval(pollInterval);
+                    this.initFirebase();
+                } else if (attempts >= maxAttempts) {
+                    console.error('[RosterManager] ❌ Firebase failed to load after 30 seconds - team sync disabled');
+                    clearInterval(pollInterval);
+                }
+            }, 500);
+        }
 
         this.buildRows();
         this.loadFromStorage();
@@ -2709,11 +2746,17 @@ class RosterManager {
         return 'none';
     }
 
-    saveToStorage() {
+    saveToStorage(preserveTimestamp = false) {
         try {
+            // Use the last cloud timestamp if preserveTimestamp is true (caching cloud data)
+            // Otherwise, create a new timestamp for local changes
+            const timestamp = preserveTimestamp && this.lastCloudTimestamp 
+                ? this.lastCloudTimestamp 
+                : new Date().toISOString();
+
             const model = {
                 version: this.STORAGE_VERSION,
-                lastModifiedUtc: new Date().toISOString(),
+                lastModifiedUtc: timestamp,
                 matchDurationSeconds: this.matchDurationSeconds,
                 halfDurationSeconds: this.halfDurationSeconds,
                 matchRemainingSeconds: this.matchRemainingSeconds,
@@ -2735,11 +2778,19 @@ class RosterManager {
             // Save to localStorage (always works, even offline)
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(model));
 
-            // Also save to Firebase cloud (background, non-blocking)
-            if (this.firebaseReady) {
+            // Only save to cloud if:
+            // 1. This is a real local change (not just caching cloud data)
+            // 2. User is admin or local team (members cannot save to cloud)
+            const canSaveToCloud = this.firebaseReady && 
+                                   !preserveTimestamp && 
+                                   this.userRole !== 'member';
+
+            if (canSaveToCloud) {
                 this.saveToFirestore(model).catch(err => {
                     console.error('[RosterManager] Background cloud save failed:', err);
                 });
+            } else if (this.userRole === 'member' && !preserveTimestamp) {
+                console.log('[RosterManager] 🚫 Member cannot save to cloud - skipping');
             }
         } catch (error) {
             console.error('[RosterManager] Error saving to storage:', error);
@@ -2815,36 +2866,249 @@ class RosterManager {
     // Initialize Firebase authentication and sync
     async initFirebase() {
         try {
-            // Check if Firebase is available
-            if (typeof window.firebaseAuth === 'undefined' || typeof window.firebaseDb === 'undefined') {
-                console.log('[Firebase] ⚠️ Firebase not initialized - cloud sync disabled');
-                return;
+            console.log('[Firebase] 🔄 Initializing (C# handles auth, JavaScript reads from localStorage)...');
+
+            // C# handles ALL Firebase operations - JavaScript doesn't use Firebase SDK
+            this.firebaseReady = true;
+
+            // Determine user role (reads from localStorage set by C#)
+            await this.determineUserRole();
+
+            // Apply role restrictions (disable UI for members)
+            this.applyRoleRestrictions();
+
+            // If a team is loaded, check if we need to apply restrictions
+            const currentTeam = this.currentTeamId;
+            if (currentTeam && currentTeam !== 'default') {
+                console.log(`[Firebase] 🔄 Team '${currentTeam}' loaded - applying role restrictions`);
+                await this.determineUserRole();
+                this.applyRoleRestrictions();
             }
 
-            console.log('[Firebase] 🔄 Initializing Firebase authentication...');
-
-            // Get Firebase auth functions
-            const { auth, signInAnonymously, onAuthStateChanged } = window.firebaseAuth;
-
-            // Sign in anonymously
-            await signInAnonymously(auth);
-
-            // Listen for auth state changes
-            onAuthStateChanged(auth, async (user) => {
-                if (user) {
-                    console.log('[Firebase] ✓ Authenticated anonymously:', user.uid);
-                    this.firebaseReady = true;
-
-                    // Trigger initial sync after authentication
-                    await this.syncWithCloud();
-                } else {
-                    console.log('[Firebase] ⚠️ Not authenticated');
-                    this.firebaseReady = false;
-                }
-            });
+            console.log('[Firebase] ✅ Initialization complete');
         } catch (error) {
             console.error('[Firebase] ❌ Initialization error:', error);
             this.firebaseReady = false;
+        }
+    }
+
+    // Determine user role for shared teams
+    async determineUserRole() {
+        try {
+            const teamId = this.currentTeamId;
+
+            // Local teams have no role restrictions
+            if (!teamId || teamId === 'default' || teamId.startsWith('local_')) {
+                this.userRole = null;
+                console.log('[RosterManager] 📋 Local team - no role restrictions');
+                return;
+            }
+
+            // IMPORTANT: C# handles Firebase auth and stores role in localStorage
+            // Read role from localStorage (set by C# TeamDetailsPage)
+            const teamMode = localStorage.getItem('team_mode');
+            const userRole = localStorage.getItem('user_role');
+
+            console.log(`[RosterManager] 📋 Team mode: ${teamMode}, User role: ${userRole}`);
+
+            if (teamMode === 'shared' && userRole) {
+                this.userRole = userRole; // 'admin' or 'member'
+                console.log(`[RosterManager] 👤 User role for team ${teamId}: ${userRole} (from localStorage)`);
+            } else {
+                // Fallback: treat as admin if role not set
+                this.userRole = 'admin';
+                console.log(`[RosterManager] 👤 User role unknown - defaulting to admin`);
+            }
+        } catch (error) {
+            console.error('[RosterManager] ❌ Error determining user role:', error);
+            this.userRole = 'admin'; // Default to admin on error to avoid locking out
+        }
+    }
+
+    // Apply role-based UI restrictions
+    applyRoleRestrictions() {
+        const isMember = this.userRole === 'member';
+
+        if (isMember) {
+            console.log('[RosterManager] 🔒 Applying member restrictions (read-only mode)');
+            this.lockUIForMember();
+        } else {
+            console.log('[RosterManager] 🔓 Admin mode - full editing access');
+        }
+    }
+
+    // Lock UI for member (read-only)
+    lockUIForMember() {
+        // Disable all input fields
+        this.rows.forEach(r => {
+            r.nameInput.readOnly = true;
+            r.nameInput.setAttribute('title', 'Read-only: Only team admin can edit roster');
+            r.cbField.disabled = true;
+            r.cbBench.disabled = true;
+            r.cbGoalie.disabled = true;
+            r.cbInactive.disabled = true;
+        });
+
+        // Disable action buttons
+        if (this.rotateBtn) {
+            this.rotateBtn.disabled = true;
+            this.rotateBtn.setAttribute('title', 'Members cannot rotate - wait for admin');
+        }
+        if (this.startBtn) {
+            this.startBtn.disabled = true;
+            this.startBtn.setAttribute('title', 'Members cannot control game - wait for admin');
+        }
+
+        // Add visual indicator (only if not already present)
+        const container = document.querySelector('.container');
+        if (container && !document.getElementById('member-mode-banner')) {
+            const banner = document.createElement('div');
+            banner.id = 'member-mode-banner';
+            banner.style.cssText = `
+                background: #ffc107;
+                color: #000;
+                padding: 8px;
+                text-align: center;
+                font-weight: bold;
+                position: sticky;
+                top: 0;
+                z-index: 1000;
+            `;
+            banner.textContent = '📖 VIEW-ONLY MODE - Team Admin controls the game';
+            container.insertBefore(banner, container.firstChild);
+        }
+
+        console.log('[RosterManager] ✓ UI locked for member');
+    }
+
+    // Start polling for members (10-second interval)
+    startMemberPolling() {
+        // Only poll for members in shared teams
+        if (this.userRole !== 'member') {
+            return;
+        }
+
+        const teamId = this.currentTeamId;
+        if (!teamId || teamId === 'default' || teamId.startsWith('local_')) {
+            return;
+        }
+
+        console.log('[RosterManager] 🔄 Starting 10-second cloud polling for member');
+
+        // Clear existing interval
+        if (this.memberPollInterval) {
+            clearInterval(this.memberPollInterval);
+        }
+
+        // Poll every 10 seconds
+        this.memberPollInterval = setInterval(async () => {
+            try {
+                console.log('[RosterManager] 🔄 Member poll: checking cloud for updates...');
+                await this.syncWithCloud();
+            } catch (error) {
+                console.error('[RosterManager] ❌ Member poll error:', error);
+            }
+        }, 10000);
+    }
+
+    // Stop member polling
+    stopMemberPolling() {
+        if (this.memberPollInterval) {
+            clearInterval(this.memberPollInterval);
+            this.memberPollInterval = null;
+            console.log('[RosterManager] 🛑 Stopped member polling');
+        }
+    }
+
+    // Start real-time listener for roster changes
+    startRealtimeListener() {
+        console.log('[Firebase] 🔍 startRealtimeListener() called');
+
+        try {
+            // Stop existing listener if any
+            if (this.rosterUnsubscribe) {
+                console.log('[Firebase] 🛑 Stopping existing listener');
+                this.rosterUnsubscribe();
+                this.rosterUnsubscribe = null;
+            }
+
+            console.log('[Firebase] 🔍 Checking window.firebaseDb:', typeof window.firebaseDb);
+            console.log('[Firebase] 🔍 Checking window.firebaseAuth:', typeof window.firebaseAuth);
+
+            const { db, doc, onSnapshot } = window.firebaseDb;
+            const { auth } = window.firebaseAuth;
+            const userId = auth.currentUser?.uid;
+            const teamId = this.currentTeamId;
+
+            console.log(`[Firebase] 🔍 userId: ${userId}, teamId: ${teamId}`);
+
+            if (!userId || !teamId || teamId === 'default') {
+                console.log(`[Firebase] ⚠️ Real-time listener skipped - userId: ${userId}, teamId: ${teamId}`);
+                return;
+            }
+
+            let docRef;
+            if (teamId.startsWith('local_')) {
+                // Local teams: listen to user's own namespace
+                docRef = doc(db, 'rosters', userId, 'teams', teamId);
+                console.log(`[Firebase] 📍 Listener path: rosters/${userId}/teams/${teamId}`);
+            } else {
+                // Shared teams: listen to canonical team path
+                docRef = doc(db, 'teams', teamId, 'roster', 'data');
+                console.log(`[Firebase] 📍 Listener path: teams/${teamId}/roster/data`);
+            }
+
+            console.log(`[Firebase] 🎧 Starting real-time listener for team: ${teamId}`);
+
+            // Set up real-time listener
+            this.rosterUnsubscribe = onSnapshot(docRef, (docSnap) => {
+                console.log(`[Firebase] 🔔 Real-time update received! exists: ${docSnap.exists()}`);
+
+                if (docSnap.exists()) {
+                    const cloudData = docSnap.data();
+                    const localRaw = localStorage.getItem(this.STORAGE_KEY);
+
+                    console.log(`[Firebase] 🔍 Local storage key: ${this.STORAGE_KEY}`);
+                    console.log(`[Firebase] 🔍 Has local data: ${!!localRaw}`);
+
+                    // Only apply if cloud data is newer than local
+                    if (localRaw) {
+                        const localData = JSON.parse(localRaw);
+                        const localTimestamp = new Date(localData.lastModifiedUtc || 0).getTime();
+                        const cloudTimestamp = new Date(cloudData.lastModifiedUtc || 0).getTime();
+
+                        console.log(`[Firebase] 📅 Real-time: Local ${localTimestamp} vs Cloud ${cloudTimestamp}`);
+
+                        if (cloudTimestamp > localTimestamp) {
+                            console.log(`[Firebase] 🔔 Real-time update - applying newer cloud data`);
+                            this.applyLoadedData(cloudData);
+                        } else {
+                            console.log(`[Firebase] ⏭️ Real-time update - local is newer or same, skipping`);
+                        }
+                    } else {
+                        // No local data, apply cloud data
+                        console.log(`[Firebase] 🔔 Real-time update - no local data, applying cloud`);
+                        this.applyLoadedData(cloudData);
+                    }
+                } else {
+                    console.log(`[Firebase] 🔔 Real-time update - document doesn't exist`);
+                }
+            }, (error) => {
+                console.error('[Firebase] ❌ Real-time listener error:', error);
+            });
+
+            console.log(`[Firebase] ✓ Real-time listener active for team: ${teamId}`);
+        } catch (error) {
+            console.error('[Firebase] ❌ Error starting real-time listener:', error);
+        }
+    }
+
+    // Stop real-time listener
+    stopRealtimeListener() {
+        if (this.rosterUnsubscribe) {
+            this.rosterUnsubscribe();
+            this.rosterUnsubscribe = null;
+            console.log('[Firebase] 🔇 Real-time listener stopped');
         }
     }
 
@@ -2855,53 +3119,57 @@ class RosterManager {
             return;
         }
 
+        // Skip if Firebase SDK not available (C# handles all cloud operations)
+        if (!window.firebaseDb || window.firebaseDb === null) {
+            console.log('[Firebase] ℹ️ Firebase SDK disabled - C# handles cloud sync');
+            return;
+        }
+
         try {
             console.log('[Firebase] 🔄 Starting sync check...');
 
-            // Get local data
             const localRaw = localStorage.getItem(this.STORAGE_KEY);
             if (!localRaw) {
+                // No local data — download whatever is in the cloud
                 console.log('[Firebase] ℹ️ No local data - checking cloud...');
                 const cloudData = await this.loadFromFirestore();
-                if (cloudData) {
+                if (cloudData && cloudData.players && cloudData.players.length > 0) {
                     console.log('[Firebase] ⬇️ Applying cloud data (no local data existed)');
                     this.applyLoadedData(cloudData);
-                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cloudData));
+                } else {
+                    console.log('[Firebase] ℹ️ Cloud has no roster data yet');
                 }
                 return;
             }
 
             const localData = JSON.parse(localRaw);
-
-            // Get cloud data
             const cloudData = await this.loadFromFirestore();
 
             if (!cloudData) {
-                // No cloud data exists, upload local data
+                // No cloud document at all — upload local
                 console.log('[Firebase] ⬆️ No cloud data - uploading local data');
                 await this.saveToFirestore(localData);
                 return;
             }
 
-            // Compare timestamps
-            const localTimestamp = new Date(localData.lastModifiedUtc);
-            const cloudTimestamp = new Date(cloudData.lastModifiedUtc);
+            // Use epoch (0) as fallback so a cloud doc with no timestamp is always
+            // treated as older than any real local save.  Without this, JavaScript's
+            // Invalid Date comparison (new Date(undefined) > date) always returns
+            // false, meaning local data is never uploaded to a freshly-created team.
+            const localTimestamp = new Date(localData.lastModifiedUtc  || 0).getTime();
+            const cloudTimestamp = new Date(cloudData.lastModifiedUtc || 0).getTime();
 
-            console.log('[Firebase] 📅 Local timestamp:', localData.lastModifiedUtc);
-            console.log('[Firebase] 📅 Cloud timestamp:', cloudData.lastModifiedUtc);
+            console.log('[Firebase] 📅 Local:', localData.lastModifiedUtc, '→', localTimestamp);
+            console.log('[Firebase] 📅 Cloud:', cloudData.lastModifiedUtc, '→', cloudTimestamp);
 
             if (localTimestamp > cloudTimestamp) {
-                // Local is newer, upload to cloud
                 console.log('[Firebase] ⬆️ Local data is newer - uploading to cloud');
                 await this.saveToFirestore(localData);
             } else if (cloudTimestamp > localTimestamp) {
-                // Cloud is newer, download and apply
                 console.log('[Firebase] ⬇️ Cloud data is newer - downloading');
                 this.applyLoadedData(cloudData);
-                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cloudData));
                 console.log('[Firebase] ✓ Applied cloud data to roster');
             } else {
-                // Same timestamp, no sync needed
                 console.log('[Firebase] ✓ Data is in sync');
             }
         } catch (error) {
@@ -2913,21 +3181,48 @@ class RosterManager {
     async saveToFirestore(model) {
         if (!this.firebaseReady) return;
 
+        // If Firebase SDK disabled, try C# bridge
+        if (!window.firebaseDb || window.firebaseDb === null) {
+            if (typeof window.csharpSaveRoster === 'function') {
+                try {
+                    const teamId = this.currentTeamId;
+                    if (!teamId || teamId === 'default') return;
+
+                    console.log(`[Firebase] 📤 Saving via C# bridge for team: ${teamId}`);
+                    const result = await window.csharpSaveRoster(teamId, model);
+
+                    if (result && result.startsWith('success')) {
+                        console.log(`[Firebase] ✅ Saved to cloud via C# (team: ${teamId})`);
+                    } else {
+                        console.error(`[Firebase] ❌ C# save failed: ${result}`);
+                    }
+                } catch (error) {
+                    console.error('[Firebase] ❌ C# save error:', error);
+                }
+            } else {
+                console.warn('[Firebase] ⚠️ No save method available (Firebase SDK disabled, C# bridge not found)');
+            }
+            return;
+        }
+
         try {
             const { db, doc, setDoc } = window.firebaseDb;
             const { auth } = window.firebaseAuth;
             const userId = auth.currentUser?.uid;
+            const teamId = this.currentTeamId;
 
-            if (!userId) {
-                console.error('[Firebase] ❌ No user ID for save');
-                return;
+            if (!userId || !teamId || teamId === 'default') return;
+
+            let docRef;
+            if (teamId.startsWith('local_')) {
+                // Local teams: store under the user's own namespace (device-only, no sharing)
+                docRef = doc(db, 'rosters', userId, 'teams', teamId);
+            } else {
+                // Shared teams: store at the canonical team path so ALL members see the same roster
+                docRef = doc(db, 'teams', teamId, 'roster', 'data');
             }
 
-            // Use team-scoped path: rosters/{userId}/{teamId}
-            const teamId = this.currentTeamId;
-            const docRef = doc(db, 'rosters', userId, 'teams', teamId);
             await setDoc(docRef, model);
-
             console.log(`[Firebase] ✓ Saved to cloud (team: ${teamId})`);
         } catch (error) {
             console.error('[Firebase] ❌ Save error:', error);
@@ -2942,17 +3237,20 @@ class RosterManager {
             const { db, doc, getDoc } = window.firebaseDb;
             const { auth } = window.firebaseAuth;
             const userId = auth.currentUser?.uid;
+            const teamId = this.currentTeamId;
 
-            if (!userId) {
-                console.error('[Firebase] ❌ No user ID for load');
-                return null;
+            if (!userId || !teamId || teamId === 'default') return null;
+
+            let docRef;
+            if (teamId.startsWith('local_')) {
+                // Local teams: load from the user's own namespace
+                docRef = doc(db, 'rosters', userId, 'teams', teamId);
+            } else {
+                // Shared teams: load from the canonical team path shared by all members
+                docRef = doc(db, 'teams', teamId, 'roster', 'data');
             }
 
-            // Use team-scoped path: rosters/{userId}/{teamId}
-            const teamId = this.currentTeamId;
-            const docRef = doc(db, 'rosters', userId, 'teams', teamId);
             const docSnap = await getDoc(docRef);
-
             if (docSnap.exists()) {
                 console.log(`[Firebase] ✓ Loaded from cloud (team: ${teamId})`);
                 return docSnap.data();
@@ -2969,6 +3267,21 @@ class RosterManager {
     // Apply loaded data to the roster UI
     applyLoadedData(model) {
         if (!model || !model.players) return;
+
+        // Cancel any pending debounced saves
+        if (this.saveDebounced && this.saveDebounced.cancel) {
+            this.saveDebounced.cancel();
+            console.log('[RosterManager] ⏸️ Cancelled pending saves');
+        }
+
+        // Set flag to prevent autosaves while applying cloud data
+        this.isApplyingCloudData = true;
+
+        // Store the cloud timestamp so we don't overwrite it with local saves
+        if (model.lastModifiedUtc) {
+            this.lastCloudTimestamp = model.lastModifiedUtc;
+            console.log(`[RosterManager] 📅 Stored cloud timestamp: ${this.lastCloudTimestamp}`);
+        }
 
         // Restore game state
         if (model.matchDurationSeconds !== undefined) {
@@ -3032,6 +3345,11 @@ class RosterManager {
             this.buildSwipeableRoster();
             console.log('[RosterManager] 🔄 Rebuilt swipeable roster with loaded data');
         }
+
+        // Clear flag and save to localStorage with preserved timestamp
+        this.isApplyingCloudData = false;
+        this.saveToStorage(true); // true = preserve cloud timestamp
+        console.log('[RosterManager] 💾 Saved cloud data to localStorage (preserved timestamp)');
     }
 
     // ============================================================================
@@ -3100,10 +3418,18 @@ class RosterManager {
 
     _debounce(fn, ms) {
         let t = null;
-        return (...args) => {
+        const debounced = (...args) => {
             if (t) clearTimeout(t);
             t = setTimeout(() => fn.apply(this, args), ms);
         };
+        // Expose cancel method
+        debounced.cancel = () => {
+            if (t) {
+                clearTimeout(t);
+                t = null;
+            }
+        };
+        return debounced;
     }
 
     loadRotationStyle() {
@@ -3194,17 +3520,31 @@ class RosterManager {
 
     // Get current team ID from MAUI Preferences (via localStorage bridge)
     getCurrentTeamId() {
-        // Check localStorage for team_id (set by MAUI TeamDetailsPage)
-        const teamId = localStorage.getItem('team_id');
-
-        console.log(`[RosterManager] getCurrentTeamId() - Raw value: "${teamId}"`);
-        console.log(`[RosterManager] localStorage keys:`, Object.keys(localStorage));
-
-        if (!teamId || teamId === '' || teamId === 'null') {
-            console.log('[RosterManager] ⚠️ No team selected - using default roster');
-            return 'default'; // Fallback to default roster when no team is selected
+        // URL parameters are injected by C# (SetWebViewSource) and are always current.
+        // Reading them here — before any C#→JS bridge call — eliminates the race condition
+        // on Windows where localStorage may contain a stale team from a previous session.
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const tid = params.get('tid');
+            if (tid && tid !== 'null' && tid !== '') {
+                // Persist so any code that reads localStorage directly also gets the right value
+                localStorage.setItem('team_id', tid);
+                const tn = params.get('tn');
+                if (tn) localStorage.setItem('team_name', decodeURIComponent(tn));
+                console.log(`[RosterManager] ✅ Team from URL param: ${tid}`);
+                return tid;
+            }
+        } catch (e) {
+            console.warn('[RosterManager] URL param read error:', e);
         }
 
+        // Fallback: localStorage (used for in-session team switches via JS bridge)
+        const teamId = localStorage.getItem('team_id');
+        console.log(`[RosterManager] getCurrentTeamId() - localStorage: "${teamId}"`);
+        if (!teamId || teamId === '' || teamId === 'null') {
+            console.log('[RosterManager] ⚠️ No team selected - using default roster');
+            return 'default';
+        }
         console.log(`[RosterManager] ✅ Current team: ${teamId}`);
         return teamId;
     }
@@ -3224,6 +3564,13 @@ class RosterManager {
         // Save current roster before switching
         this.saveToStorage();
 
+        // Stop current real-time listener and member polling
+        this.stopRealtimeListener();
+        this.stopMemberPolling();
+
+        // Reset role for new team
+        this.userRole = null;
+
         // Update team ID and storage key
         this.currentTeamId = newTeamId || 'default';
         this.STORAGE_KEY = this.getTeamStorageKey();
@@ -3232,9 +3579,22 @@ class RosterManager {
         this.loadFromStorage();
         this.updateTeamNameDisplay();
 
-        // Download cloud roster for this team if Firebase is ready
+        // Download cloud roster for this team and start new listener if Firebase is ready
         if (this.firebaseReady) {
-            this.syncWithCloud();
+            console.log('[RosterManager] 🔄 Firebase ready - starting role determination and sync');
+            this.determineUserRole().then(() => {
+                this.syncWithCloud().then(() => {
+                    // Start listening for real-time updates for the new team
+                    this.startRealtimeListener();
+                    // Start member polling if applicable
+                    this.startMemberPolling();
+                    // Apply role restrictions
+                    this.applyRoleRestrictions();
+                });
+            });
+        } else {
+            console.log('[RosterManager] ⏳ Firebase not ready yet - will sync when initialized');
+            // Firebase will call determineUserRole, sync, and applyRestrictions when it's ready
         }
 
         console.log(`[RosterManager] ✅ Switched to team: ${this.currentTeamId}`);
