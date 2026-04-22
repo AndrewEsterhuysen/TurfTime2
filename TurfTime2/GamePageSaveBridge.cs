@@ -47,7 +47,8 @@ public static class FirebaseSaveBridge
 
             // Parse JavaScript roster data
             using var rosterDoc = System.Text.Json.JsonDocument.Parse(rosterDataJson);
-            var playersArray = rosterDoc.RootElement.GetProperty("players");
+            var root = rosterDoc.RootElement;
+            var playersArray = root.GetProperty("players");
 
             // Convert players array to Firestore format
             var playersList = new List<object>();
@@ -56,19 +57,45 @@ public static class FirebaseSaveBridge
                 playersList.Add(new { mapValue = new { fields = ConvertToFirestoreFields(player) } });
             }
 
-            // Build Firestore document
+            // Build Firestore document with ALL game state fields
             var firestoreDoc = new
             {
-                fields = new
+                fields = new Dictionary<string, object>
                 {
-                    version = new { integerValue = "2" },
-                    lastModified = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") },
-                    players = new { arrayValue = new { values = playersList } }
+                    ["version"] = new { integerValue = "2" },
+                    ["lastModified"] = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") },
+                    ["players"] = new { arrayValue = new { values = playersList } }
                 }
             };
 
+            // Add optional game state fields if present
+            if (root.TryGetProperty("matchDurationSeconds", out var matchDuration))
+                firestoreDoc.fields["matchDurationSeconds"] = new { integerValue = matchDuration.GetInt32().ToString() };
+
+            if (root.TryGetProperty("halfDurationSeconds", out var halfDuration))
+                firestoreDoc.fields["halfDurationSeconds"] = new { integerValue = halfDuration.GetInt32().ToString() };
+
+            if (root.TryGetProperty("matchRemainingSeconds", out var matchRemaining))
+                firestoreDoc.fields["matchRemainingSeconds"] = new { integerValue = matchRemaining.GetInt32().ToString() };
+
+            if (root.TryGetProperty("currentHalf", out var currentHalf))
+                firestoreDoc.fields["currentHalf"] = new { stringValue = currentHalf.GetString() };
+
+            if (root.TryGetProperty("timerRunning", out var timerRunning))
+                firestoreDoc.fields["timerRunning"] = new { booleanValue = timerRunning.GetBoolean() };
+
+            if (root.TryGetProperty("countdownPreset", out var countdownPreset))
+                firestoreDoc.fields["countdownPreset"] = new { integerValue = countdownPreset.GetInt32().ToString() };
+
+            if (root.TryGetProperty("teamAScore", out var teamAScore))
+                firestoreDoc.fields["teamAScore"] = new { integerValue = teamAScore.GetInt32().ToString() };
+
+            if (root.TryGetProperty("teamBScore", out var teamBScore))
+                firestoreDoc.fields["teamBScore"] = new { integerValue = teamBScore.GetInt32().ToString() };
+
             var firestoreJson = System.Text.Json.JsonSerializer.Serialize(firestoreDoc);
             System.Diagnostics.Debug.WriteLine($"[FirebaseBridge] Firestore JSON: {firestoreJson.Substring(0, Math.Min(200, firestoreJson.Length))}...");
+
 
             // Save to Firestore
             var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";

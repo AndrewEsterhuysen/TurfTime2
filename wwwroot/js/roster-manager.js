@@ -113,6 +113,8 @@ class RosterManager {
         this.isApplyingCloudData = false; // Flag to prevent saves while applying cloud data
         this.userRole = null; // 'admin' or 'member' for shared teams, null for local teams
         this.memberPollInterval = null; // 10-second polling timer for members
+        this.memberCountdownInterval = null; // Countdown timer for member banner
+        this.memberCountdownSeconds = 10; // Current countdown value
 
         // Listen for Firebase ready event (dispatched when module loads)
         window.addEventListener('firebaseReady', () => {
@@ -1761,10 +1763,16 @@ class RosterManager {
 
     // Update start button state based on field player assignment
     updateStartButtonState() {
+        // Members can never use the start button
+        if (this.userRole === 'member') {
+            this.startBtn.disabled = true;
+            return;
+        }
+
         // Only manage button state during setup phase
         // Once game starts, button should remain enabled for pause/resume
         if (this.currentHalf !== 'setup') {
-            this.startBtn.disabled = false; // Ensure button is enabled after setup
+            this.startBtn.disabled = false; // Ensure button is enabled after setup (for admins only)
             return;
         }
 
@@ -1920,6 +1928,9 @@ class RosterManager {
                     {}
                 );
             }
+
+            // Save when resuming game
+            this.saveDebounced();
         }
 
         // Hide inactive players by default after game starts
@@ -1975,7 +1986,7 @@ class RosterManager {
     pauseTimer() {
         if (!this.timerRunning) return;
         this.timerRunning = false;
-        
+
         // Log pause event
         if (this.logger) {
             this.logger.log(
@@ -1985,7 +1996,7 @@ class RosterManager {
                 {}
             );
         }
-        
+
         if (this.currentHalf === 'halftime') {
             this.startBtn.textContent = '1/2 Time';
         } else if (this.currentHalf === 'end') {
@@ -1993,12 +2004,15 @@ class RosterManager {
         } else {
             this.startBtn.textContent = this.currentHalf === 'setup' ? 'Start' : 'Resume';
         }
-        
+
         if (this.currentHalf === 'setup') {
             this.timerLabel.style.cursor = 'pointer';
         } else {
             this.timerLabel.style.cursor = 'not-allowed';
         }
+
+        // Save game state when paused
+        this.saveDebounced();
         
         clearInterval(this.timerId);
         this.timerId = null;
@@ -2761,6 +2775,7 @@ class RosterManager {
                 halfDurationSeconds: this.halfDurationSeconds,
                 matchRemainingSeconds: this.matchRemainingSeconds,
                 currentHalf: this.currentHalf,
+                timerRunning: this.timerRunning, // Save timer running state
                 countdownPreset: this.countdownPreset,
                 viewMode: this.viewMode, // Save view mode
                 teamAScore: this.teamAScore,
@@ -2949,17 +2964,31 @@ class RosterManager {
             r.cbInactive.disabled = true;
         });
 
-        // Disable action buttons
-        if (this.rotateBtn) {
-            this.rotateBtn.disabled = true;
-            this.rotateBtn.setAttribute('title', 'Members cannot rotate - wait for admin');
+        // Hide rotation timer display (members don't need to see this)
+        const countdownTimerContainer = document.querySelector('.countdown-timer-container');
+        if (countdownTimerContainer) {
+            countdownTimerContainer.style.display = 'none';
         }
+
+        // Hide rotation display (Next Rotation section)
+        const rotationDisplay = document.getElementById('rotationDisplay');
+        if (rotationDisplay) {
+            rotationDisplay.style.display = 'none';
+        }
+
+        // Hide and disable rotate button
+        if (this.rotateBtn) {
+            this.rotateBtn.style.display = 'none';
+            this.rotateBtn.disabled = true;
+        }
+
+        // Disable start/stop button (keep visible but disabled)
         if (this.startBtn) {
             this.startBtn.disabled = true;
             this.startBtn.setAttribute('title', 'Members cannot control game - wait for admin');
         }
 
-        // Add visual indicator (only if not already present)
+        // Add visual indicator with countdown timer (only if not already present)
         const container = document.querySelector('.container');
         if (container && !document.getElementById('member-mode-banner')) {
             const banner = document.createElement('div');
@@ -2974,11 +3003,59 @@ class RosterManager {
                 top: 0;
                 z-index: 1000;
             `;
-            banner.textContent = '📖 VIEW-ONLY MODE - Team Admin controls the game';
+            banner.innerHTML = '📖 VIEW-ONLY MODE - Team Admin controls the game - Updates in <span id="member-countdown">10</span>s';
             container.insertBefore(banner, container.firstChild);
+
+            console.log('[RosterManager] Member banner created, starting countdown');
+
+            // Start countdown timer (use setTimeout to ensure DOM is ready)
+            setTimeout(() => {
+                this.startMemberCountdown();
+            }, 100);
+        } else if (document.getElementById('member-countdown')) {
+            // Banner already exists, just restart countdown
+            console.log('[RosterManager] Banner already exists, restarting countdown');
+            this.startMemberCountdown();
         }
 
         console.log('[RosterManager] ✓ UI locked for member');
+    }
+
+    // Start countdown timer for member banner
+    startMemberCountdown() {
+        console.log('[RosterManager] Starting member countdown timer');
+
+        // Clear any existing countdown interval
+        if (this.memberCountdownInterval) {
+            clearInterval(this.memberCountdownInterval);
+        }
+
+        // Initialize countdown state
+        this.memberCountdownSeconds = 10;
+
+        const countdownElement = document.getElementById('member-countdown');
+
+        if (!countdownElement) {
+            console.warn('[RosterManager] Countdown element not found!');
+            return;
+        }
+
+        console.log('[RosterManager] Countdown element found, starting interval');
+        countdownElement.textContent = this.memberCountdownSeconds;
+
+        this.memberCountdownInterval = setInterval(() => {
+            this.memberCountdownSeconds--;
+
+            if (this.memberCountdownSeconds <= 0) {
+                this.memberCountdownSeconds = 10; // Reset to 10 seconds
+            }
+
+            if (countdownElement) {
+                countdownElement.textContent = this.memberCountdownSeconds;
+            }
+        }, 1000);
+
+        console.log('[RosterManager] Member countdown interval started');
     }
 
     // Start polling for members (10-second interval)
@@ -3017,6 +3094,12 @@ class RosterManager {
             clearInterval(this.memberPollInterval);
             this.memberPollInterval = null;
             console.log('[RosterManager] 🛑 Stopped member polling');
+        }
+
+        // Also stop countdown timer
+        if (this.memberCountdownInterval) {
+            clearInterval(this.memberCountdownInterval);
+            this.memberCountdownInterval = null;
         }
     }
 
@@ -3266,7 +3349,14 @@ class RosterManager {
 
     // Apply loaded data to the roster UI
     applyLoadedData(model) {
-        if (!model || !model.players) return;
+        if (!model || !model.players) {
+            console.warn('[RosterManager] applyLoadedData: No model or players data');
+            return;
+        }
+
+        console.log('[RosterManager] 🔄 Applying loaded data...', model);
+        console.log('[RosterManager] Player count:', model.players.length);
+        console.log('[RosterManager] Current viewMode:', this.viewMode);
 
         // Cancel any pending debounced saves
         if (this.saveDebounced && this.saveDebounced.cancel) {
@@ -3296,6 +3386,10 @@ class RosterManager {
         if (model.currentHalf !== undefined) {
             this.currentHalf = model.currentHalf;
         }
+        if (model.timerRunning !== undefined) {
+            this.timerRunning = model.timerRunning;
+            console.log(`[RosterManager] Restored timerRunning: ${this.timerRunning}`);
+        }
         if (model.countdownPreset !== undefined) {
             this.countdownPreset = model.countdownPreset;
             this.countdownRemaining = model.countdownPreset;
@@ -3311,12 +3405,14 @@ class RosterManager {
         // This ensures the app starts with the user's preferred view
 
         // Apply player data
+        console.log('[RosterManager] Applying player data to rows...');
         model.players.forEach((p, i) => {
             if (i < this.rows.length) {
                 const r = this.rows[i];
 
                 // Set name (without icon)
                 r.nameInput.value = p.name || `Player ${i + 1}`;
+                console.log(`[RosterManager] Updated row ${i}: ${r.nameInput.value}`);
 
                 // Set position
                 r.cbField.checked = !!p.field;
@@ -3339,17 +3435,73 @@ class RosterManager {
         this.updateScoreDisplays();
         this.updateMatchTimeLabel();
         this.markNextPlayers();
+        this.updateStartButtonState(); // Update start button enabled/disabled state
 
-        // CRITICAL: Rebuild swipeable roster to show updated player names
+        // Update start button text based on game state (skip for members - button stays disabled anyway)
+        if (this.userRole !== 'member') {
+            if (this.currentHalf === 'setup') {
+                this.startBtn.textContent = 'Start Game';
+            } else if (this.timerRunning) {
+                if (this.currentHalf === 'first') {
+                    this.startBtn.textContent = 'Pause';
+                } else if (this.currentHalf === 'second') {
+                    this.startBtn.textContent = 'Pause';
+                }
+            } else {
+                // Game is paused
+                if (this.currentHalf === 'first') {
+                    this.startBtn.textContent = '1/2 Time';
+                } else if (this.currentHalf === 'second') {
+                    this.startBtn.textContent = 'Reset';
+                } else if (this.currentHalf === 'halftime') {
+                    this.startBtn.textContent = 'Resume';
+                }
+            }
+        } else {
+            // For members, show current game state in button text even though button is disabled
+            if (this.currentHalf === 'setup') {
+                this.startBtn.textContent = 'Waiting to Start';
+            } else if (this.timerRunning) {
+                this.startBtn.textContent = 'Game Running';
+            } else if (this.currentHalf === 'halftime') {
+                this.startBtn.textContent = 'Half Time';
+            } else if (this.currentHalf === 'first' || this.currentHalf === 'second') {
+                this.startBtn.textContent = 'Game Paused';
+            } else {
+                this.startBtn.textContent = 'Game Ended';
+            }
+        }
+        console.log(`[RosterManager] Updated start button: "${this.startBtn.textContent}" (half: ${this.currentHalf}, running: ${this.timerRunning}, role: ${this.userRole})`);
+
+        // CRITICAL: Rebuild swipeable roster to show updated player names (regardless of current view)
+        console.log('[RosterManager] Rebuilding swipeable roster (viewMode:', this.viewMode, ')');
         if (this.viewMode === 0) {
             this.buildSwipeableRoster();
             console.log('[RosterManager] 🔄 Rebuilt swipeable roster with loaded data');
+        } else {
+            // Force rebuild swipeable view even if not currently visible
+            // This ensures data is ready when user switches views
+            const currentView = this.viewMode;
+            this.viewMode = 0;
+            this.buildSwipeableRoster();
+            this.viewMode = currentView;
+            console.log('[RosterManager] 🔄 Rebuilt swipeable roster (forced for view update)');
         }
 
         // Clear flag and save to localStorage with preserved timestamp
         this.isApplyingCloudData = false;
         this.saveToStorage(true); // true = preserve cloud timestamp
         console.log('[RosterManager] 💾 Saved cloud data to localStorage (preserved timestamp)');
+
+        // Reset member countdown timer to 10 seconds after roster update
+        if (this.userRole === 'member' && this.memberCountdownInterval) {
+            this.memberCountdownSeconds = 10;
+            const countdownElement = document.getElementById('member-countdown');
+            if (countdownElement) {
+                countdownElement.textContent = '10';
+                console.log('[RosterManager] 🔄 Reset member countdown to 10s after roster update');
+            }
+        }
     }
 
     // ============================================================================

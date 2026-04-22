@@ -575,12 +575,63 @@ public partial class TeamDetailsPage : ContentPage
 			var rosterDataBuilder = new System.Text.StringBuilder();
 			rosterDataBuilder.Append("{");
 
+			// Extract lastModified
 			if (fields.TryGetProperty("lastModified", out var timestamp) &&
 				timestamp.TryGetProperty("timestampValue", out var ts))
 			{
 				rosterDataBuilder.Append($"\"lastModified\":\"{ts.GetString()}\",");
 			}
 
+			// Extract game state fields
+			if (fields.TryGetProperty("matchDurationSeconds", out var matchDuration) &&
+				matchDuration.TryGetProperty("integerValue", out var matchDurVal))
+			{
+				rosterDataBuilder.Append($"\"matchDurationSeconds\":{matchDurVal.GetString()},");
+			}
+
+			if (fields.TryGetProperty("halfDurationSeconds", out var halfDuration) &&
+				halfDuration.TryGetProperty("integerValue", out var halfDurVal))
+			{
+				rosterDataBuilder.Append($"\"halfDurationSeconds\":{halfDurVal.GetString()},");
+			}
+
+			if (fields.TryGetProperty("matchRemainingSeconds", out var matchRemaining) &&
+				matchRemaining.TryGetProperty("integerValue", out var matchRemVal))
+			{
+				rosterDataBuilder.Append($"\"matchRemainingSeconds\":{matchRemVal.GetString()},");
+			}
+
+			if (fields.TryGetProperty("currentHalf", out var currentHalf) &&
+				currentHalf.TryGetProperty("stringValue", out var currentHalfVal))
+			{
+				rosterDataBuilder.Append($"\"currentHalf\":\"{currentHalfVal.GetString()}\",");
+			}
+
+			if (fields.TryGetProperty("timerRunning", out var timerRunning) &&
+				timerRunning.TryGetProperty("booleanValue", out var timerRunningVal))
+			{
+				rosterDataBuilder.Append($"\"timerRunning\":{(timerRunningVal.GetBoolean() ? "true" : "false")},");
+			}
+
+			if (fields.TryGetProperty("countdownPreset", out var countdownPreset) &&
+				countdownPreset.TryGetProperty("integerValue", out var countdownVal))
+			{
+				rosterDataBuilder.Append($"\"countdownPreset\":{countdownVal.GetString()},");
+			}
+
+			if (fields.TryGetProperty("teamAScore", out var teamAScore) &&
+				teamAScore.TryGetProperty("integerValue", out var teamAVal))
+			{
+				rosterDataBuilder.Append($"\"teamAScore\":{teamAVal.GetString()},");
+			}
+
+			if (fields.TryGetProperty("teamBScore", out var teamBScore) &&
+				teamBScore.TryGetProperty("integerValue", out var teamBVal))
+			{
+				rosterDataBuilder.Append($"\"teamBScore\":{teamBVal.GetString()},");
+			}
+
+			// Extract players array
 			if (fields.TryGetProperty("players", out var players) &&
 				players.TryGetProperty("arrayValue", out var playersArray) &&
 				playersArray.TryGetProperty("values", out var values))
