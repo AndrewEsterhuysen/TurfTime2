@@ -46,11 +46,17 @@ class GameLogger {
     
     // Initialize a new game session
     startSession(matchDuration, rotationInterval, location = null) {
+        console.log('[GameLogger] ⭐ startSession() called');
+        console.log('[GameLogger] ⭐ Match Duration:', matchDuration, 'seconds');
+        console.log('[GameLogger] ⭐ Rotation Interval:', rotationInterval, 'seconds');
+        console.log('[GameLogger] ⭐ Location:', location);
+
         // Archive previous session if exists
         if (this.currentSession && !this.currentSession.endTime) {
+            console.log('[GameLogger] ⚠️ Previous session exists, ending it first');
             this.endSession();
         }
-        
+
         this.currentSession = {
             sessionId: this.generateUUID(),
             startTime: new Date().toISOString(),
@@ -61,16 +67,19 @@ class GameLogger {
             logs: [],
             summary: null
         };
-        
+
+        console.log('[GameLogger] ✅ New session created:', this.currentSession.sessionId);
+        console.log('[GameLogger] 📊 Session object:', this.currentSession);
+
         this.log(
             this.EVENT_TYPES.GAME_STARTED,
             `Match started - ${Math.floor(matchDuration / 60)} minute game`,
             null,
             { matchDuration, rotationInterval }
         );
-        
+
         this.saveSession();
-        console.log('[GameLogger] New session started:', this.currentSession.sessionId);
+        console.log('[GameLogger] ✅ Session saved to localStorage');
     }
     
     // Log an event
@@ -148,22 +157,31 @@ class GameLogger {
     
     // End current session and calculate summary
     endSession() {
+        console.log('[GameLogger] ⚠️ endSession() called');
+
         if (!this.currentSession) {
+            console.warn('[GameLogger] ❌ No current session to end!');
             return;
         }
-        
+
+        console.log('[GameLogger] 📊 Current session ID:', this.currentSession.sessionId);
+        console.log('[GameLogger] 📊 Session logs count:', this.currentSession.logs?.length || 0);
+
         this.currentSession.endTime = new Date().toISOString();
         this.currentSession.summary = this.calculateSummary();
-        
+
+        console.log('[GameLogger] 📊 Summary calculated:', this.currentSession.summary);
+
         this.log(
             this.EVENT_TYPES.GAME_ENDED,
             'Match ended',
             null,
             { duration: this.currentSession.summary.duration }
         );
-        
+
+        console.log('[GameLogger] 🔄 Calling archiveSession()...');
         this.archiveSession();
-        console.log('[GameLogger] Session ended:', this.currentSession.sessionId);
+        console.log('[GameLogger] ✅ Session ended and archived:', this.currentSession.sessionId);
     }
     
     // Calculate session statistics
@@ -195,75 +213,192 @@ class GameLogger {
     // Aggregate player statistics from logs
     aggregatePlayerStats() {
         const playerMap = new Map();
-        
-        // Process all player position change logs
+
+        // Process all logs
         this.currentSession.logs.forEach(log => {
-            if (!log.playerName) return;
-            
-            if (!playerMap.has(log.playerName)) {
-                playerMap.set(log.playerName, {
-                    playerName: log.playerName,
-                    timeOnField: 0,
-                    timeAsBench: 0,
-                    timeAsGoalie: 0,
-                    rotationsIn: 0,
-                    rotationsOut: 0
-                });
-            }
-            
-            const stats = playerMap.get(log.playerName);
-            
-            // Count rotations
-            if (log.eventType === this.EVENT_TYPES.ROTATION_EXECUTED) {
-                if (log.details.playerIn === log.playerName) {
-                    stats.rotationsIn++;
+            // Handle rotation logs specially - they don't have playerName at the top level
+            if (log.eventType === this.EVENT_TYPES.ROTATION_EXECUTED && log.details) {
+                const playerIn = log.details.playerIn;
+                const playerOut = log.details.playerOut;
+
+                // Count rotation for player coming IN
+                if (playerIn) {
+                    if (!playerMap.has(playerIn)) {
+                        playerMap.set(playerIn, {
+                            playerName: playerIn,
+                            timeOnField: 0,
+                            timeOnBench: 0,
+                            timeAsGoalie: 0,
+                            rotationsIn: 0,
+                            rotationsOut: 0
+                        });
+                    }
+                    playerMap.get(playerIn).rotationsIn++;
                 }
-                if (log.details.playerOut === log.playerName) {
-                    stats.rotationsOut++;
+
+                // Count rotation for player going OUT
+                if (playerOut) {
+                    if (!playerMap.has(playerOut)) {
+                        playerMap.set(playerOut, {
+                            playerName: playerOut,
+                            timeOnField: 0,
+                            timeOnBench: 0,
+                            timeAsGoalie: 0,
+                            rotationsIn: 0,
+                            rotationsOut: 0
+                        });
+                    }
+                    playerMap.get(playerOut).rotationsOut++;
+                }
+            }
+
+            // Handle other logs with playerName (if we add them later)
+            if (log.playerName) {
+                if (!playerMap.has(log.playerName)) {
+                    playerMap.set(log.playerName, {
+                        playerName: log.playerName,
+                        timeOnField: 0,
+                        timeOnBench: 0,
+                        timeAsGoalie: 0,
+                        rotationsIn: 0,
+                        rotationsOut: 0
+                    });
                 }
             }
         });
-        
-        // Get final counter values from RosterManager
+
+        // Get final counter values and calculate bench time from RosterManager
         if (this.rosterManager && this.rosterManager.rows) {
+            // Get total game duration in seconds
+            const gameDuration = this.currentSession.matchDuration || 0;
+
             this.rosterManager.rows.forEach(row => {
                 const name = row.nameInput.value;
-                if (playerMap.has(name)) {
-                    const stats = playerMap.get(name);
-                    stats.timeOnField = row.counterSeconds;
+                if (!name) return; // Skip empty player names
+
+                // Create stats entry if player wasn't in any rotation logs
+                if (!playerMap.has(name)) {
+                    playerMap.set(name, {
+                        playerName: name,
+                        timeOnField: 0,
+                        timeOnBench: 0,
+                        timeAsGoalie: 0,
+                        rotationsIn: 0,
+                        rotationsOut: 0
+                    });
+                }
+
+                const stats = playerMap.get(name);
+
+                // Field time is tracked by the counter
+                stats.timeOnField = row.counterSeconds || 0;
+
+                // Calculate bench time
+                // Bench time = Game Duration - Field Time (assuming player was either on field or bench)
+                // If player is inactive, they have 0 bench time
+                const isInactive = row.cbInactive && row.cbInactive.checked;
+                if (!isInactive && gameDuration > 0) {
+                    stats.timeOnBench = Math.max(0, gameDuration - stats.timeOnField);
+                }
+
+                // Track goalie time (if applicable)
+                if (row.cbGoalie && row.cbGoalie.checked) {
+                    stats.timeAsGoalie = stats.timeOnField;
                 }
             });
         }
-        
+
         return Array.from(playerMap.values());
     }
     
     // Archive current session to history
     archiveSession() {
+        console.log('[GameLogger] 🗄️ archiveSession() called');
+
         try {
+            if (!this.currentSession) {
+                console.error('[GameLogger] ❌ No current session to archive!');
+                return;
+            }
+
+            console.log('[GameLogger] 📦 Archiving session:', this.currentSession.sessionId);
+            console.log('[GameLogger] 📦 Session data:', JSON.stringify(this.currentSession, null, 2).substring(0, 500) + '...');
+
             const history = this.loadSessionHistory();
             history.sessions.unshift(this.currentSession);
-            
+
             // Keep only last 20 sessions
             if (history.sessions.length > 20) {
                 history.sessions = history.sessions.slice(0, 20);
             }
-            
+
             localStorage.setItem(
                 this.STORAGE_KEYS.SESSION_HISTORY,
                 JSON.stringify(history)
             );
-            
+            console.log('[GameLogger] ✅ Saved to localStorage history');
+
+            // Save session to Firestore for cloud access
+            console.log('[GameLogger] ☁️ Attempting Firestore save...');
+            this.saveSessionToFirestore(this.currentSession);
+
             // Clear current session
             localStorage.removeItem(this.STORAGE_KEYS.CURRENT_SESSION);
             this.currentSession = null;
-            
-            console.log('[GameLogger] Session archived to history');
+
+            console.log('[GameLogger] ✅ Session archived to history and Firestore');
         } catch (error) {
-            console.error('[GameLogger] Error archiving session:', error);
+            console.error('[GameLogger] ❌ Error archiving session:', error);
+            console.error('[GameLogger] ❌ Stack trace:', error.stack);
         }
     }
-    
+
+    // Save session to Firestore
+    async saveSessionToFirestore(session) {
+        console.log('[GameLogger] 🔵 saveSessionToFirestore() called');
+
+        try {
+            // Get team ID from preferences/storage
+            const teamId = localStorage.getItem('roster.teamId');
+            console.log('[GameLogger] 🔵 Team ID from localStorage:', teamId);
+
+            if (!teamId) {
+                console.warn('[GameLogger] ⚠️ No team ID available, skipping Firestore save');
+                console.warn('[GameLogger] 🔍 Available localStorage keys:', Object.keys(localStorage));
+                return;
+            }
+
+            // Check if this is a local team (local teams don't need cloud save)
+            if (teamId.startsWith('local_')) {
+                console.log('[GameLogger] ℹ️ Local team detected, skipping Firestore save (localStorage only)');
+                return;
+            }
+
+            // Call C# bridge to save session to Firestore (cloud teams only)
+            if (window.csharpSaveSession) {
+                const sessionJson = JSON.stringify(session);
+                console.log('[GameLogger] ✅ C# bridge found, preparing to save to Firestore');
+                console.log('[GameLogger] 📤 Session ID:', session.sessionId);
+                console.log('[GameLogger] 📤 Session data length:', sessionJson.length);
+                console.log('[GameLogger] 📤 Calling window.csharpSaveSession.postMessage()...');
+
+                window.csharpSaveSession.postMessage(JSON.stringify({
+                    teamId: teamId,
+                    sessionData: sessionJson
+                }));
+
+                console.log('[GameLogger] ✅ Message posted to C# bridge for Firestore save');
+            } else {
+                console.error('[GameLogger] ❌ C# session save bridge NOT available!');
+                console.error('[GameLogger] 🔍 window.csharpSaveSession:', window.csharpSaveSession);
+                console.error('[GameLogger] 🔍 window.csharpSaveRoster:', window.csharpSaveRoster ? 'EXISTS' : 'MISSING');
+            }
+        } catch (error) {
+            console.error('[GameLogger] ❌ Error saving session to Firestore:', error);
+            console.error('[GameLogger] ❌ Stack trace:', error.stack);
+        }
+    }
+
     // Save current session to localStorage
     saveSession() {
         if (!this.currentSession) return;

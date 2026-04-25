@@ -289,6 +289,19 @@ public partial class GamePage : ContentPage
                         return 'error:' + error.message;
                     }
                 };
+
+                window.csharpSaveSession = {
+                    postMessage: function(jsonData) {
+                        try {
+                            console.log('[C# Bridge] Saving session via C#');
+                            localStorage.setItem('_pending_session_save_data', jsonData);
+                            localStorage.setItem('_pending_session_save_trigger', Date.now().toString());
+                        } catch (error) {
+                            console.error('[C# Bridge] Session save error:', error);
+                        }
+                    }
+                };
+
                 console.log('[C# Bridge] ✓ C# save bridge injected');
                 'bridge_injected';
             ";
@@ -319,6 +332,7 @@ public partial class GamePage : ContentPage
             {
                 await Task.Delay(200); // Check every 200ms
 
+                // Check for roster save requests
                 var trigger = await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     try
@@ -353,6 +367,48 @@ public partial class GamePage : ContentPage
                         // Set result for JavaScript
                         await MainThread.InvokeOnMainThreadAsync(async () =>
                             await webView.EvaluateJavaScriptAsync($"localStorage.setItem('_pending_save_result', '{result}')"));
+                    }
+                }
+
+                // Check for session save requests
+                var sessionTrigger = await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    try
+                    {
+                        return await webView.EvaluateJavaScriptAsync("localStorage.getItem('_pending_session_save_trigger')");
+                    }
+                    catch { return null; }
+                });
+
+                if (!string.IsNullOrEmpty(sessionTrigger) && sessionTrigger != "null")
+                {
+                    System.Diagnostics.Debug.WriteLine($"[GamePage] 🔵 Session save trigger detected: {sessionTrigger}");
+
+                    // Get session data
+                    var sessionJson = await MainThread.InvokeOnMainThreadAsync(async () =>
+                        await webView.EvaluateJavaScriptAsync("localStorage.getItem('_pending_session_save_data')"));
+
+                    System.Diagnostics.Debug.WriteLine($"[GamePage] 🔵 Session data length: {sessionJson?.Length ?? 0}");
+
+                    // Clear trigger
+                    await MainThread.InvokeOnMainThreadAsync(async () =>
+                        await webView.EvaluateJavaScriptAsync("localStorage.removeItem('_pending_session_save_trigger')"));
+
+                    if (!string.IsNullOrEmpty(sessionJson) && sessionJson != "null")
+                    {
+                        // Clean up quoted strings from JavaScript
+                        sessionJson = sessionJson?.Trim('"').Replace("\\\"", "\"") ?? "";
+
+                        System.Diagnostics.Debug.WriteLine($"[GamePage] 📤 Calling SessionSaveBridge.SaveSessionToFirestore()...");
+
+                        // Save session to Firestore
+                        SessionSaveBridge.SaveSessionToFirestore(sessionJson);
+
+                        System.Diagnostics.Debug.WriteLine($"[GamePage] ✅ SessionSaveBridge call completed");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[GamePage] ⚠️ Session data is null or empty");
                     }
                 }
             }

@@ -2052,8 +2052,13 @@ class RosterManager {
     }
 
     restartGame() {
+        console.log('[RosterManager] 🔄 restartGame() called');
+
         // End current session before restarting
         if (this.logger && this.logger.currentSession) {
+            console.log('[RosterManager] 📊 Logger exists, ending current session...');
+            console.log('[RosterManager] 📊 Current session ID:', this.logger.currentSession.sessionId);
+
             // Log final game state before ending
             this.logger.log(
                 this.logger.EVENT_TYPES.GAME_RESTARTED,
@@ -2061,7 +2066,14 @@ class RosterManager {
                 null,
                 {}
             );
+
+            console.log('[RosterManager] 🔚 Calling logger.endSession()...');
             this.logger.endSession();
+            console.log('[RosterManager] ✅ Session ended');
+        } else {
+            console.warn('[RosterManager] ⚠️ No logger or no current session to end');
+            console.warn('[RosterManager] 🔍 Logger exists:', !!this.logger);
+            console.warn('[RosterManager] 🔍 Current session exists:', !!this.logger?.currentSession);
         }
 
         // Stop timer directly without logging pause event
