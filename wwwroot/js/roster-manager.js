@@ -269,8 +269,13 @@ class RosterManager {
             this.toggleStartPause();
         });
 
-        // Long-press detection (3 seconds) to restart game
+        // Long-press detection (1 second) to restart game - only during active gameplay
         const holdStart = () => {
+            // Don't allow long-press restart when game has ended or finished
+            if (this.currentHalf === 'end' || this.currentHalf === 'finished') {
+                return;
+            }
+
             if (this._startBtnHoldTimer) clearTimeout(this._startBtnHoldTimer);
             this._startBtnLongPressFired = false;
             this._startBtnHoldTimer = setTimeout(() => {
@@ -1837,15 +1842,34 @@ class RosterManager {
 
     // Timer logic (countdown with half-time support)
     toggleStartPause() {
-        // When game has ended, allow pause but not resume
+        // When game has ended, handle End button press
         if (this.currentHalf === 'end') {
             if (this.timerRunning) {
+                // Pause all timers first
                 this.pauseTimer();
+
+                // Archive session and save data
+                console.log('[RosterManager] 🏁 Game ended - archiving session...');
+                if (this.logger && this.logger.currentSession) {
+                    // End and archive the session
+                    this.logger.endSession();
+                    console.log('[RosterManager] ✅ Session archived');
+                }
+
+                // Change button to Reset after archiving
+                this.currentHalf = 'finished';
+                this.startBtn.textContent = 'Reset';
             }
-            // Don't allow resuming after game ends - only restart works
+            // Don't allow resuming after game ends
             return;
         }
-        
+
+        // When game is finished and archived, Reset button restarts
+        if (this.currentHalf === 'finished') {
+            this.restartGame();
+            return;
+        }
+
         if (this.currentHalf === 'halftime') {
             if (this.timerRunning) {
                 this.pauseTimer();
@@ -1987,8 +2011,8 @@ class RosterManager {
         if (!this.timerRunning) return;
         this.timerRunning = false;
 
-        // Log pause event
-        if (this.logger) {
+        // Log pause event (but not when ending the game)
+        if (this.logger && this.currentHalf !== 'end') {
             this.logger.log(
                 this.logger.EVENT_TYPES.GAME_PAUSED,
                 'Match paused',
@@ -2000,6 +2024,9 @@ class RosterManager {
         if (this.currentHalf === 'halftime') {
             this.startBtn.textContent = '1/2 Time';
         } else if (this.currentHalf === 'end') {
+            // When pausing at end, keep "End" - will change to "Reset" in toggleStartPause
+            this.startBtn.textContent = 'End';
+        } else if (this.currentHalf === 'finished') {
             this.startBtn.textContent = 'Reset';
         } else {
             this.startBtn.textContent = this.currentHalf === 'setup' ? 'Start' : 'Resume';
@@ -2054,8 +2081,9 @@ class RosterManager {
     restartGame() {
         console.log('[RosterManager] 🔄 restartGame() called');
 
-        // End current session before restarting
-        if (this.logger && this.logger.currentSession) {
+        // Only end current session if it hasn't been ended already
+        // (check if currentHalf is 'finished' - means session already archived)
+        if (this.currentHalf !== 'finished' && this.logger && this.logger.currentSession) {
             console.log('[RosterManager] 📊 Logger exists, ending current session...');
             console.log('[RosterManager] 📊 Current session ID:', this.logger.currentSession.sessionId);
 
@@ -2070,6 +2098,8 @@ class RosterManager {
             console.log('[RosterManager] 🔚 Calling logger.endSession()...');
             this.logger.endSession();
             console.log('[RosterManager] ✅ Session ended');
+        } else if (this.currentHalf === 'finished') {
+            console.log('[RosterManager] ℹ️ Session already archived, skipping endSession()');
         } else {
             console.warn('[RosterManager] ⚠️ No logger or no current session to end');
             console.warn('[RosterManager] 🔍 Logger exists:', !!this.logger);

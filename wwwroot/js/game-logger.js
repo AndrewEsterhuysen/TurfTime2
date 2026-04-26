@@ -179,9 +179,12 @@ class GameLogger {
             { duration: this.currentSession.summary.duration }
         );
 
+        // Store sessionId before archiving (archiveSession sets currentSession to null)
+        const sessionId = this.currentSession.sessionId;
+
         console.log('[GameLogger] 🔄 Calling archiveSession()...');
         this.archiveSession();
-        console.log('[GameLogger] ✅ Session ended and archived:', this.currentSession.sessionId);
+        console.log('[GameLogger] ✅ Session ended and archived:', sessionId);
     }
     
     // Calculate session statistics
