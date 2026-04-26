@@ -326,6 +326,8 @@ public partial class GamePage : ContentPage
 
     private async Task PollForSaveRequests()
     {
+        System.Diagnostics.Debug.WriteLine("[GamePage] 🔄 Polling loop started");
+
         while (true)
         {
             try
@@ -337,13 +339,22 @@ public partial class GamePage : ContentPage
                 {
                     try
                     {
-                        return await webView.EvaluateJavaScriptAsync("localStorage.getItem('_pending_save_trigger')");
+                        if (webView != null && webView.Handler != null)
+                        {
+                            return await webView.EvaluateJavaScriptAsync("localStorage.getItem('_pending_save_trigger')");
+                        }
                     }
-                    catch { return null; }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[GamePage] Polling roster trigger check failed: {ex.Message}");
+                    }
+                    return null;
                 });
 
                 if (!string.IsNullOrEmpty(trigger) && trigger != "null")
                 {
+                    System.Diagnostics.Debug.WriteLine($"[GamePage] 📤 Roster save trigger detected: {trigger}");
+
                     // Get save data
                     var teamId = await MainThread.InvokeOnMainThreadAsync(async () =>
                         await webView.EvaluateJavaScriptAsync("localStorage.getItem('_pending_save_team')"));
@@ -375,9 +386,16 @@ public partial class GamePage : ContentPage
                 {
                     try
                     {
-                        return await webView.EvaluateJavaScriptAsync("localStorage.getItem('_pending_session_save_trigger')");
+                        if (webView != null && webView.Handler != null)
+                        {
+                            return await webView.EvaluateJavaScriptAsync("localStorage.getItem('_pending_session_save_trigger')");
+                        }
                     }
-                    catch { return null; }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[GamePage] Polling session trigger check failed: {ex.Message}");
+                    }
+                    return null;
                 });
 
                 if (!string.IsNullOrEmpty(sessionTrigger) && sessionTrigger != "null")
@@ -386,13 +404,35 @@ public partial class GamePage : ContentPage
 
                     // Get session data
                     var sessionJson = await MainThread.InvokeOnMainThreadAsync(async () =>
-                        await webView.EvaluateJavaScriptAsync("localStorage.getItem('_pending_session_save_data')"));
+                    {
+                        try
+                        {
+                            if (webView != null && webView.Handler != null)
+                            {
+                                return await webView.EvaluateJavaScriptAsync("localStorage.getItem('_pending_session_save_data')");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[GamePage] Failed to get session data: {ex.Message}");
+                        }
+                        return null;
+                    });
 
                     System.Diagnostics.Debug.WriteLine($"[GamePage] 🔵 Session data length: {sessionJson?.Length ?? 0}");
 
                     // Clear trigger
                     await MainThread.InvokeOnMainThreadAsync(async () =>
-                        await webView.EvaluateJavaScriptAsync("localStorage.removeItem('_pending_session_save_trigger')"));
+                    {
+                        try
+                        {
+                            if (webView != null && webView.Handler != null)
+                            {
+                                await webView.EvaluateJavaScriptAsync("localStorage.removeItem('_pending_session_save_trigger')");
+                            }
+                        }
+                        catch { }
+                    });
 
                     if (!string.IsNullOrEmpty(sessionJson) && sessionJson != "null")
                     {
@@ -400,6 +440,7 @@ public partial class GamePage : ContentPage
                         sessionJson = sessionJson?.Trim('"').Replace("\\\"", "\"") ?? "";
 
                         System.Diagnostics.Debug.WriteLine($"[GamePage] 📤 Calling SessionSaveBridge.SaveSessionToFirestore()...");
+                        System.Diagnostics.Debug.WriteLine($"[GamePage] 📤 Session JSON preview: {sessionJson.Substring(0, Math.Min(200, sessionJson.Length))}...");
 
                         // Save session to Firestore
                         SessionSaveBridge.SaveSessionToFirestore(sessionJson);

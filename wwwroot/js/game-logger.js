@@ -358,13 +358,13 @@ class GameLogger {
         console.log('[GameLogger] 🔵 saveSessionToFirestore() called');
 
         try {
-            // Get team ID from preferences/storage
-            const teamId = localStorage.getItem('roster.teamId');
+            // Get team ID from localStorage (stored by C# as 'team_id')
+            const teamId = localStorage.getItem('team_id');
             console.log('[GameLogger] 🔵 Team ID from localStorage:', teamId);
 
             if (!teamId) {
                 console.warn('[GameLogger] ⚠️ No team ID available, skipping Firestore save');
-                console.warn('[GameLogger] 🔍 Available localStorage keys:', Object.keys(localStorage));
+                console.warn('[GameLogger] 🔍 Available localStorage keys:', Object.keys(localStorage).join(', '));
                 return;
             }
 
@@ -378,6 +378,7 @@ class GameLogger {
             if (window.csharpSaveSession) {
                 const sessionJson = JSON.stringify(session);
                 console.log('[GameLogger] ✅ C# bridge found, preparing to save to Firestore');
+                console.log('[GameLogger] 📤 Team ID:', teamId);
                 console.log('[GameLogger] 📤 Session ID:', session.sessionId);
                 console.log('[GameLogger] 📤 Session data length:', sessionJson.length);
                 console.log('[GameLogger] 📤 Calling window.csharpSaveSession.postMessage()...');

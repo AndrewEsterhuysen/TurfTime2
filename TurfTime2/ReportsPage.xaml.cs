@@ -8,6 +8,7 @@ public partial class ReportsPage : ContentPage
     private string currentHtmlReport = "";
     private string currentSavedReportPath = "";
     private List<SessionSummary> availableReports = new List<SessionSummary>();
+    private Dictionary<string, string> sessionJsonCache = new Dictionary<string, string>(); // Cache session data by sessionId
 
     public ReportsPage()
     {
@@ -53,9 +54,27 @@ public partial class ReportsPage : ContentPage
             }
             else
             {
-                // For cloud teams, load from Firestore
+                // For cloud teams, try Firestore first, fallback to localStorage
                 System.Diagnostics.Debug.WriteLine($"[ReportsPage] Loading sessions from Firestore for cloud team");
-                await LoadCloudSessionsAsync(teamId);
+                var cloudSessionsLoaded = await LoadCloudSessionsAsync(teamId);
+
+                // Fallback: if no cloud sessions found, check localStorage (for sessions that failed to sync)
+                if (!cloudSessionsLoaded || availableReports.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ReportsPage] ⚠️ No cloud sessions found, checking localStorage fallback");
+                    StatusLabel.Text = "Checking local storage for unsynced games...";
+                    StatusLabel.IsVisible = true;
+                    await LoadLocalSessionsAsync(teamId);
+
+                    // Add note if we found local sessions for a cloud team
+                    if (availableReports.Count > 0)
+                    {
+                        StatusLabel.Text = "⚠️ Showing local games (may not be synced across devices)";
+                        StatusLabel.IsVisible = true;
+                        await Task.Delay(3000); // Show warning for 3 seconds
+                        StatusLabel.IsVisible = false;
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -73,7 +92,6 @@ public partial class ReportsPage : ContentPage
             System.Diagnostics.Debug.WriteLine($"[ReportsPage] Loading local sessions for team: {teamId}");
 
             // Load the main index.html page to ensure we have the same localStorage context as GamePage
-            // This is crucial because WebViews need to load from the same origin to share localStorage
 #if WINDOWS
             var indexPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "index.html");
             ReportWebView.Source = new UrlWebViewSource { Url = indexPath };
@@ -83,21 +101,16 @@ public partial class ReportsPage : ContentPage
 
             System.Diagnostics.Debug.WriteLine($"[ReportsPage] Loading wwwroot/index.html to access localStorage");
 
-            // Wait longer for the page to fully load
+            // Wait for the page to fully load
             await Task.Delay(1500);
-
-            System.Diagnostics.Debug.WriteLine($"[ReportsPage] WebView ready, executing localStorage script");
 
             // Get session history from localStorage via JavaScript
             var script = @"
                 (function() {
                     try {
                         const historyKey = 'roster.sessionHistory.v1';
-                        console.log('[ReportsPage] Attempting to read:', historyKey);
                         const raw = localStorage.getItem(historyKey);
-                        console.log('[ReportsPage] Raw localStorage data:', raw ? raw.substring(0, 100) + '...' : 'null');
                         if (!raw) {
-                            console.log('[ReportsPage] No data found, returning empty sessions');
                             return JSON.stringify({ sessions: [] });
                         }
                         return raw;
@@ -110,8 +123,6 @@ public partial class ReportsPage : ContentPage
 
             var historyJson = await ReportWebView.EvaluateJavaScriptAsync(script);
 
-            System.Diagnostics.Debug.WriteLine($"[ReportsPage] JavaScript returned: {historyJson?.Substring(0, Math.Min(100, historyJson?.Length ?? 0))}...");
-
             if (string.IsNullOrEmpty(historyJson) || historyJson == "null" || historyJson == "\"null\"")
             {
                 System.Diagnostics.Debug.WriteLine($"[ReportsPage] No session history found in localStorage");
@@ -119,33 +130,50 @@ public partial class ReportsPage : ContentPage
                 return;
             }
 
-            // Clean up the JSON string (remove quotes if wrapped)
+            // Clean up the JSON string
             historyJson = historyJson.Trim('"').Replace("\\\"", "\"").Replace("\\\\", "\\");
-
-            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Session history JSON length: {historyJson.Length}");
-            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Session history preview: {historyJson.Substring(0, Math.Min(200, historyJson.Length))}");
 
             var history = JsonDocument.Parse(historyJson);
             if (history.RootElement.TryGetProperty("sessions", out var sessions) && 
                 sessions.GetArrayLength() > 0)
             {
-                // Get the most recent session
-                var latestSession = sessions[0];
-                var sessionJson = latestSession.GetRawText();
+                // Build list of all sessions and cache their data
+                availableReports.Clear();
+                sessionJsonCache.Clear();
 
-                System.Diagnostics.Debug.WriteLine($"[ReportsPage] Found {sessions.GetArrayLength()} local sessions");
-                System.Diagnostics.Debug.WriteLine($"[ReportsPage] Latest session length: {sessionJson.Length}");
+                foreach (var sessionElement in sessions.EnumerateArray())
+                {
+                    var sessionJson = sessionElement.GetRawText();
+                    var session = JsonDocument.Parse(sessionJson);
+                    var root = session.RootElement;
 
-                currentHtmlReport = GenerateHtmlReport(sessionJson);
-                currentSavedReportPath = ""; // Reset saved path for new report
-                ReportWebView.Source = new HtmlWebViewSource { Html = currentHtmlReport };
+                    if (root.TryGetProperty("sessionId", out var sessionId) &&
+                        root.TryGetProperty("startTime", out var startTime))
+                    {
+                        var summary = new SessionSummary
+                        {
+                            SessionId = sessionId.GetString() ?? "",
+                            StartTime = DateTime.Parse(startTime.GetString() ?? DateTime.Now.ToString())
+                        };
 
-                ViewReportButton.IsEnabled = true;
-                EmailHtmlButton.IsEnabled = true;
-                EmailReportButton.IsEnabled = true;
+                        // Get duration if available
+                        if (root.TryGetProperty("matchDuration", out var duration))
+                        {
+                            summary.MatchDuration = duration.GetInt32();
+                        }
+
+                        availableReports.Add(summary);
+                        sessionJsonCache[summary.SessionId] = sessionJson;
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[ReportsPage] Found {availableReports.Count} local sessions");
+
+                // Populate picker
+                PopulateGamePicker();
+
                 StatusLabel.IsVisible = false;
-
-                System.Diagnostics.Debug.WriteLine($"[ReportsPage] ✅ Local report loaded successfully");
+                System.Diagnostics.Debug.WriteLine($"[ReportsPage] ✅ Local sessions loaded successfully");
             }
             else
             {
@@ -161,7 +189,7 @@ public partial class ReportsPage : ContentPage
         }
     }
 
-    private async Task LoadCloudSessionsAsync(string teamId)
+    private async Task<bool> LoadCloudSessionsAsync(string teamId)
     {
         try
         {
@@ -170,36 +198,113 @@ public partial class ReportsPage : ContentPage
 
             if (availableReports.Count > 0)
             {
-                // Load the most recent session data
-                var latestSession = availableReports.First();
-                var sessionJson = await SessionLoadHelper.LoadSessionDataAsync(teamId, latestSession.SessionId);
+                System.Diagnostics.Debug.WriteLine($"[ReportsPage] Found {availableReports.Count} cloud sessions");
 
-                if (!string.IsNullOrEmpty(sessionJson))
-                {
-                    currentHtmlReport = GenerateHtmlReport(sessionJson);
-                    currentSavedReportPath = ""; // Reset saved path for new report
-                    ReportWebView.Source = new HtmlWebViewSource { Html = currentHtmlReport };
+                // Clear cache
+                sessionJsonCache.Clear();
 
-                    ViewReportButton.IsEnabled = true;
-                    EmailHtmlButton.IsEnabled = true;
-                    EmailReportButton.IsEnabled = true;
-                    StatusLabel.IsVisible = false;
-                }
-                else
-                {
-                    ShowNoDataMessage();
-                    StatusLabel.Text = "Could not load session data.";
-                }
+                // Populate picker with all available sessions
+                PopulateGamePicker();
+
+                StatusLabel.IsVisible = false;
+                System.Diagnostics.Debug.WriteLine($"[ReportsPage] ✅ Cloud sessions loaded successfully");
+                return true;
             }
             else
             {
-                ShowNoDataMessage();
+                System.Diagnostics.Debug.WriteLine($"[ReportsPage] No cloud sessions found in Firestore");
+                return false;
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[ReportsPage] Error loading cloud sessions: {ex.Message}");
-            ShowNoDataMessage();
+            return false;
+        }
+    }
+
+    private void PopulateGamePicker()
+    {
+        GameSessionPicker.Items.Clear();
+
+        foreach (var session in availableReports)
+        {
+            var displayText = $"{session.StartTime:MMM dd, yyyy h:mm tt}";
+            if (session.MatchDuration > 0)
+            {
+                var minutes = session.MatchDuration / 60;
+                displayText += $" ({minutes} min)";
+            }
+            GameSessionPicker.Items.Add(displayText);
+        }
+
+        // Enable picker and auto-select the most recent game (first item)
+        if (GameSessionPicker.Items.Count > 0)
+        {
+            GameSessionPicker.IsEnabled = true;
+            GameSessionPicker.SelectedIndex = 0;
+        }
+        else
+        {
+            GameSessionPicker.IsEnabled = false;
+        }
+    }
+
+    private async void OnGameSessionSelected(object sender, EventArgs e)
+    {
+        try
+        {
+            if (GameSessionPicker.SelectedIndex < 0 || GameSessionPicker.SelectedIndex >= availableReports.Count)
+            {
+                return;
+            }
+
+            StatusLabel.Text = "Loading game report...";
+            StatusLabel.IsVisible = true;
+
+            var selectedSession = availableReports[GameSessionPicker.SelectedIndex];
+            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Selected session: {selectedSession.SessionId}");
+
+            string sessionJson = "";
+
+            // Check if we have it cached (local sessions)
+            if (sessionJsonCache.ContainsKey(selectedSession.SessionId))
+            {
+                sessionJson = sessionJsonCache[selectedSession.SessionId];
+                System.Diagnostics.Debug.WriteLine($"[ReportsPage] Using cached session data");
+            }
+            else
+            {
+                // Load from Firestore (cloud sessions)
+                var teamId = Preferences.Get("team_id", "");
+                sessionJson = await SessionLoadHelper.LoadSessionDataAsync(teamId, selectedSession.SessionId);
+                System.Diagnostics.Debug.WriteLine($"[ReportsPage] Loaded session from Firestore");
+            }
+
+            if (!string.IsNullOrEmpty(sessionJson))
+            {
+                currentHtmlReport = GenerateHtmlReport(sessionJson);
+                currentSavedReportPath = ""; // Reset saved path for new report
+                ReportWebView.Source = new HtmlWebViewSource { Html = currentHtmlReport };
+
+                ViewReportButton.IsEnabled = true;
+                EmailHtmlButton.IsEnabled = true;
+                EmailReportButton.IsEnabled = true;
+                StatusLabel.IsVisible = false;
+
+                System.Diagnostics.Debug.WriteLine($"[ReportsPage] ✅ Report loaded for session: {selectedSession.SessionId}");
+            }
+            else
+            {
+                StatusLabel.Text = "Could not load game data.";
+                System.Diagnostics.Debug.WriteLine($"[ReportsPage] ❌ Failed to load session data");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Error loading selected game: {ex.Message}");
+            StatusLabel.Text = $"Error loading game: {ex.Message}";
+            StatusLabel.IsVisible = true;
         }
     }
 
@@ -207,6 +312,7 @@ public partial class ReportsPage : ContentPage
     {
         currentHtmlReport = GenerateNoDataHtml();
         ReportWebView.Source = new HtmlWebViewSource { Html = currentHtmlReport };
+        GameSessionPicker.IsEnabled = false;
         ViewReportButton.IsEnabled = false;
         EmailHtmlButton.IsEnabled = false;
         EmailReportButton.IsEnabled = false;
@@ -532,8 +638,20 @@ public partial class ReportsPage : ContentPage
             var reportsDir = Path.Combine(FileSystem.AppDataDirectory, "Reports");
             Directory.CreateDirectory(reportsDir);
 
-            // Generate file name with timestamp
-            var fileName = $"TurfTime_Report_{DateTime.Now:yyyyMMdd_HHmmss}.html";
+            // Get current selected session for filename
+            string fileName;
+            if (GameSessionPicker.SelectedIndex >= 0 && GameSessionPicker.SelectedIndex < availableReports.Count)
+            {
+                var session = availableReports[GameSessionPicker.SelectedIndex];
+                // Use session ID and date for unique filename
+                fileName = $"TurfTime_Report_{session.StartTime:yyyyMMdd_HHmmss}_{session.SessionId.Substring(0, 8)}.html";
+            }
+            else
+            {
+                // Fallback to timestamp only
+                fileName = $"TurfTime_Report_{DateTime.Now:yyyyMMdd_HHmmss}.html";
+            }
+
             var filePath = Path.Combine(reportsDir, fileName);
 
             // Save HTML to file

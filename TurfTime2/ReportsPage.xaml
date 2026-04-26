@@ -4,9 +4,32 @@
              x:Class="TurfTime2.ReportsPage"
              Title="Match Reports"
              BackgroundColor="#1b5e20">
-    <Grid RowDefinitions="Auto,*">
-        <!-- Button Container - Not included in report when emailing -->
-        <VerticalStackLayout Grid.Row="0" 
+    <Grid RowDefinitions="Auto,Auto,*">
+        <!-- Game Selection Picker -->
+        <Frame Grid.Row="0"
+               Padding="15"
+               Margin="10"
+               BackgroundColor="#2e7d32"
+               CornerRadius="8"
+               HasShadow="True">
+            <VerticalStackLayout Spacing="10">
+                <Label Text="Select Game"
+                       TextColor="White"
+                       FontSize="16"
+                       FontAttributes="Bold"
+                       HorizontalOptions="Start" />
+                <Picker x:Name="GameSessionPicker"
+                        Title="Choose a completed game..."
+                        TextColor="White"
+                        TitleColor="White"
+                        BackgroundColor="#1b5e20"
+                        SelectedIndexChanged="OnGameSessionSelected"
+                        FontSize="14" />
+            </VerticalStackLayout>
+        </Frame>
+
+        <!-- Button Container -->
+        <VerticalStackLayout Grid.Row="1" 
                            Padding="15" 
                            Spacing="10"
                            x:Name="ButtonContainer">
@@ -48,7 +71,7 @@
         </VerticalStackLayout>
 
         <!-- WebView for HTML Report Display -->
-        <WebView Grid.Row="1" 
+        <WebView Grid.Row="2" 
                  x:Name="ReportWebView"
                  BackgroundColor="White" />
     </Grid>
