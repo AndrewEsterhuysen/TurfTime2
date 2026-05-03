@@ -19,7 +19,7 @@
             <Entry x:Name="MessageEntry"
                    Grid.Column="0"
                    Placeholder="Type a message..."
-                   PlaceholderColor="rgba(255,255,255,0.6)"
+                   PlaceholderColor="#99FFFFFF"
                    TextColor="White"
                    MaxLength="500"
                    VerticalOptions="Center"
