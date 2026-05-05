@@ -9,6 +9,23 @@
 		android:theme="@style/Maui.SplashTheme"
 		android:usesCleartextTraffic="false"
 		android:networkSecurityConfig="@xml/network_security_config">
+
+		<!-- Firebase Cloud Messaging -->
+		<service
+			android:name="com.google.firebase.messaging.FirebaseMessagingService"
+			android:exported="false">
+			<intent-filter>
+				<action android:name="com.google.firebase.MESSAGING_EVENT" />
+			</intent-filter>
+		</service>
+
+		<meta-data
+			android:name="com.google.firebase.messaging.default_notification_icon"
+			android:resource="@mipmap/appicon" />
+
+		<meta-data
+			android:name="com.google.firebase.messaging.default_notification_color"
+			android:resource="@android:color/holo_blue_light" />
 	</application>
 
 	<!-- Required Permissions -->
@@ -16,6 +33,7 @@
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-permission android:name="android.permission.WAKE_LOCK" />
 	<uses-permission android:name="android.permission.VIBRATE" />
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
 	<!-- Feature Declarations -->
 	<uses-feature android:name="android.hardware.touchscreen" android:required="false" />

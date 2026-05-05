@@ -1,4 +1,13 @@
 ﻿using Microsoft.Extensions.Logging;
+using Microsoft.Maui.LifecycleEvents;
+using Plugin.Firebase.Auth;
+using Plugin.Firebase.Bundled.Shared;
+using Plugin.Firebase.CloudMessaging;
+#if ANDROID
+using Plugin.Firebase.Bundled.Platforms.Android;
+#elif IOS
+using Plugin.Firebase.Bundled.Platforms.iOS;
+#endif
 
 namespace TurfTime2
 {
@@ -14,6 +23,37 @@ namespace TurfTime2
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                     fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
                 });
+
+            // Register Firebase services
+            builder.Services.AddSingleton(_ => CrossFirebaseAuth.Current);
+            builder.Services.AddSingleton(_ => CrossFirebaseCloudMessaging.Current);
+
+            // Initialize Firebase
+            builder.ConfigureLifecycleEvents(events =>
+            {
+#if ANDROID
+                events.AddAndroid(android => android
+                    .OnCreate((activity, bundle) =>
+                    {
+                        CrossFirebase.Initialize(activity, new CrossFirebaseSettings(
+                            isAuthEnabled: true,
+                            isCloudMessagingEnabled: true));
+
+                        System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on Android");
+                    }));
+#elif IOS
+                events.AddiOS(iOS => iOS
+                    .FinishedLaunching((app, options) =>
+                    {
+                        CrossFirebase.Initialize(new CrossFirebaseSettings(
+                            isAuthEnabled: true,
+                            isCloudMessagingEnabled: true));
+
+                        System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on iOS");
+                        return true;
+                    }));
+#endif
+            });
 
 #if DEBUG
             builder.Logging.AddDebug();

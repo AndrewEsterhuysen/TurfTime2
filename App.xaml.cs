@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using TurfTime2.Services;
 
 namespace TurfTime2
 {
@@ -10,6 +11,9 @@ namespace TurfTime2
         public App()
         {
             InitializeComponent();
+
+            // Initialize FCM
+            _ = InitializeFcmAsync();
         }
 
         protected override Window CreateWindow(IActivationState? activationState)
@@ -37,6 +41,27 @@ namespace TurfTime2
             }
 
             return window;
+        }
+
+        private async Task InitializeFcmAsync()
+        {
+            try
+            {
+                // Wait a bit for app to fully initialize
+                await Task.Delay(2000);
+
+                var success = await FcmService.Instance.InitializeAsync();
+
+                if (success)
+                {
+                    // Update token in Firestore
+                    await FcmService.Instance.UpdateTokenInFirestoreAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] ❌ FCM initialization error: {ex.Message}");
+            }
         }
     }
 }
