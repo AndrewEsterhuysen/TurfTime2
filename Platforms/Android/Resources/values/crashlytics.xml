@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Provides a stub Crashlytics build ID so the native Crashlytics SDK does not
+    throw "The Crashlytics build ID is missing" at startup.
+
+    The SDK checks for the string resource "com.google.firebase.crashlytics.mapping_file_id"
+    at initialization time. Without it, CrashlyticsCore.onPreExecute() throws an
+    IllegalStateException that crashes the app before any .NET code runs.
+
+    Because we are not using Crashlytics (firebase_crashlytics_collection_enabled=false
+    in AndroidManifest.xml), this value is never sent to Firebase — it only satisfies
+    the SDK's startup guard.
+-->
+<resources>
+    <string name="com.google.firebase.crashlytics.mapping_file_id" translatable="false">00000000-0000-0000-0000-000000000000</string>
+</resources>

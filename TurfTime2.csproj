@@ -39,6 +39,9 @@
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
+
+		<!-- Disable Firebase Crashlytics (we only need Cloud Messaging) -->
+		<FirebaseCrashlyticsEnabled>false</FirebaseCrashlyticsEnabled>
 	</PropertyGroup>
 
 	<!-- iOS Release Configuration -->
@@ -88,6 +91,9 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<Link>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</Link>
 		</Content>
+	</ItemGroup>
+	<ItemGroup>
+		<AndroidResource Include="Platforms\Android\Resources\values\crashlytics.xml" />
 	</ItemGroup>
 	<ItemGroup>
 		<MauiAsset Remove="wwwroot\js\.editorconfig" />

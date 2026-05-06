@@ -37,9 +37,10 @@ namespace TurfTime2
                     {
                         CrossFirebase.Initialize(activity, new CrossFirebaseSettings(
                             isAuthEnabled: true,
-                            isCloudMessagingEnabled: true));
+                            isCloudMessagingEnabled: true,
+                            isCrashlyticsEnabled: false));
 
-                        System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on Android");
+                        System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on Android (Crashlytics disabled)");
                     }));
 #elif IOS
                 events.AddiOS(iOS => iOS
@@ -47,9 +48,10 @@ namespace TurfTime2
                     {
                         CrossFirebase.Initialize(new CrossFirebaseSettings(
                             isAuthEnabled: true,
-                            isCloudMessagingEnabled: true));
+                            isCloudMessagingEnabled: true,
+                            isCrashlyticsEnabled: false));
 
-                        System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on iOS");
+                        System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on iOS (Crashlytics disabled)");
                         return true;
                     }));
 #endif
