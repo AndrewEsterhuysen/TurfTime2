@@ -761,8 +761,8 @@ public partial class GamePage : ContentPage
             return;
         }
 
-        var teamMode = Preferences.Get($"team_mode_{teamId}", "local");
-        var userRole = Preferences.Get($"user_role_{teamId}", "admin");
+        var teamMode = Preferences.Get("team_mode", "local");
+        var userRole = Preferences.Get("user_role", "admin");
 
         System.Diagnostics.Debug.WriteLine($"[GamePage] Polling check - teamId:{teamId}, mode:{teamMode}, role:{userRole}, active:{_memberPollingActive}");
 

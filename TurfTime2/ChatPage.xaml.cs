@@ -22,8 +22,28 @@ public partial class ChatPage : ContentPage
 		{
 			Html = GetChatHtml(teamId)
 		};
+		ChatWebView.Navigated += OnChatWebViewNavigated;
 		ChatWebView.Source = htmlSource;
 		ApplyThemeToInputBar();
+	}
+
+	private void OnChatWebViewNavigated(object? sender, WebNavigatedEventArgs e)
+	{
+		// Register this page as the JS token-save path once auth is ready.
+		// Delay slightly to let the anonymous auth complete before calling saveFcmToken.
+		Services.FcmService.SaveTokenViaJs = async (token) =>
+		{
+			await Task.Delay(1500); // allow Firebase auth to complete
+			await SaveFcmTokenAsync(token);
+		};
+
+		// If we already have a token, save it now that the WebView is loaded.
+		Task.Run(async () =>
+		{
+			var token = await Services.FcmService.Instance.GetTokenAsync();
+			if (!string.IsNullOrEmpty(token))
+				await Services.FcmService.Instance.UpdateTokenInFirestoreAsync(token);
+		});
 	}
 
 	private void ApplyThemeToInputBar()
@@ -68,6 +88,27 @@ public partial class ChatPage : ContentPage
 				   .Replace("\"", "\\\"");
 	}
 
+	/// <summary>
+	/// Saves the native FCM token to Firestore via the authenticated JS Firebase session.
+	/// Must be called after the chat WebView has loaded and the user is authenticated.
+	/// </summary>
+	public async Task SaveFcmTokenAsync(string token)
+	{
+		if (string.IsNullOrWhiteSpace(token))
+			return;
+
+		var safeToken = EscapeJavaScript(token);
+		try
+		{
+			var result = await ChatWebView.EvaluateJavaScriptAsync($"saveFcmToken('{safeToken}')");
+			System.Diagnostics.Debug.WriteLine($"[Chat] saveFcmToken result: {result}");
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[Chat] ❌ SaveFcmTokenAsync error: {ex.Message}");
+		}
+	}
+
 	private string GetChatHtml(string teamId)
 	{
 		if (string.IsNullOrEmpty(teamId))
@@ -79,6 +120,10 @@ public partial class ChatPage : ContentPage
 		}
 
 		var safeTeamId = teamId.Replace("'", "\\'").Replace("\\", "\\\\");
+		var rawUserName = Preferences.Get("user_name", "");
+		var safeUserName = string.IsNullOrWhiteSpace(rawUserName)
+			? ""
+			: rawUserName.Replace("\\", "\\\\").Replace("'", "\\'").Replace("`", "'");
 
 		// Resolve theme colours from app Preferences
 		var theme = Preferences.Get("AppTheme", "classic");
@@ -337,14 +382,40 @@ public partial class ChatPage : ContentPage
 
 			console.log('[Chat] 📤 Sending message to team:', TEAM_ID);
 			try {{
+				const senderName = '{safeUserName}' || currentUserId?.substring(0, 8) || 'Someone';
 				const docRef = await addDoc(collection(db, 'teams', TEAM_ID, 'messages'), {{
 					text: text.substring(0, 500),
 					userId: currentUserId,
+					senderName: senderName,
 					timestamp: serverTimestamp()
 				}});
 				console.log('[Chat] ✅ Message sent, ID:', docRef.id);
 			}} catch (error) {{
 				console.error('[Chat] ❌ Send error:', error);
+			}}
+		}};
+
+		// Save FCM token to Firestore under the authenticated user's member document
+		// Called from C# after the native FCM token is acquired
+		window.saveFcmToken = async function(token) {{
+			if (!token || !currentUserId || !TEAM_ID) {{
+				console.warn('[Chat] ⚠️ saveFcmToken: missing token, userId, or teamId');
+				return 'missing_params';
+			}}
+			try {{
+				const {{ doc, getDoc, updateDoc, setDoc, arrayUnion }} = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+				const memberRef = doc(db, 'teams', TEAM_ID, 'members', currentUserId);
+				const memberSnap = await getDoc(memberRef);
+				if (memberSnap.exists()) {{
+					await updateDoc(memberRef, {{ fcmTokens: arrayUnion(token), tokenUpdatedAt: new Date().toISOString() }});
+				}} else {{
+					await setDoc(memberRef, {{ fcmTokens: [token], tokenUpdatedAt: new Date().toISOString() }}, {{ merge: true }});
+				}}
+				console.log('[Chat] ✅ FCM token saved for user:', currentUserId.substring(0, 8));
+				return 'ok';
+			}} catch (error) {{
+				console.error('[Chat] ❌ saveFcmToken error:', error);
+				return 'error';
 			}}
 		}};
 

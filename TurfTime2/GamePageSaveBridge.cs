@@ -12,38 +12,42 @@ public static class FirebaseSaveBridge
     private static string? _firebaseIdToken;
     private static string? _firebaseUserId;
 
+    private static async Task<bool> EnsureAuthenticatedAsync()
+    {
+        _httpClient ??= new HttpClient();
+
+        if (!string.IsNullOrEmpty(_firebaseIdToken))
+            return true;
+
+        System.Diagnostics.Debug.WriteLine("[FirebaseBridge] Authenticating...");
+        var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
+        var body = System.Text.Json.JsonSerializer.Serialize(new { returnSecureToken = true });
+        var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+        var response = await _httpClient.PostAsync(url, content);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadAsStringAsync();
+            System.Diagnostics.Debug.WriteLine($"[FirebaseBridge] Auth failed: {error}");
+            return false;
+        }
+        var json = await response.Content.ReadAsStringAsync();
+        var doc = System.Text.Json.JsonDocument.Parse(json);
+        _firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
+        _firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
+        System.Diagnostics.Debug.WriteLine("[FirebaseBridge] ✓ Authenticated");
+        return true;
+    }
+
     public static async Task<string> SaveRosterToFirestore(string teamId, string rosterDataJson)
     {
         try
         {
             System.Diagnostics.Debug.WriteLine($"[FirebaseBridge] SaveRoster called for team: {teamId}");
 
-            // Initialize HttpClient if needed
-            if (_httpClient == null)
-            {
-                _httpClient = new HttpClient();
-            }
+            _httpClient ??= new HttpClient();
 
-            // Ensure Firebase authentication
-            if (string.IsNullOrEmpty(_firebaseIdToken))
-            {
-                System.Diagnostics.Debug.WriteLine("[FirebaseBridge] Authenticating...");
-                var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
-                var body = System.Text.Json.JsonSerializer.Serialize(new { returnSecureToken = true });
-                var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
-                var response = await _httpClient.PostAsync(url, content);
-                if (!response.IsSuccessStatusCode)
-                {
-                    var error = await response.Content.ReadAsStringAsync();
-                    System.Diagnostics.Debug.WriteLine($"[FirebaseBridge] Auth failed: {error}");
-                    return "error:auth_failed";
-                }
-                var json = await response.Content.ReadAsStringAsync();
-                var doc = System.Text.Json.JsonDocument.Parse(json);
-                _firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
-                _firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
-                System.Diagnostics.Debug.WriteLine($"[FirebaseBridge] ✓ Authenticated");
-            }
+            if (!await EnsureAuthenticatedAsync())
+                return "error:auth_failed";
 
             // Parse JavaScript roster data
             using var rosterDoc = System.Text.Json.JsonDocument.Parse(rosterDataJson);
@@ -97,25 +101,37 @@ public static class FirebaseSaveBridge
             System.Diagnostics.Debug.WriteLine($"[FirebaseBridge] Firestore JSON: {firestoreJson.Substring(0, Math.Min(200, firestoreJson.Length))}...");
 
 
-            // Save to Firestore
+            // Save to Firestore (retry once if token expired)
             var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _firebaseIdToken);
-
             var rosterUrl = $"{baseUrl}/teams/{teamId}/roster/data";
-            var patchResponse = await _httpClient.PatchAsync(rosterUrl,
-                new StringContent(firestoreJson, System.Text.Encoding.UTF8, "application/json"));
 
-            if (patchResponse.IsSuccessStatusCode)
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                System.Diagnostics.Debug.WriteLine($"[FirebaseBridge] ✅ Saved roster for {teamId}");
-                return "success";
-            }
-            else
-            {
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _firebaseIdToken);
+                var patchResponse = await _httpClient.PatchAsync(rosterUrl,
+                    new StringContent(firestoreJson, System.Text.Encoding.UTF8, "application/json"));
+
+                if (patchResponse.IsSuccessStatusCode)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[FirebaseBridge] ✅ Saved roster for {teamId}");
+                    return "success";
+                }
+
+                if (patchResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized && attempt == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[FirebaseBridge] Token expired, refreshing...");
+                    _firebaseIdToken = null;
+                    if (!await EnsureAuthenticatedAsync())
+                        return "error:auth_failed";
+                    continue;
+                }
+
                 var error = await patchResponse.Content.ReadAsStringAsync();
                 System.Diagnostics.Debug.WriteLine($"[FirebaseBridge] ❌ Save failed: {error}");
                 return $"error:save_failed - {error}";
             }
+
+            return "error:save_failed";
         }
         catch (Exception ex)
         {

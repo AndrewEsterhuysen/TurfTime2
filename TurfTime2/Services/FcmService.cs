@@ -16,6 +16,12 @@ public class FcmService
     private string? _currentToken;
     private bool _isInitialized;
 
+    /// <summary>
+    /// Set this to save the FCM token via the JS-authenticated chat session.
+    /// Called with the raw FCM token string; should forward to ChatPage.SaveFcmTokenAsync.
+    /// </summary>
+    public static Func<string, Task>? SaveTokenViaJs { get; set; }
+
     private FcmService() { }
 
     private static async Task<string?> GetAuthTokenAsync()
@@ -79,6 +85,9 @@ public class FcmService
             // Get FCM token
             _currentToken = await CrossFirebaseCloudMessaging.Current.GetTokenAsync();
             Debug.WriteLine($"[FCM] ✅ Token received: {_currentToken?.Substring(0, Math.Min(20, _currentToken.Length))}...");
+
+            // Save token to Firestore immediately (if team/user are already known)
+            await UpdateTokenInFirestoreAsync(_currentToken);
 
             // Subscribe to token refresh events
             CrossFirebaseCloudMessaging.Current.TokenChanged += OnTokenChanged;
@@ -173,6 +182,15 @@ public class FcmService
                 return;
             }
 
+            // Preferred path: save via the JS chat session (authenticated as the real user)
+            if (SaveTokenViaJs != null)
+            {
+                Debug.WriteLine("[FCM] 💾 Saving FCM token via JS auth session");
+                await SaveTokenViaJs(token);
+                return;
+            }
+
+            // Fallback: REST API using anonymous sign-in (may fail if member doc doesn't exist)
             var teamId = Preferences.Get("team_id", "");
             var userId = Preferences.Get("user_id", "");
 

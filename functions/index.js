@@ -5,8 +5,8 @@ const { getMessaging } = require('firebase-admin/messaging');
 
 initializeApp();
 
-// Trigger: New message added to chat (2nd Gen)
-exports.sendChatNotification = onDocumentCreated('teams/{teamId}/chat/{messageId}', async (event) => {
+// Trigger: New message added to messages collection (2nd Gen)
+exports.sendChatNotification = onDocumentCreated('teams/{teamId}/messages/{messageId}', async (event) => {
     try {
         const snapshot = event.data;
         if (!snapshot) {
@@ -48,7 +48,7 @@ exports.sendChatNotification = onDocumentCreated('teams/{teamId}/chat/{messageId
             const memberId = doc.id;
 
             // Don't notify the sender
-            if (member.uid === message.senderId) {
+            if (memberId === message.userId || member.uid === message.userId) {
                 return;
             }
 
@@ -79,7 +79,7 @@ exports.sendChatNotification = onDocumentCreated('teams/{teamId}/chat/{messageId
         const payload = {
             notification: {
                 title: `💬 ${teamName}`,
-                body: `${message.senderName || 'Someone'}: ${message.text || 'New message'}`
+                body: `${message.senderName || message.userId?.substring(0, 8) || 'Someone'}: ${message.text || 'New message'}`
             },
             data: {
                 teamId: teamId,

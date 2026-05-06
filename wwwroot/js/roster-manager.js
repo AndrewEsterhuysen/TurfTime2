@@ -71,6 +71,11 @@ class RosterManager {
             if (this.isApplyingCloudData) return;
             this.saveToStorage();
         }, 300);
+        this.saveToFirestoreDebounced = this._debounce((model) => {
+            this.saveToFirestore(model).catch(err => {
+                console.error('[RosterManager] Background cloud save failed:', err);
+            });
+        }, 2000);
 
         // Match timer (countdown from 90 minutes, split into halves)
         this.matchDurationSeconds = 90 * 60; // default 90 minutes (total game)
@@ -2843,9 +2848,7 @@ class RosterManager {
                                    this.userRole !== 'member';
 
             if (canSaveToCloud) {
-                this.saveToFirestore(model).catch(err => {
-                    console.error('[RosterManager] Background cloud save failed:', err);
-                });
+                this.saveToFirestoreDebounced(model);
             } else if (this.userRole === 'member' && !preserveTimestamp) {
                 console.log('[RosterManager] 🚫 Member cannot save to cloud - skipping');
             }

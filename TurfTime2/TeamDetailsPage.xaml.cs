@@ -538,34 +538,30 @@ public partial class TeamDetailsPage : ContentPage
 	{
 		try
 		{
-			// Ensure Firebase auth (static instance)
-			if (string.IsNullOrEmpty(_firebaseIdToken))
-			{
-				var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
-				var body = System.Text.Json.JsonSerializer.Serialize(new { returnSecureToken = true });
-				var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
-				var response = await _httpClient.PostAsync(url, content);
-				if (!response.IsSuccessStatusCode) return null;
-
-				var json = await response.Content.ReadAsStringAsync();
-				var doc = System.Text.Json.JsonDocument.Parse(json);
-				_firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
-				_firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
-			}
+			if (!await EnsureFirebaseAuthStaticAsync()) return null;
 
 			var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
-			_httpClient.DefaultRequestHeaders.Authorization =
-				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
-
 			var rosterUrl = $"{baseUrl}/teams/{teamId}/roster/data";
-			var response2 = await _httpClient.GetAsync(rosterUrl);
 
-			if (!response2.IsSuccessStatusCode)
+			System.Net.Http.HttpResponseMessage response2;
+			for (int attempt = 0; attempt < 2; attempt++)
 			{
-				return null;
-			}
+				_httpClient.DefaultRequestHeaders.Authorization =
+					new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
+				response2 = await _httpClient.GetAsync(rosterUrl);
 
-			var json2 = await response2.Content.ReadAsStringAsync();
+				if (response2.StatusCode == System.Net.HttpStatusCode.Unauthorized && attempt == 0)
+				{
+					System.Diagnostics.Debug.WriteLine("[TeamDetails] Token expired on download, refreshing...");
+					_firebaseIdToken = null;
+					if (!await EnsureFirebaseAuthStaticAsync()) return null;
+					continue;
+				}
+
+				if (!response2.IsSuccessStatusCode)
+					return null;
+
+				var json2 = await response2.Content.ReadAsStringAsync();
 
 			// Parse Firestore document and convert to roster format
 			using var doc2 = System.Text.Json.JsonDocument.Parse(json2);
@@ -657,9 +653,9 @@ public partial class TeamDetailsPage : ContentPage
 
 			rosterDataBuilder.Append("}");
 
-			var finalJson = rosterDataBuilder.ToString();
-
-			return finalJson;
+			return rosterDataBuilder.ToString();
+			} // end for loop
+			return null;
 		}
 		catch (Exception ex)
 		{
@@ -1072,6 +1068,33 @@ return true;
 catch (Exception ex)
 {
 System.Diagnostics.Debug.WriteLine($"[Firebase] Auth exception: {ex.Message}");
+return false;
+}
+}
+
+private static async Task<bool> EnsureFirebaseAuthStaticAsync()
+{
+if (!string.IsNullOrEmpty(_firebaseIdToken))
+return true;
+
+try
+{
+System.Diagnostics.Debug.WriteLine("[Firebase] Static: signing in anonymously...");
+var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
+var body = System.Text.Json.JsonSerializer.Serialize(new { returnSecureToken = true });
+var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+var response = await _httpClient.PostAsync(url, content);
+if (!response.IsSuccessStatusCode) return false;
+var json = await response.Content.ReadAsStringAsync();
+var doc = System.Text.Json.JsonDocument.Parse(json);
+_firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
+_firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
+System.Diagnostics.Debug.WriteLine($"[Firebase] Static: authenticated");
+return true;
+}
+catch (Exception ex)
+{
+System.Diagnostics.Debug.WriteLine($"[Firebase] Static auth exception: {ex.Message}");
 return false;
 }
 }
