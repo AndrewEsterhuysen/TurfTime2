@@ -1,3 +1,4 @@
+﻿using TurfTime2.Models;
 using System.Text.Json;
 using System.Net.Http.Headers;
 
@@ -61,7 +62,7 @@ public class SessionLoadHelper
 
             if (!response.IsSuccessStatusCode)
             {
-                System.Diagnostics.Debug.WriteLine($"[SessionLoadHelper] ❌ Load failed: {response.StatusCode}");
+                System.Diagnostics.Debug.WriteLine($"[SessionLoadHelper] âŒ Load failed: {response.StatusCode}");
                 System.Diagnostics.Debug.WriteLine($"[SessionLoadHelper] Response: {responseBody}");
                 return new List<SessionSummary>();
             }
@@ -91,7 +92,7 @@ public class SessionLoadHelper
                 }
             }
 
-            System.Diagnostics.Debug.WriteLine($"[SessionLoadHelper] ✅ Loaded {sessions.Count} sessions");
+            System.Diagnostics.Debug.WriteLine($"[SessionLoadHelper] âœ… Loaded {sessions.Count} sessions");
             return sessions.OrderByDescending(s => s.StartTime).ToList();
         }
         catch (Exception ex)
@@ -127,7 +128,7 @@ public class SessionLoadHelper
 
             if (!response.IsSuccessStatusCode)
             {
-                System.Diagnostics.Debug.WriteLine($"[SessionLoadHelper] ❌ Load failed: {response.StatusCode}");
+                System.Diagnostics.Debug.WriteLine($"[SessionLoadHelper] âŒ Load failed: {response.StatusCode}");
                 return "";
             }
 
@@ -135,7 +136,7 @@ public class SessionLoadHelper
             var json = JsonDocument.Parse(responseBody);
             var sessionJson = ConvertFirestoreDocToJson(json.RootElement);
 
-            System.Diagnostics.Debug.WriteLine($"[SessionLoadHelper] ✅ Session data loaded");
+            System.Diagnostics.Debug.WriteLine($"[SessionLoadHelper] âœ… Session data loaded");
             return sessionJson;
         }
         catch (Exception ex)
@@ -410,11 +411,3 @@ public class SessionLoadHelper
     }
 }
 
-public class SessionSummary
-{
-    public string SessionId { get; set; } = "";
-    public DateTime StartTime { get; set; }
-    public DateTime? EndTime { get; set; }
-    public string Location { get; set; } = "";
-    public int MatchDuration { get; set; }
-}

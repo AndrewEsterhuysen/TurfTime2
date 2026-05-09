@@ -2,8 +2,294 @@
 <ContentPage x:Class="TurfTime2.GamePage"
              xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             Shell.NavBarIsVisible="True">
+             xmlns:models="clr-namespace:TurfTime2.Models"
+             xmlns:conv="clr-namespace:TurfTime2.Converters"
+             Shell.NavBarIsVisible="True"
+             BackgroundColor="#1b5e20">
 
-    <WebView x:Name="webView" AutomationId="CustomWebView" />
+    <ContentPage.Resources>
+        <!-- Colours -->
+        <Color x:Key="FieldColor">#388e3c</Color>
+        <Color x:Key="BenchColor">#1565c0</Color>
+        <Color x:Key="GoalieColor">#f57f17</Color>
+        <Color x:Key="InactiveColor">#424242</Color>
+        <Color x:Key="NoneColor">#616161</Color>
+        <Color x:Key="AccentColor">#FF6B35</Color>
+        <Color x:Key="CardBg">#2e7d32</Color>
+        <Color x:Key="NextHighlight">#ffeb3b</Color>
+
+        <conv:BoolToFontAttrsConverter x:Key="BoolToFontAttrsConverter" />
+        <conv:PositionToColorConverter x:Key="PositionToColorConverter" />
+
+        <!-- Swipeable player DataTemplate (VIEW_A) -->
+        <DataTemplate x:Key="SwipeablePlayerTemplate" x:DataType="models:Player">
+            <SwipeView>
+                <SwipeView.LeftItems>
+                    <SwipeItems>
+                        <SwipeItem Text="⚽ Field"
+                                   BackgroundColor="{StaticResource FieldColor}"
+                                   Invoked="OnSwipeToField" />
+                    </SwipeItems>
+                </SwipeView.LeftItems>
+                <SwipeView.RightItems>
+                    <SwipeItems>
+                        <SwipeItem Text="💺 Bench"
+                                   BackgroundColor="{StaticResource BenchColor}"
+                                   Invoked="OnSwipeToBench" />
+                        <SwipeItem Text="❌ Off"
+                                   BackgroundColor="{StaticResource InactiveColor}"
+                                   Invoked="OnSwipeToInactive" />
+                    </SwipeItems>
+                </SwipeView.RightItems>
+
+                <Grid ColumnDefinitions="*,Auto"
+                      Padding="12,8"
+                      BackgroundColor="{Binding Position, Converter={StaticResource PositionToColorConverter}}">
+                    <StackLayout Orientation="Horizontal" Spacing="8" VerticalOptions="Center">
+                        <Label Text="{Binding PositionIcon}" FontSize="18" VerticalOptions="Center" />
+                        <Label Text="{Binding Name}"
+                               TextColor="White"
+                               FontSize="16"
+                               FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrsConverter}}"
+                               VerticalOptions="Center" />
+                    </StackLayout>
+                    <Label Grid.Column="1"
+                           Text="{Binding FieldTimeDisplay}"
+                           TextColor="#ccffcc"
+                           FontSize="13"
+                           VerticalOptions="Center"
+                           HorizontalOptions="End" />
+                </Grid>
+            </SwipeView>
+        </DataTemplate>
+    </ContentPage.Resources>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="8">
+
+        <!-- ══ HEADER: Scores + timers ══ -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,*,*" Padding="4,8">
+            <!-- Left: Match score (Us) -->
+            <StackLayout HorizontalOptions="Start" VerticalOptions="Center">
+                <Label x:Name="ScoreUsLabel"
+                       Text="Us"
+                       TextColor="White"
+                       FontSize="12"
+                       HorizontalOptions="Center"
+                       IsVisible="{Binding ScoresVisible}" />
+                <Label x:Name="ScoreUsValueLabel"
+                       Text="{Binding TeamAScore}"
+                       TextColor="{StaticResource AccentColor}"
+                       FontSize="22"
+                       FontAttributes="Bold"
+                       HorizontalOptions="Center"
+                       IsVisible="{Binding ScoresVisible}" />
+            </StackLayout>
+
+            <!-- Centre: Title + Match timer -->
+            <StackLayout Grid.Column="1" HorizontalOptions="Center" VerticalOptions="Center" Spacing="2">
+                <Label Text="⚽ Turf Time 🥅"
+                       TextColor="White"
+                       FontSize="14"
+                       FontAttributes="Bold"
+                       HorizontalOptions="Center" />
+                <StackLayout Orientation="Vertical" HorizontalOptions="Center">
+                    <Label Text="{Binding MatchTimeLabelText}"
+                           TextColor="#ccffcc"
+                           FontSize="11"
+                           HorizontalOptions="Center" />
+                    <Label x:Name="MatchTimerLabel"
+                           Text="{Binding MatchTimeDisplay}"
+                           TextColor="White"
+                           FontSize="26"
+                           FontAttributes="Bold"
+                           HorizontalOptions="Center">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnMatchTimerTapped" />
+                        </Label.GestureRecognizers>
+                    </Label>
+                </StackLayout>
+            </StackLayout>
+
+            <!-- Right: Countdown + Team name + Them score -->
+            <StackLayout Grid.Column="2" HorizontalOptions="End" VerticalOptions="Center" Spacing="2">
+                <StackLayout Orientation="Vertical" HorizontalOptions="Center">
+                    <Label Text="Rotate Time"
+                           TextColor="#ccffcc"
+                           FontSize="11"
+                           HorizontalOptions="Center" />
+                    <Label x:Name="CountdownLabel"
+                           Text="{Binding CountdownDisplay}"
+                           TextColor="White"
+                           FontSize="22"
+                           FontAttributes="Bold"
+                           HorizontalOptions="Center">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnCountdownTimerTapped" />
+                        </Label.GestureRecognizers>
+                    </Label>
+                </StackLayout>
+                <Label Text="Them"
+                       TextColor="White"
+                       FontSize="12"
+                       HorizontalOptions="Center"
+                       IsVisible="{Binding ScoresVisible}" />
+                <Label x:Name="ScoreThemValueLabel"
+                       Text="{Binding TeamBScore}"
+                       TextColor="{StaticResource AccentColor}"
+                       FontSize="22"
+                       FontAttributes="Bold"
+                       HorizontalOptions="Center"
+                       IsVisible="{Binding ScoresVisible}" />
+            </StackLayout>
+        </Grid>
+
+        <!-- ══ Member read-only banner ══ -->
+        <Frame Grid.Row="1"
+               x:Name="MemberBanner"
+               BackgroundColor="#ffc107"
+               Padding="8,4"
+               CornerRadius="4"
+               IsVisible="{Binding IsMember}"
+               Margin="0,0,0,4">
+            <Label Text="📖 VIEW-ONLY MODE — Team Admin controls the game"
+                   TextColor="Black"
+                   FontAttributes="Bold"
+                   FontSize="12"
+                   HorizontalOptions="Center" />
+        </Frame>
+
+        <!-- ══ CONTENT AREA ══ -->
+        <Grid Grid.Row="2">
+
+            <!-- VIEW_A: Swipeable CollectionView -->
+            <CollectionView x:Name="SwipeableRoster"
+                            ItemsSource="{Binding Players}"
+                            ItemTemplate="{StaticResource SwipeablePlayerTemplate}"
+                            ItemsLayout="VerticalList"
+                            SelectionMode="Single"
+                            SelectionChanged="OnPlayerSelected">
+                <CollectionView.EmptyView>
+                    <Label Text="No players" TextColor="White" HorizontalOptions="Center" />
+                </CollectionView.EmptyView>
+            </CollectionView>
+
+            <!-- VIEW_B: Table (Grid-based) -->
+            <ScrollView x:Name="TableView" IsVisible="False">
+                <StackLayout x:Name="TableStack" Spacing="2" />
+            </ScrollView>
+
+            <!-- VIEW_C: Rotation display with score buttons -->
+            <Grid x:Name="RotationView"
+                  IsVisible="False"
+                  RowDefinitions="Auto,*"
+                  ColumnDefinitions="Auto,*,Auto">
+
+                <!-- Left score button -->
+                <Button Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
+                        x:Name="TeamAScoreBtn"
+                        Text="{Binding TeamAScore, StringFormat='Us\n{0}'}"
+                        BackgroundColor="{StaticResource FieldColor}"
+                        TextColor="White"
+                        FontSize="24"
+                        WidthRequest="72"
+                        VerticalOptions="Fill"
+                        Clicked="OnTeamAScoreClicked"
+                        IsVisible="{Binding ScoresVisible}" />
+
+                <!-- Rotation pairs list -->
+                <StackLayout Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
+                             VerticalOptions="Center"
+                             Spacing="4">
+                    <Label Text="Next Rotation"
+                           TextColor="White"
+                           FontAttributes="Bold"
+                           FontSize="18"
+                           HorizontalOptions="Center"
+                           Margin="0,0,0,8" />
+                    <CollectionView x:Name="RotationPairsView"
+                                    ItemsSource="{Binding RotationPairs}"
+                                    SelectionMode="None">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="models:RotationPair">
+                                <Grid ColumnDefinitions="*,*" Margin="4,2">
+                                    <Label Grid.Column="0"
+                                           Text="{Binding BenchPlayerName, StringFormat='💺 {0} ➜'}"
+                                           TextColor="#bbdefb"
+                                           FontSize="16"
+                                           HorizontalOptions="Start" />
+                                    <Label Grid.Column="1"
+                                           Text="{Binding FieldPlayerName, StringFormat='⬅ ⚽ {0}'}"
+                                           TextColor="#ffccbc"
+                                           FontSize="16"
+                                           HorizontalOptions="End" />
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                        <CollectionView.EmptyView>
+                            <Label Text="No rotations available" TextColor="#aaa"
+                                   HorizontalOptions="Center" />
+                        </CollectionView.EmptyView>
+                    </CollectionView>
+                </StackLayout>
+
+                <!-- Right score button -->
+                <Button Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                        x:Name="TeamBScoreBtn"
+                        Text="{Binding TeamBScore, StringFormat='Them\n{0}'}"
+                        BackgroundColor="#c62828"
+                        TextColor="White"
+                        FontSize="24"
+                        WidthRequest="72"
+                        VerticalOptions="Fill"
+                        Clicked="OnTeamBScoreClicked"
+                        IsVisible="{Binding ScoresVisible}" />
+            </Grid>
+
+        </Grid>
+
+        <!-- ══ BOTTOM CONTROLS ══ -->
+        <Grid Grid.Row="3"
+              ColumnDefinitions="*,*,*"
+              Padding="4,8,4,4"
+              ColumnSpacing="8">
+
+            <Button Grid.Column="0"
+                    x:Name="StartBtn"
+                    Text="{Binding StartButtonText}"
+                    BackgroundColor="{StaticResource AccentColor}"
+                    TextColor="White"
+                    FontAttributes="Bold"
+                    FontSize="16"
+                    Clicked="OnStartClicked"
+                    IsEnabled="{Binding CanStart}">
+                <Button.GestureRecognizers>
+                    <!-- Long-press handled in code-behind via custom gesture -->
+                </Button.GestureRecognizers>
+            </Button>
+
+            <Button Grid.Column="1"
+                    x:Name="RotateBtn"
+                    Text="{Binding RotateButtonText}"
+                    BackgroundColor="{StaticResource CardBg}"
+                    TextColor="White"
+                    FontAttributes="Bold"
+                    FontSize="16"
+                    Clicked="OnRotateClicked">
+                <Button.GestureRecognizers>
+                    <!-- Long-press for rotation count modal handled in code-behind -->
+                </Button.GestureRecognizers>
+            </Button>
+
+            <Button Grid.Column="2"
+                    x:Name="ViewBtn"
+                    Text="VIEW_A"
+                    BackgroundColor="{StaticResource CardBg}"
+                    TextColor="White"
+                    FontSize="14"
+                    Clicked="OnViewButtonClicked" />
+
+        </Grid>
+
+    </Grid>
 
 </ContentPage>

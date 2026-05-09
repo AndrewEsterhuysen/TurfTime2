@@ -355,7 +355,7 @@ public partial class TeamDetailsPage : ContentPage
 				if (gamePage != null)
 				{
 					System.Diagnostics.Debug.WriteLine($"[TeamDetails] Forcing Game page reload after team switch");
-					gamePage.ForceTeamReload();
+					// GamePage re-initialises via OnAppearing when team changes
 
 					// If currently on Game page, navigate away and back
 					var currentPage = Application.Current?.MainPage?.Navigation?.NavigationStack?.LastOrDefault();
@@ -418,116 +418,8 @@ public partial class TeamDetailsPage : ContentPage
 
 	private void SyncTeamIdToLocalStorage(string teamId)
 	{
-		try
-		{
-			var gamePage = FindGamePage();
-
-			if (gamePage?.GameWebView != null)
-			{
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Syncing team ID to localStorage: {teamId}");
-
-				// Set team_id in localStorage and trigger roster reload
-				var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
-				var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty); // "shared" or "local"
-				var userRole = Preferences.Get(USER_ROLE_KEY, string.Empty); // "admin" or "member"
-
-				// Download roster data from Firestore if in shared mode
-				string rosterDataJson = "null";
-				if (teamMode == "shared")
-				{
-					System.Diagnostics.Debug.WriteLine($"[TeamDetails] Downloading roster for shared team: {teamId}");
-					_ = Task.Run(async () =>
-					{
-						try
-						{
-							var rosterData = await DownloadRosterFromFirestore(teamId);
-							if (rosterData != null)
-							{
-								System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✓ Downloaded roster data ({rosterData.Length} chars)");
-
-								// Inject roster data into localStorage
-								await MainThread.InvokeOnMainThreadAsync(async () =>
-								{
-									var injectScript = $@"
-										(function() {{
-											try {{
-												const rosterData = {rosterData};
-												const storageKey = 'roster_{EscapeJavaScript(teamId)}.v1';
-												localStorage.setItem(storageKey, JSON.stringify(rosterData));
-												console.log('[TeamSync] ✓ Injected roster data for team {EscapeJavaScript(teamId)}');
-
-												// Trigger roster reload with the new data
-												if (window.rosterManagerInstance) {{
-													window.rosterManagerInstance.reloadForTeam('{EscapeJavaScript(teamId)}');
-												}}
-												return 'roster_injected';
-											}} catch (error) {{
-												console.error('[TeamSync] Roster injection error:', error);
-												return 'error: ' + error.message;
-											}}
-										}})();
-									";
-
-									await gamePage.GameWebView.EvaluateJavaScriptAsync(injectScript);
-									System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✓ Roster data injected to localStorage");
-								});
-							}
-						}
-						catch (Exception ex)
-						{
-							System.Diagnostics.Debug.WriteLine($"[TeamDetails] Roster download error: {ex.Message}");
-						}
-					});
-				}
-
-				var script = $@"
-					(function() {{
-						try {{
-							localStorage.setItem('team_id', '{EscapeJavaScript(teamId)}');
-							localStorage.setItem('team_name', '{EscapeJavaScript(teamName)}');
-							localStorage.setItem('team_mode', '{EscapeJavaScript(teamMode)}');
-							localStorage.setItem('user_role', '{EscapeJavaScript(userRole)}');
-							console.log('[TeamSync] ✓ Synced to localStorage: team_mode=' + '{EscapeJavaScript(teamMode)}' + ', user_role=' + '{EscapeJavaScript(userRole)}');
-							if (typeof window.reloadRosterForTeam === 'function' && window.rosterManagerInstance) {{
-								window.reloadRosterForTeam('{EscapeJavaScript(teamId)}');
-								return 'success';
-							}} else if (window.rosterManagerInstance) {{
-								window.rosterManagerInstance.reloadForTeam('{EscapeJavaScript(teamId)}');
-								return 'success';
-							}} else {{
-								console.warn('[TeamSync] RosterManager not ready yet');
-								return 'pending';
-							}}
-						}} catch (error) {{
-							console.error('[TeamSync] Error:', error);
-							return 'error: ' + error.message;
-						}}
-					}})();
-				";
-
-				// Execute asynchronously (don't block UI)
-				MainThread.BeginInvokeOnMainThread(async () =>
-				{
-					try
-					{
-						var result = await gamePage.GameWebView.EvaluateJavaScriptAsync(script);
-						System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team sync result: {result}");
-					}
-					catch (Exception ex)
-					{
-						System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team sync error: {ex.Message}");
-					}
-				});
-			}
-			else
-			{
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] GamePage WebView not available - team ID will sync when Game page loads");
-			}
-		}
-		catch (Exception ex)
-		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] SyncTeamIdToLocalStorage error: {ex.Message}");
-		}
+		// GamePage is now native MVVM; team ID is read from Preferences on OnAppearing.
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team '{teamId}' set in Preferences - GamePage will reload on next tab switch.");
 	}
 
 	private async Task<string?> DownloadRosterFromFirestore(string teamId)
@@ -1803,7 +1695,7 @@ private void RegisterTeamId(string teamId)
 			if (gamePage != null)
 			{
 				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Marking Game page for reload after team creation");
-				gamePage.ForceTeamReload();
+				// GamePage re-initialises via OnAppearing when team changes
 
 				// If currently on Game page, navigate away and back
 				var currentPage = Shell.Current.CurrentPage;
@@ -2080,3 +1972,4 @@ public class BoolToCheckConverter : IValueConverter
 		throw new NotImplementedException();
 	}
 }
+

@@ -28,6 +28,14 @@ namespace TurfTime2
             builder.Services.AddSingleton(_ => CrossFirebaseAuth.Current);
             builder.Services.AddSingleton(_ => CrossFirebaseCloudMessaging.Current);
 
+            // Register native game services and view-model
+            builder.Services.AddSingleton<Services.ISessionStorageService, Services.SessionStorageService>();
+            builder.Services.AddSingleton<Services.ICloudRosterService,    Services.CloudRosterService>();
+            builder.Services.AddTransient<Services.IGameTimerService,      Services.GameTimerService>();
+            builder.Services.AddTransient<Services.IGameLoggerService,     Services.GameLoggerService>();
+            builder.Services.AddTransient<ViewModels.GameViewModel>();
+            builder.Services.AddTransient<GamePage>();
+
             // Initialize Firebase
             builder.ConfigureLifecycleEvents(events =>
             {
