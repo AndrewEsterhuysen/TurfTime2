@@ -1,4 +1,5 @@
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
@@ -168,3 +169,87 @@ exports.sendChatNotification = onDocumentCreated('teams/{teamId}/messages/{messa
 
 // Log when function is ready
 console.log('💬 Chat notification function loaded successfully (2nd Gen)');
+
+/**
+ * Callable function: requestAdminCodeEmail
+ * 
+ * Called by a team creator to trigger an email with their admin recovery code.
+ * The plain-text admin code is NEVER stored in Firestore — only its SHA-256 hash is.
+ * This function therefore cannot email the code directly; instead it emails the
+ * team metadata (Team ID + Team Name) so the creator knows which team they own,
+ * and reminds them that the admin code was shown only once at creation time.
+ * 
+ * If you integrate a transactional email provider (e.g. SendGrid via Firebase Extensions
+ * or a custom SMTP relay) you can extend this function to deliver the reminder email.
+ * 
+ * Request payload: { teamId: string }
+ * Returns: { status: "sent" | "not_found" | "error", teamName?: string }
+ */
+exports.requestAdminCodeEmail = onCall(async (request) => {
+    const teamId = request.data?.teamId;
+
+    if (!teamId || typeof teamId !== 'string') {
+        throw new HttpsError('invalid-argument', 'teamId is required.');
+    }
+
+    try {
+        const db = getFirestore();
+        const metadataSnap = await db
+            .collection('teams')
+            .doc(teamId)
+            .collection('metadata')
+            .doc('info')
+            .get();
+
+        if (!metadataSnap.exists) {
+            return { status: 'not_found' };
+        }
+
+        const metadata = metadataSnap.data();
+        const teamName = metadata.teamName || teamId;
+        const creatorEmail = metadata.creatorEmail || null;
+        const createdBy = metadata.createdBy || null;
+
+        console.log(`[requestAdminCodeEmail] Recovery reminder requested for team ${teamId} (${teamName}) by uid ${createdBy}`);
+
+        if (!creatorEmail) {
+            // No email registered — return success anyway so app doesn't alarm the user
+            console.log(`[requestAdminCodeEmail] No creatorEmail stored for team ${teamId} — skipping email`);
+            return { status: 'sent', teamName };
+        }
+
+        // Write to the 'mail' collection — requires the Firebase "Trigger Email" extension
+        // https://extensions.dev/extensions/firebase/firestore-send-email
+        await db.collection('mail').add({
+            to: creatorEmail,
+            message: {
+                subject: `TurfTimer – Admin Recovery Reminder for ${teamName}`,
+                text:
+                    `Hi,\n\n` +
+                    `You requested an Admin Recovery Code reminder for your TurfTimer team.\n\n` +
+                    `Team Name: ${teamName}\n` +
+                    `Team ID:   ${teamId}\n\n` +
+                    `Your Admin Recovery Code was shown once when you created the team.\n` +
+                    `For security reasons it is not stored and cannot be retrieved.\n\n` +
+                    `If you have permanently lost the code, you will need to create a new team.\n\n` +
+                    `– TurfTimer`,
+                html:
+                    `<p>Hi,</p>` +
+                    `<p>You requested an Admin Recovery Code reminder for your TurfTimer team.</p>` +
+                    `<table><tr><td><b>Team Name:</b></td><td>${teamName}</td></tr>` +
+                    `<tr><td><b>Team ID:</b></td><td><code>${teamId}</code></td></tr></table>` +
+                    `<p>Your Admin Recovery Code was shown once when you created the team.<br>` +
+                    `For security reasons it is <b>not stored</b> and cannot be retrieved.</p>` +
+                    `<p>If you have permanently lost the code, you will need to create a new team.</p>` +
+                    `<p>– TurfTimer</p>`
+            }
+        });
+
+        console.log(`[requestAdminCodeEmail] Mail document created for ${creatorEmail}`);
+        return { status: 'sent', teamName };
+
+    } catch (error) {
+        console.error('[requestAdminCodeEmail] Error:', error);
+        throw new HttpsError('internal', 'Could not process request.');
+    }
+});

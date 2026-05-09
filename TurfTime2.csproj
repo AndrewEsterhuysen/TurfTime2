@@ -114,7 +114,9 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 		<PackageReference Include="Plugin.Firebase" Version="3.1.1" />
 		<PackageReference Include="Plugin.Firebase.CloudMessaging" Version="3.1.1" />
-		<PackageReference Include="QuestPDF" Version="2024.12.8" />
+		<PackageReference Include="QuestPDF" Version="2025.1.0" />
+		<!-- Pin to override the 0.11.0 version pulled transitively by Plugin.Firebase, which conflicts with the 0.11.4 DLL -->
+		<PackageReference Include="Xamarin.Build.Download" Version="0.11.4" />
 	</ItemGroup>
 
 	<ItemGroup>

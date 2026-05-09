@@ -85,6 +85,7 @@ public partial class TeamDetailsPage : ContentPage
 			LocalCheckbox.IsChecked = false;
 			SharedTeamSection.IsVisible = true;
 			JoinTeamSection.IsVisible = true;
+			RejoinAdminSection.IsVisible = true;
 			LocalTeamSection.IsVisible = false;
 			LoadSharedTeams();
 		}
@@ -92,6 +93,7 @@ public partial class TeamDetailsPage : ContentPage
 		{
 			SharedTeamSection.IsVisible = false;
 			JoinTeamSection.IsVisible = false;
+			RejoinAdminSection.IsVisible = false;
 		}
 		UpdateCreateTeamSubSections();
 	}
@@ -965,41 +967,51 @@ public partial class TeamDetailsPage : ContentPage
 		try
 		{
 			var inviteCode = GenerateInviteCode();
-			var result = await CreateTeamInFirestore(teamId, teamName, inviteCode);
+			var adminCode = GenerateAdminCode();
+			var adminCodeHash = HashAdminCode(adminCode);
+			var creatorEmail = CreatorEmailEntry.Text?.Trim() ?? string.Empty;
+			var result = await CreateTeamInFirestore(teamId, teamName, inviteCode, adminCodeHash, creatorEmail);
 
-			if (result == "success")
-			{
-				// Save locally as well for Phase 1 compatibility
-				Preferences.Set($"{teamId}_invite_code", inviteCode);
-				Preferences.Set($"{teamId}_name", teamName);
-				RegisterTeamId(teamId);
+				if (result == "success")
+				{
+					// Save locally as well for Phase 1 compatibility
+					Preferences.Set($"{teamId}_invite_code", inviteCode);
+					Preferences.Set($"{teamId}_name", teamName);
+					RegisterTeamId(teamId);
 
-				// Set as current team
-					Preferences.Set(TEAM_MODE_KEY, "shared");
-					Preferences.Set(TEAM_ID_KEY, teamId);
-					Preferences.Set(TEAM_NAME_KEY, teamName);
-					Preferences.Set(USER_ROLE_KEY, "admin");
-					Preferences.Set($"{teamId}_role", "admin");
+					// Set as current team
+						Preferences.Set(TEAM_MODE_KEY, "shared");
+						Preferences.Set(TEAM_ID_KEY, teamId);
+						Preferences.Set(TEAM_NAME_KEY, teamName);
+						Preferences.Set(USER_ROLE_KEY, "admin");
+						Preferences.Set($"{teamId}_role", "admin");
 
-					// ALSO store per-team keys for GamePage polling
-					Preferences.Set($"team_mode_{teamId}", "shared");
-					Preferences.Set($"user_role_{teamId}", "admin");
+						// ALSO store per-team keys for GamePage polling
+						Preferences.Set($"team_mode_{teamId}", "shared");
+						Preferences.Set($"user_role_{teamId}", "admin");
 
-				await DisplayAlert("Team Created!",
-					$"Team: {teamName}\n\n" +
-					$"Team ID: {teamId}\n\n" +
-					$"Invite Code: {inviteCode}\n\n" +
-					"Share this code with your team members.\n\n" +
-					"Team data is now synced to the cloud!", 
-					"OK");
+					var emailNote = !string.IsNullOrWhiteSpace(creatorEmail)
+						? $"\n\nA recovery reminder has been sent to:\n{creatorEmail}"
+						: "\n\n⚠️ No email provided — save this code now, it will NOT be shown again.";
 
-				RefreshAppShellMenu();
-				LoadCurrentTeam();
+						await DisplayAlert("Team Created!",
+							$"Team: {teamName}\n\n" +
+							$"Team ID: {teamId}\n\n" +
+							$"Invite Code (members): {inviteCode}\n\n" +
+							$"⚠️ ADMIN RECOVERY CODE:\n{adminCode}\n\n" +
+							"Save this admin code in a secure location outside this device (e.g. a password manager). " +
+							"You will need it to regain admin access if you reinstall the app or change devices." +
+							emailNote,
+							"OK");
 
-				// Clear inputs
-				ClubEntry.Text = string.Empty;
-				TeamEntry.Text = string.Empty;
-				NicknameEntry.Text = string.Empty;
+					RefreshAppShellMenu();
+					LoadCurrentTeam();
+
+					// Clear inputs
+					ClubEntry.Text = string.Empty;
+					TeamEntry.Text = string.Empty;
+					NicknameEntry.Text = string.Empty;
+					CreatorEmailEntry.Text = string.Empty;
 			}
 			else
 			{
@@ -1063,6 +1075,7 @@ var doc = System.Text.Json.JsonDocument.Parse(json);
 _firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
 _firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
 System.Diagnostics.Debug.WriteLine($"[Firebase] Authenticated as user: {_firebaseUserId?.Substring(0, 8)}...");
+FirebaseSaveBridge.SetAuthToken(_firebaseIdToken!, _firebaseUserId!);
 return true;
 }
 catch (Exception ex)
@@ -1090,6 +1103,7 @@ var doc = System.Text.Json.JsonDocument.Parse(json);
 _firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
 _firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
 System.Diagnostics.Debug.WriteLine($"[Firebase] Static: authenticated");
+FirebaseSaveBridge.SetAuthToken(_firebaseIdToken!, _firebaseUserId!);
 return true;
 }
 catch (Exception ex)
@@ -1099,7 +1113,7 @@ return false;
 }
 }
 
-private async Task<string> CreateTeamInFirestore(string teamId, string teamName, string inviteCode)
+private async Task<string> CreateTeamInFirestore(string teamId, string teamName, string inviteCode, string adminCodeHash, string creatorEmail)
 {
 System.Diagnostics.Debug.WriteLine($"[TeamDetails] CreateTeamInFirestore called for team: {teamName}");
 
@@ -1118,10 +1132,12 @@ var metadataBody = System.Text.Json.JsonSerializer.Serialize(new
 {
 fields = new
 {
-teamName = new { stringValue = teamName },
-inviteCode = new { stringValue = inviteCode },
-createdBy = new { stringValue = _firebaseUserId },
-isActive = new { booleanValue = true }
+	teamName = new { stringValue = teamName },
+	inviteCode = new { stringValue = inviteCode },
+	adminCodeHash = new { stringValue = adminCodeHash },
+	creatorEmail = new { stringValue = creatorEmail },
+	createdBy = new { stringValue = _firebaseUserId },
+	isActive = new { booleanValue = true }
 }
 });
 var metadataResponse = await _httpClient.PostAsync(metadataUrl,
@@ -1319,17 +1335,127 @@ private void RegisterTeamId(string teamId)
 					"OK");
 			}
 
-			InviteCodeEntry.Text = string.Empty;
-		}
-		catch (Exception ex)
-		{
-			await DisplayAlert("Error", $"Failed to join team: {ex.Message}", "OK");
-		}
-	}
+				InviteCodeEntry.Text = string.Empty;
+				}
+				catch (Exception ex)
+				{
+					await DisplayAlert("Error", $"Failed to join team: {ex.Message}", "OK");
+				}
+			}
 
-	private async Task<string> JoinTeamInFirestore(string inviteCode)
-	{
-		System.Diagnostics.Debug.WriteLine($"[TeamDetails] JoinTeamInFirestore - invite code: {inviteCode}");
+			private async void OnRejoinAsAdminClicked(object sender, EventArgs e)
+			{
+				try
+				{
+					var teamId = AdminRejoinTeamIdEntry.Text?.Trim();
+					var adminCode = AdminRejoinCodeEntry.Text?.Trim();
+
+					if (string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(adminCode))
+					{
+						await DisplayAlert("Missing Info", "Please enter both the Team ID and your Admin Recovery Code.", "OK");
+						return;
+					}
+
+					RejoinAsAdminButton.IsEnabled = false;
+
+					var result = await RejoinAsAdminInFirestore(teamId, adminCode);
+
+					if (result.StartsWith("success:"))
+					{
+						var parts = result.Split(':', 3);
+						var restoredTeamId = parts[1];
+						var restoredTeamName = parts.Length >= 3 ? parts[2] : restoredTeamId;
+
+						Preferences.Set(TEAM_MODE_KEY, "shared");
+						Preferences.Set(TEAM_ID_KEY, restoredTeamId);
+						Preferences.Set(TEAM_NAME_KEY, restoredTeamName);
+						Preferences.Set(USER_ROLE_KEY, "admin");
+						Preferences.Set($"{restoredTeamId}_role", "admin");
+						Preferences.Set($"team_mode_{restoredTeamId}", "shared");
+						Preferences.Set($"user_role_{restoredTeamId}", "admin");
+						Preferences.Set($"{restoredTeamId}_name", restoredTeamName);
+						RegisterTeamId(restoredTeamId);
+
+						await DisplayAlert("Admin Access Restored",
+							$"You have rejoined '{restoredTeamName}' as Admin.\n\n" +
+							"Your team data is intact in the cloud.",
+							"OK");
+
+						SyncTeamIdToLocalStorage(restoredTeamId);
+						RefreshAppShellMenu();
+						LoadCurrentTeam();
+						LoadSharedTeams();
+
+						AdminRejoinTeamIdEntry.Text = string.Empty;
+						AdminRejoinCodeEntry.Text = string.Empty;
+					}
+					else
+					{
+						var message = result.StartsWith("error:") ? result[6..] : result;
+						await DisplayAlert("Rejoin Failed", message, "OK");
+					}
+				}
+				catch (Exception ex)
+				{
+					await DisplayAlert("Error", $"Failed to rejoin as admin: {ex.Message}", "OK");
+				}
+					finally
+					{
+						RejoinAsAdminButton.IsEnabled = true;
+					}
+				}
+
+				private async void OnRequestAdminCodeEmailClicked(object sender, EventArgs e)
+				{
+					try
+					{
+						var teamId = EmailReminderTeamIdEntry.Text?.Trim();
+
+						if (string.IsNullOrWhiteSpace(teamId))
+						{
+							await DisplayAlert("Missing Info", "Please enter the Team ID to receive a recovery reminder.", "OK");
+							return;
+						}
+
+						RequestAdminCodeEmailButton.IsEnabled = false;
+
+						var result = await RequestAdminCodeEmailAsync(teamId);
+
+						if (result.StartsWith("success:"))
+						{
+							var teamName = result[8..];
+							await DisplayAlert("Email Sent",
+								$"A recovery reminder has been sent to the email address registered for '{teamName}'.\n\n" +
+								"If you don't receive it within a few minutes, check your spam folder.\n\n" +
+								"Note: If no email was registered when the team was created, no email will be delivered.",
+								"OK");
+							EmailReminderTeamIdEntry.Text = string.Empty;
+						}
+						else if (result == "not_found")
+						{
+							await DisplayAlert("Team Not Found",
+								$"No team found with ID '{teamId}'.\n\nPlease check the Team ID and try again.",
+								"OK");
+						}
+						else
+						{
+							var message = result.StartsWith("error:") ? result[6..] : result;
+							await DisplayAlert("Request Failed", message, "OK");
+						}
+					}
+					catch (Exception ex)
+					{
+						await DisplayAlert("Error", $"Failed to send recovery email: {ex.Message}", "OK");
+					}
+					finally
+					{
+						RequestAdminCodeEmailButton.IsEnabled = true;
+					}
+				}
+
+				private async Task<string> JoinTeamInFirestore(string inviteCode)
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] JoinTeamInFirestore - invite code: {inviteCode}");
 
 		if (!await EnsureFirebaseAuthAsync())
 			return "error: Could not authenticate with Firebase. Please check your internet connection.";
@@ -1496,6 +1622,138 @@ private void RegisterTeamId(string teamId)
 		public string TeamId { get; set; } = string.Empty;
 		public string TeamName { get; set; } = string.Empty;
 		public string InviteCode { get; set; } = string.Empty;
+	}
+
+	/// <summary>
+	/// Calls the 'requestAdminCodeEmail' Cloud Function which sends a recovery
+	/// reminder email to the creator's registered address for the given team.
+	/// Returns "success:teamName" or "error:message" or "not_found".
+	/// </summary>
+	private async Task<string> RequestAdminCodeEmailAsync(string teamId)
+	{
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] RequestAdminCodeEmailAsync - team: {teamId}");
+
+		if (!await EnsureFirebaseAuthAsync())
+			return "error: Could not authenticate. Please check your internet connection.";
+
+		try
+		{
+			// Cloud Run callable functions are invoked via HTTPS POST
+			// URL format: https://{region}-{projectId}.cloudfunctions.net/{functionName}
+			var functionUrl = $"https://us-central1-{FirebaseProjectId}.cloudfunctions.net/requestAdminCodeEmail";
+
+			_httpClient.DefaultRequestHeaders.Authorization =
+				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
+
+			var payload = System.Text.Json.JsonSerializer.Serialize(new
+			{
+				data = new { teamId = teamId }
+			});
+
+			var response = await _httpClient.PostAsync(functionUrl,
+				new StringContent(payload, System.Text.Encoding.UTF8, "application/json"));
+
+			var responseBody = await response.Content.ReadAsStringAsync();
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Cloud Function response: {response.StatusCode} - {responseBody}");
+
+			if (!response.IsSuccessStatusCode)
+				return $"error: Server returned {(int)response.StatusCode}. Check the Team ID and try again.";
+
+			using var doc = System.Text.Json.JsonDocument.Parse(responseBody);
+			var result = doc.RootElement.GetProperty("result");
+
+			var status = result.TryGetProperty("status", out var statusEl)
+				? statusEl.GetString() : null;
+
+			if (status == "not_found")
+				return "not_found";
+
+			var teamName = result.TryGetProperty("teamName", out var tnEl)
+				? tnEl.GetString() ?? teamId : teamId;
+
+			return $"success:{teamName}";
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] RequestAdminCodeEmailAsync error: {ex.Message}");
+			return $"error: {ex.Message}";
+		}
+	}
+	/// Returns "success:teamId:teamName" on success, or an "error:..." string on failure.
+	/// </summary>
+	private async Task<string> RejoinAsAdminInFirestore(string teamId, string adminCode)
+	{
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] RejoinAsAdminInFirestore - team: {teamId}");
+
+		if (!await EnsureFirebaseAuthAsync())
+			return "error: Could not authenticate with Firebase. Please check your internet connection.";
+
+		try
+		{
+			var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
+			_httpClient.DefaultRequestHeaders.Authorization =
+				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
+
+			// 1. Fetch team metadata to get the stored hash
+			var metadataUrl = $"{baseUrl}/teams/{teamId}/metadata/info";
+			var metadataResponse = await _httpClient.GetAsync(metadataUrl);
+
+			if (!metadataResponse.IsSuccessStatusCode)
+				return $"error: Team '{teamId}' not found. Check the Team ID and try again.";
+
+			var metadataJson = await metadataResponse.Content.ReadAsStringAsync();
+			using var metadataDoc = System.Text.Json.JsonDocument.Parse(metadataJson);
+
+			if (!metadataDoc.RootElement.TryGetProperty("fields", out var fields))
+				return "error: Team metadata is invalid.";
+
+			string? storedHash = null;
+			string? teamName = null;
+
+			if (fields.TryGetProperty("adminCodeHash", out var hashEl) &&
+				hashEl.TryGetProperty("stringValue", out var hashVal))
+				storedHash = hashVal.GetString();
+
+			if (fields.TryGetProperty("teamName", out var tnEl) &&
+				tnEl.TryGetProperty("stringValue", out var tnVal))
+				teamName = tnVal.GetString();
+
+			if (string.IsNullOrEmpty(storedHash))
+				return "error: This team does not have an admin recovery code configured.";
+
+			// 2. Verify code
+			var suppliedHash = HashAdminCode(adminCode.Trim());
+			if (!string.Equals(suppliedHash, storedHash, StringComparison.OrdinalIgnoreCase))
+				return "error: Invalid admin code. Please check the code and try again.";
+
+			// 3. Upsert member document with admin role
+			var memberUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
+			var memberBody = System.Text.Json.JsonSerializer.Serialize(new
+			{
+				fields = new
+				{
+					role = new { stringValue = "admin" },
+					displayName = new { stringValue = "Admin" },
+					rejoinedAt = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") }
+				}
+			});
+			var memberResponse = await _httpClient.PostAsync(memberUrl,
+				new StringContent(memberBody, System.Text.Encoding.UTF8, "application/json"));
+
+			if (!memberResponse.IsSuccessStatusCode)
+			{
+				var err = await memberResponse.Content.ReadAsStringAsync();
+				return $"error: Failed to restore admin access: {err}";
+			}
+
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✅ Admin access restored for team: {teamId}");
+			return $"success:{teamId}:{teamName}";
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] RejoinAsAdminInFirestore error: {ex.Message}");
+			return $"error: {ex.Message}";
+		}
 	}
 
 	private async void OnSetLocalTeamClicked(object sender, EventArgs e)
@@ -1747,6 +2005,30 @@ private void RegisterTeamId(string teamId)
 		}
 
 		return code.ToString();
+	}
+
+	/// <summary>Generates a 16-character admin recovery code (format: XXXX-XXXX-XXXX-XXXX).</summary>
+	private string GenerateAdminCode()
+	{
+		const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+		var random = new Random();
+		var segments = new string[4];
+		for (int s = 0; s < 4; s++)
+		{
+			var seg = new StringBuilder(4);
+			for (int i = 0; i < 4; i++)
+				seg.Append(chars[random.Next(chars.Length)]);
+			segments[s] = seg.ToString();
+		}
+		return string.Join("-", segments);
+	}
+
+	/// <summary>Returns the SHA-256 hex digest of the given plain-text code (uppercase-normalised).</summary>
+	private static string HashAdminCode(string code)
+	{
+		var bytes = System.Security.Cryptography.SHA256.HashData(
+			System.Text.Encoding.UTF8.GetBytes(code.ToUpperInvariant()));
+		return Convert.ToHexString(bytes).ToLowerInvariant();
 	}
 
 	// Trigger AppShell to refresh menu item availability

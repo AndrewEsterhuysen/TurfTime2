@@ -189,6 +189,8 @@ public partial class GamePage : ContentPage
         // Polling will start after SyncTeamIdToWebView() completes
 
         // Sync current team ID to WebView FIRST (before loading roster)
+        _lastAppearingTick = Environment.TickCount64;
+
         SyncTeamIdToWebView();
 
         // Sync theme from Preferences to WebView
@@ -202,12 +204,16 @@ public partial class GamePage : ContentPage
     }
 
     // OnNavigatedTo fires reliably on Windows Shell tab navigation where
-    // OnAppearing is sometimes skipped.  It is safe to call the same syncs
-    // here — SyncTeamIdToWebView guards against unnecessary reloads via
-    // _lastLoadedTeamId, and the other syncs are cheap JS calls.
+    // OnAppearing is sometimes skipped.  On Android both events fire together;
+    // guard with _lastAppearingTick to avoid executing everything twice.
     protected override void OnNavigatedTo(NavigatedToEventArgs args)
     {
         base.OnNavigatedTo(args);
+
+        // If OnAppearing already ran within the last 500 ms this is the same visit — skip.
+        if (Environment.TickCount64 - _lastAppearingTick < 500)
+            return;
+
         SetKeepScreenOn(true);
 
         // Inject save bridge
@@ -248,6 +254,7 @@ public partial class GamePage : ContentPage
 
     private static bool _bridgeInjected = false;
     private static bool _pollingStarted = false;
+    private long _lastAppearingTick = 0; // Ticks captured in OnAppearing to suppress duplicate OnNavigatedTo on Android
 
     private async Task InjectSaveBridge()
     {
@@ -276,13 +283,13 @@ public partial class GamePage : ContentPage
                         return new Promise((resolve) => {
                             let attempts = 0;
                             const checkResult = setInterval(() => {
-                                const result = localStorage.getItem('_pending_save_result');
-                                if (result || attempts++ > 50) { // 5 seconds max
-                                    clearInterval(checkResult);
-                                    localStorage.removeItem('_pending_save_result');
-                                    resolve(result || 'error:timeout');
-                                }
-                            }, 100);
+                                    const result = localStorage.getItem('_pending_save_result');
+                                    if (result || attempts++ > 150) { // 15 seconds max
+                                        clearInterval(checkResult);
+                                        localStorage.removeItem('_pending_save_result');
+                                        resolve(result || 'error:timeout');
+                                    }
+                                }, 100);
                         });
                     } catch (error) {
                         console.error('[C# Bridge] Save error:', error);
@@ -443,7 +450,9 @@ public partial class GamePage : ContentPage
                         System.Diagnostics.Debug.WriteLine($"[GamePage] 📤 Session JSON preview: {sessionJson.Substring(0, Math.Min(200, sessionJson.Length))}...");
 
                         // Save session to Firestore
+#if !WINDOWS
                         SessionSaveBridge.SaveSessionToFirestore(sessionJson);
+#endif
 
                         System.Diagnostics.Debug.WriteLine($"[GamePage] ✅ SessionSaveBridge call completed");
                     }

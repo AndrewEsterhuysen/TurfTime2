@@ -12,6 +12,17 @@ public static class FirebaseSaveBridge
     private static string? _firebaseIdToken;
     private static string? _firebaseUserId;
 
+    /// <summary>
+    /// Shares the already-authenticated token from TeamDetailsPage so the bridge
+    /// does not create a second anonymous user with potentially different Firestore permissions.
+    /// </summary>
+    public static void SetAuthToken(string idToken, string userId)
+    {
+        _firebaseIdToken = idToken;
+        _firebaseUserId = userId;
+        System.Diagnostics.Debug.WriteLine("[FirebaseBridge] Auth token received from TeamDetailsPage");
+    }
+
     private static async Task<bool> EnsureAuthenticatedAsync()
     {
         _httpClient ??= new HttpClient();
