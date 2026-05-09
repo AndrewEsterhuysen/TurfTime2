@@ -24,46 +24,36 @@
 
         <!-- ── Player row template for VIEW_A ── -->
         <DataTemplate x:Key="PlayerRowTemplate" x:DataType="models:Player">
-            <!--
-                Swipe detection:
-                  Left  → field (or goalie if already on field)
-                  Right → bench (or inactive if already on bench)
-                No SwipeItems menus — PanGestureRecognizer handled in code-behind.
-            -->
             <Border Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
                     StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
                     StrokeShape="RoundRectangle 0"
                     BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
                     Margin="0,1,0,0">
+                <Border.GestureRecognizers>
+                    <SwipeGestureRecognizer Direction="Left"  Swiped="OnPlayerSwipedLeft"  Threshold="30" />
+                    <SwipeGestureRecognizer Direction="Right" Swiped="OnPlayerSwipedRight" Threshold="30" />
+                </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto"
                       Padding="10,9">
-                    <!-- Arrow indicator (style 5) shown in code-behind by toggling visibility -->
-                    <Label x:Name="ArrowIndicator"
-                           Grid.Column="0"
+                    <Label Grid.Column="0"
                            Text="➤"
                            TextColor="{StaticResource CyanHighlight}"
                            FontSize="16"
                            VerticalOptions="Center"
                            IsVisible="{Binding IsNextToRotate}"
                            Margin="0,0,6,0" />
-                    <!-- Player name -->
                     <Label Grid.Column="1"
                            Text="{Binding Name}"
                            TextColor="White"
                            FontSize="16"
                            FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrs}}"
                            VerticalOptions="Center" />
-                    <!-- Field time -->
                     <Label Grid.Column="2"
                            Text="{Binding FieldTimeDisplay}"
                            TextColor="#ccffcc"
                            FontSize="13"
                            VerticalOptions="Center"
                            HorizontalOptions="End" />
-                    <!-- Pan gesture for swipe-to-assign (code-behind handles logic) -->
-                    <Grid.GestureRecognizers>
-                        <PanGestureRecognizer PanUpdated="OnPlayerPanUpdated" />
-                    </Grid.GestureRecognizers>
                 </Grid>
             </Border>
         </DataTemplate>

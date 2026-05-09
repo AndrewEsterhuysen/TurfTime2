@@ -8,11 +8,6 @@ public partial class GamePage : ContentPage
 {
     private GameViewModel? _vm;
 
-    // Swipe tracking per-row
-    private double _panStartX;
-    private const double SwipeThreshold = 60; // px needed to register
-
-    // Long-press cancellation
     private CancellationTokenSource? _startLongPressCts;
     private CancellationTokenSource? _rotateLongPressCts;
 
@@ -84,59 +79,30 @@ public partial class GamePage : ContentPage
         _vm.UpdateRotationStyle(style);
     }
 
-    // ── Pan / swipe gesture (swipe left = field/goalie, right = bench/inactive) ──
+    // ── Swipe handlers (left = field/goalie, right = bench/inactive) ─────
 
-    private void OnPlayerPanUpdated(object sender, PanUpdatedEventArgs e)
+    private void OnPlayerSwipedLeft(object sender, SwipedEventArgs e)
     {
         if (_vm is null || _vm.IsMember) return;
+        if ((sender as BindableObject)?.BindingContext is not Player player) return;
 
-        // The Grid is the sender; its BindingContext is the Player
-        var grid = sender as BindableObject;
-        if (grid?.BindingContext is not Player player) return;
+        var next = player.Position == PlayerPosition.Field
+            ? PlayerPosition.Goalie   // already on field → promote to goalie
+            : PlayerPosition.Field;
 
-        switch (e.StatusType)
-        {
-            case GestureStatus.Started:
-                _panStartX = e.TotalX;
-                break;
+        _vm.SetPlayerPosition(player, next);
+    }
 
-            case GestureStatus.Running:
-                // Provide visual feedback: shift the row as the user pans
-                if (grid is View v)
-                    v.TranslationX = e.TotalX;
-                break;
+    private void OnPlayerSwipedRight(object sender, SwipedEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if ((sender as BindableObject)?.BindingContext is not Player player) return;
 
-            case GestureStatus.Completed:
-                var dx = e.TotalX - _panStartX;
-                // Reset visual position
-                if (grid is View vEnd)
-                    vEnd.TranslationX = 0;
+        var next = player.Position == PlayerPosition.Bench
+            ? PlayerPosition.Inactive  // already on bench → mark inactive
+            : PlayerPosition.Bench;
 
-                if (Math.Abs(dx) < SwipeThreshold) break;
-
-                if (dx < 0)
-                {
-                    // Swipe LEFT
-                    var next = player.Position == PlayerPosition.Field
-                        ? PlayerPosition.Goalie   // already on field → promote to goalie
-                        : PlayerPosition.Field;
-                    _vm.SetPlayerPosition(player, next);
-                }
-                else
-                {
-                    // Swipe RIGHT
-                    var next = player.Position == PlayerPosition.Bench
-                        ? PlayerPosition.Inactive  // already on bench → mark inactive
-                        : PlayerPosition.Bench;
-                    _vm.SetPlayerPosition(player, next);
-                }
-                break;
-
-            case GestureStatus.Canceled:
-                if (grid is View vCancel)
-                    vCancel.TranslationX = 0;
-                break;
-        }
+        _vm.SetPlayerPosition(player, next);
     }
 
     // ── Header taps ───────────────────────────────────────────────────────
