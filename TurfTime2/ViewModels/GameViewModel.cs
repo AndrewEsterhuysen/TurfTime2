@@ -36,6 +36,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     private bool         _showInactivePlayers;
     private string?      _userRole;   // "admin" | "member" | null
     private string       _currentTeamId = string.Empty;
+    private string       _teamName      = string.Empty;
     private bool         _initialArrangementDone;
 
     // ── Timer display properties (formatted strings for binding) ──────────
@@ -121,6 +122,12 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         set => Set(ref _rotationStyle, value);
     }
 
+    public string TeamName
+    {
+        get => _teamName;
+        private set => Set(ref _teamName, value);
+    }
+
     public int TeamAScore
     {
         get => _teamAScore;
@@ -192,6 +199,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         _currentTeamId = teamId;
         _userRole      = userRole;
+        TeamName       = Preferences.Get("team_name", string.Empty);
 
         var snapshot = await _cloud.LoadAsync(teamId).ConfigureAwait(false);
         if (snapshot is not null)
@@ -344,6 +352,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     }
 
     // ── Timer settings ────────────────────────────────────────────────────
+
+    /// <summary>Current match duration in whole minutes (for the edit dialog prompt).</summary>
+    public int MatchDurationMinutes => _timer.MatchDurationSeconds / 60;
 
     public void SetMatchDuration(int minutes)
     {
@@ -775,8 +786,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         var hasFieldPlayers = Players.Any(p =>
             p.Position is PlayerPosition.Field or PlayerPosition.Goalie);
 
-        OnPropertyChanged(nameof(Phase)); // triggers button enable binding
-        _ = hasFieldPlayers; // consumed by XAML IsEnabled binding to Phase+Players
+        OnPropertyChanged(nameof(Phase));
+        OnPropertyChanged(nameof(CanStart));
+        _ = hasFieldPlayers;
     }
 
     public bool CanStart =>
