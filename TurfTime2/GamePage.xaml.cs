@@ -1,6 +1,10 @@
 ﻿using TurfTime2.Models;
 using TurfTime2.Services;
 using TurfTime2.ViewModels;
+#if ANDROID
+using AndroidView = Android.Views.View;
+using AndroidViewGroup = Android.Views.ViewGroup;
+#endif
 
 namespace TurfTime2;
 
@@ -16,6 +20,13 @@ public partial class GamePage : ContentPage
     public GamePage()
     {
         InitializeComponent();
+
+#if ANDROID
+        // CollectionView (RecyclerView) clips its children by default on Android,
+        // which hides the pan animation when a row slides outside its bounds.
+        // Disable clipping so the translated row remains visible during the swipe.
+        SwipeableRoster.Loaded += (_, _) => DisableAndroidClipping(SwipeableRoster);
+#endif
     }
 
     protected override async void OnAppearing()
@@ -79,30 +90,173 @@ public partial class GamePage : ContentPage
         _vm.UpdateRotationStyle(style);
     }
 
-    // ── Swipe handlers (left = field/goalie, right = bench/inactive) ─────
+    // ── Unified pan handler ───────────────────────────────────────────────
+    //
+    // ONE PanGestureRecognizer on the outer Grid handles both intents:
+    //   • Horizontal (|dx| > |dy| after 12 dp)  → swipe to change position
+    //   • Vertical   (|dy| > |dx| after 12 dp)  → drag to reorder
+    //
+    // This avoids the Android parent-wins problem that occurred when a child
+    // Label had its own PanGestureRecognizer inside the Grid's recognizer.
 
-    private void OnPlayerSwipedLeft(object sender, SwipedEventArgs e)
+    private enum PanIntent { Unknown, Swipe, Drag }
+
+    // Per-touch-sequence state.
+    private View?      _panRow;
+    private Player?    _panPlayer;
+    private PanIntent  _panIntent;
+
+    // Drag state.
+    private int      _dragFromIndex;
+    private int      _dragTargetIndex;
+    private double   _rowHeight = 52;
+    private Player?  _currentDragTarget;
+
+    private const double IntentThreshold  = 12;  // dp before we commit to swipe or drag
+    private const double SwipeThreshold   = 80;  // dp horizontal to commit a swipe
+
+    private void OnPlayerPanUpdated(object sender, PanUpdatedEventArgs e)
     {
         if (_vm is null || _vm.IsMember) return;
-        if ((sender as BindableObject)?.BindingContext is not Player player) return;
+        if (sender is not View row) return;
+        if (row.BindingContext is not Player player) return;
 
-        var next = player.Position == PlayerPosition.Field
-            ? PlayerPosition.Goalie   // already on field → promote to goalie
-            : PlayerPosition.Field;
+        switch (e.StatusType)
+        {
+            case GestureStatus.Started:
+                _panRow    = row;
+                _panPlayer = player;
+                _panIntent = PanIntent.Unknown;
+                _dragFromIndex   = _vm.Players.IndexOf(player);
+                _dragTargetIndex = _dragFromIndex;
+                if (SwipeableRoster.Height > 0 && _vm.DisplayItems.Count > 0)
+                    _rowHeight = SwipeableRoster.Height / _vm.DisplayItems.Count;
+#if ANDROID
+                DisallowParentInterceptTouch(row);
+#endif
+                break;
 
-        _vm.SetPlayerPosition(player, next);
+            case GestureStatus.Running:
+                if (_panRow is null || _panPlayer is null) return;
+
+                // Commit to an intent once the finger has moved far enough.
+                if (_panIntent == PanIntent.Unknown)
+                {
+                    if (Math.Abs(e.TotalX) < IntentThreshold &&
+                        Math.Abs(e.TotalY) < IntentThreshold)
+                        break; // not yet decided
+
+                    _panIntent = Math.Abs(e.TotalX) >= Math.Abs(e.TotalY)
+                        ? PanIntent.Swipe
+                        : PanIntent.Drag;
+                }
+
+                if (_panIntent == PanIntent.Swipe)
+                {
+                    row.TranslationX = e.TotalX;
+                }
+                else
+                {
+                    UpdateDragIndicator(_panPlayer, e.TotalY);
+                }
+                break;
+
+            case GestureStatus.Completed:
+            case GestureStatus.Canceled:
+                ClearDragIndicator();
+
+                if (_panIntent == PanIntent.Drag)
+                {
+                    if (e.StatusType == GestureStatus.Completed
+                        && _dragTargetIndex != _dragFromIndex
+                        && _panPlayer is not null)
+                    {
+                        _vm.ReorderPlayer(_dragFromIndex, _dragTargetIndex);
+                    }
+                }
+                else
+                {
+                    // Swipe intent (or unknown = tap, treat as snap-back).
+                    CommitSwipe(row, player);
+                }
+
+                _panRow    = null;
+                _panPlayer = null;
+                _panIntent = PanIntent.Unknown;
+                break;
+        }
     }
 
-    private void OnPlayerSwipedRight(object sender, SwipedEventArgs e)
+    // Snaps back immediately if threshold not met, or applies the position
+    // change first (so color/icon update is instant) then does a short bounce.
+    private void CommitSwipe(View row, Player player)
     {
-        if (_vm is null || _vm.IsMember) return;
-        if ((sender as BindableObject)?.BindingContext is not Player player) return;
+        double totalX = row.TranslationX;
 
-        var next = player.Position == PlayerPosition.Bench
-            ? PlayerPosition.Inactive  // already on bench → mark inactive
-            : PlayerPosition.Bench;
+        if (Math.Abs(totalX) < SwipeThreshold)
+        {
+            _ = row.TranslateTo(0, 0, 180, Easing.SpringOut);
+            return;
+        }
 
-        _vm.SetPlayerPosition(player, next);
+        bool swipeLeft    = totalX < 0;
+        var  newPosition  = swipeLeft
+            ? (player.Position == PlayerPosition.Field
+                ? PlayerPosition.Goalie
+                : PlayerPosition.Field)
+            : (player.Position == PlayerPosition.Bench
+                ? PlayerPosition.Inactive
+                : PlayerPosition.Bench);
+
+        // Apply the change BEFORE animating so the recycled/rebound view
+        // already has the correct color when it snaps back — no off-screen hang.
+        _vm?.SetPlayerPosition(player, newPosition);
+
+        // Brief overshoot in the swipe direction then spring to centre.
+        double bump = swipeLeft ? -30 : 30;
+        _ = row.TranslateTo(bump, 0, 60, Easing.CubicOut)
+               .ContinueWith(_ => Dispatcher.Dispatch(
+                   () => row.TranslateTo(0, 0, 140, Easing.SpringOut)));
+    }
+
+    private void UpdateDragIndicator(Player dragging, double totalY)
+    {
+        int delta     = (int)(totalY / Math.Max(_rowHeight, 10));
+        int newTarget = Math.Clamp(_dragFromIndex + delta, 0, _vm!.Players.Count - 1);
+
+        if (newTarget == _dragTargetIndex) return;
+
+        ClearDragIndicator();
+        _dragTargetIndex = newTarget;
+
+        if (newTarget != _dragFromIndex)
+        {
+            _currentDragTarget = _vm.Players.ElementAtOrDefault(newTarget);
+            if (_currentDragTarget is not null)
+                _currentDragTarget.IsDragTarget = true;
+        }
+    }
+
+    private void ClearDragIndicator()
+    {
+        if (_currentDragTarget is null) return;
+        _currentDragTarget.IsDragTarget = false;
+        _currentDragTarget = null;
+    }
+
+#if ANDROID
+    private static void DisallowParentInterceptTouch(View view)
+    {
+        if (view.Handler?.PlatformView is AndroidView native)
+            native.Parent?.RequestDisallowInterceptTouchEvent(true);
+    }
+#endif
+
+    // ── Inactive group header tap ─────────────────────────────────────────
+
+    private void OnInactiveHeaderTapped(object sender, TappedEventArgs e)
+    {
+        _vm?.ToggleInactiveExpanded();
     }
 
     // ── Header taps ───────────────────────────────────────────────────────
@@ -196,6 +350,11 @@ public partial class GamePage : ContentPage
         _vm?.ExecuteRotations();
         if (_vm is not null) _vm.RotationDue = false;
         AnimateRotateBtn();
+
+        // Resync: scroll the roster back to the first row so the user can
+        // immediately see who has just rotated onto the field.
+        if (SwipeableRoster.IsVisible && _vm?.DisplayItems.Count > 0)
+            SwipeableRoster.ScrollTo(_vm.DisplayItems[0], animate: false);
     }
 
     private async void OnRotatePressed(object sender, EventArgs e)
@@ -378,9 +537,9 @@ public partial class GamePage : ContentPage
         if (activity?.Window is { } window)
         {
             if (on)
-                window.AddFlags(Android.Views.WindowManagerFlags.KeepScreenOn);
-            else
-                window.ClearFlags(Android.Views.WindowManagerFlags.KeepScreenOn);
+                    window.AddFlags(Android.Views.WindowManagerFlags.KeepScreenOn);
+                else
+                    window.ClearFlags(Android.Views.WindowManagerFlags.KeepScreenOn);
         }
 #endif
     }
@@ -392,4 +551,25 @@ public partial class GamePage : ContentPage
         await RotateBtn.ScaleTo(0.92, 80);
         await RotateBtn.ScaleTo(1.0,  80);
     }
+
+#if ANDROID
+    // ── Android clip-children fix ─────────────────────────────────────────
+    // CollectionView (RecyclerView) and each row's ViewGroup clip their children
+    // by default, which prevents a translated child from being visible outside
+    // its own bounding box during the swipe animation.
+    private static void DisableAndroidClipping(Microsoft.Maui.Controls.View mauiView)
+    {
+        var nativeView = mauiView.Handler?.PlatformView as AndroidViewGroup;
+        if (nativeView is null) return;
+
+        // Disable on the RecyclerView itself and its parent chain up to 3 levels.
+        AndroidViewGroup? current = nativeView;
+        for (int i = 0; i < 4 && current is not null; i++)
+        {
+            current.SetClipChildren(false);
+            current.SetClipToPadding(false);
+            current = current.Parent as AndroidViewGroup;
+        }
+    }
+#endif
 }

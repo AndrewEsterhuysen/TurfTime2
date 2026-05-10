@@ -13,6 +13,7 @@ public sealed class Player : INotifyPropertyChanged
     private PlayerPosition _position = PlayerPosition.None;
     private int _fieldSeconds;
     private bool _isNextToRotate;
+    private bool _isDragTarget;
 
     public string Name
     {
@@ -42,6 +43,13 @@ public sealed class Player : INotifyPropertyChanged
     {
         get => _isNextToRotate;
         set => SetField(ref _isNextToRotate, value);
+    }
+
+    /// <summary>Highlighted as the current drop target during drag-to-reorder.</summary>
+    public bool IsDragTarget
+    {
+        get => _isDragTarget;
+        set => SetField(ref _isDragTarget, value);
     }
 
     public string PositionIcon => Position switch

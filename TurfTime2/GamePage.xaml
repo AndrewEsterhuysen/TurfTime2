@@ -4,6 +4,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:models="clr-namespace:TurfTime2.Models"
              xmlns:conv="clr-namespace:TurfTime2.Converters"
+             xmlns:local="clr-namespace:TurfTime2"
              Shell.NavBarIsVisible="False"
              BackgroundColor="#1b5e20">
 
@@ -24,39 +25,100 @@
 
         <!-- ── Player row template for VIEW_A ── -->
         <DataTemplate x:Key="PlayerRowTemplate" x:DataType="models:Player">
-            <Border Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
-                    StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
-                    StrokeShape="RoundRectangle 0"
-                    BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
-                    Margin="0,1,0,0">
-                <Border.GestureRecognizers>
-                    <SwipeGestureRecognizer Direction="Left"  Swiped="OnPlayerSwipedLeft"  Threshold="30" />
-                    <SwipeGestureRecognizer Direction="Right" Swiped="OnPlayerSwipedRight" Threshold="30" />
-                </Border.GestureRecognizers>
-                <Grid ColumnDefinitions="Auto,*,Auto"
-                      Padding="10,9">
-                    <Label Grid.Column="0"
-                           Text="➤"
-                           TextColor="{StaticResource CyanHighlight}"
-                           FontSize="16"
-                           VerticalOptions="Center"
-                           IsVisible="{Binding IsNextToRotate}"
-                           Margin="0,0,6,0" />
-                    <Label Grid.Column="1"
-                           Text="{Binding Name}"
-                           TextColor="White"
-                           FontSize="16"
-                           FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrs}}"
-                           VerticalOptions="Center" />
-                    <Label Grid.Column="2"
-                           Text="{Binding FieldTimeDisplay}"
-                           TextColor="#ccffcc"
-                           FontSize="13"
-                           VerticalOptions="Center"
-                           HorizontalOptions="End" />
+            <!--
+                StackLayout root: gold drop-indicator bar sits above the row content.
+                ONE PanGestureRecognizer on the outer Grid handles both intents.
+                After ~12 dp the handler commits to swipe (horizontal) or drag
+                (vertical) so the two actions never conflict.
+                The ☰ label is a visual cue only — no child gesture recognizer.
+            -->
+            <StackLayout Spacing="0">
+                <!-- Gold insertion-point indicator — visible only when IsDragTarget -->
+                <BoxView HeightRequest="3"
+                         Color="#FFD700"
+                         IsVisible="{Binding IsDragTarget}"
+                         HorizontalOptions="Fill" />
+
+                <Grid ColumnDefinitions="0.15*,0.7*,0.15*">
+                    <Grid.GestureRecognizers>
+                        <PanGestureRecognizer PanUpdated="OnPlayerPanUpdated" />
+                    </Grid.GestureRecognizers>
+                    <Border Grid.Column="1"
+                            Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
+                            StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
+                            StrokeShape="RoundRectangle 0"
+                            BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
+                            Margin="0,1,0,0">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto"
+                              Padding="4,9">
+                            <!-- Drag handle (visual only — gesture is on the outer Grid) -->
+                            <Label Grid.Column="0"
+                                   Text="☰"
+                                   TextColor="#88ffffff"
+                                   FontSize="18"
+                                   VerticalOptions="Center"
+                                   Margin="0,0,6,0" />
+                            <!-- Position icon: ⚽ 💺 🥅 ❌ -->
+                            <Label Grid.Column="1"
+                                   Text="{Binding PositionIcon}"
+                                   FontSize="20"
+                                   VerticalOptions="Center"
+                                   Margin="0,0,8,0" />
+                            <!-- Next-to-rotate arrow -->
+                            <Label Grid.Column="2"
+                                   Text="➤"
+                                   TextColor="{StaticResource CyanHighlight}"
+                                   FontSize="16"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding IsNextToRotate}"
+                                   Margin="0,0,6,0" />
+                            <!-- Player name -->
+                            <Label Grid.Column="3"
+                                   Text="{Binding Name}"
+                                   TextColor="White"
+                                   FontSize="16"
+                                   FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrs}}"
+                                   VerticalOptions="Center" />
+                            <!-- Field time -->
+                            <Label Grid.Column="4"
+                                   Text="{Binding FieldTimeDisplay}"
+                                   TextColor="#ccffcc"
+                                   FontSize="13"
+                                   VerticalOptions="Center"
+                                   HorizontalOptions="End" />
+                        </Grid>
+                    </Border>
                 </Grid>
-            </Border>
+            </StackLayout>
         </DataTemplate>
+        <!-- ── Inactive / absent group header template ── -->
+        <DataTemplate x:Key="InactiveHeaderTemplate" x:DataType="models:InactiveGroupHeader">
+            <Grid ColumnDefinitions="0.15*,0.7*,0.15*">
+                <Border Grid.Column="1"
+                        BackgroundColor="#424242"
+                        StrokeShape="RoundRectangle 0"
+                        Stroke="#666"
+                        StrokeThickness="1"
+                        Margin="0,4,0,0">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnInactiveHeaderTapped" />
+                    </Border.GestureRecognizers>
+                    <Label Text="{Binding Label}"
+                           TextColor="#cccccc"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center"
+                           Padding="10,10" />
+                </Border>
+            </Grid>
+        </DataTemplate>
+
+        <!-- ── Template selector ── -->
+        <local:RosterItemTemplateSelector x:Key="RosterSelector"
+            PlayerTemplate="{StaticResource PlayerRowTemplate}"
+            InactiveHeaderTemplate="{StaticResource InactiveHeaderTemplate}" />
+
     </ContentPage.Resources>
 
     <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="0">
@@ -155,8 +217,8 @@
 
             <!-- VIEW_A: Swipeable list -->
             <CollectionView x:Name="SwipeableRoster"
-                            ItemsSource="{Binding Players}"
-                            ItemTemplate="{StaticResource PlayerRowTemplate}"
+                            ItemsSource="{Binding DisplayItems}"
+                            ItemTemplate="{StaticResource RosterSelector}"
                             ItemsLayout="VerticalList"
                             SelectionMode="None">
                 <CollectionView.EmptyView>

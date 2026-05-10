@@ -22,6 +22,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<Player>      Players      { get; } = [];
     public ObservableCollection<RotationPair> RotationPairs { get; } = [];
 
+    /// <summary>
+    /// Flat list shown in the swipeable CollectionView.  Contains <see cref="Player"/>
+    /// items for active players, then optionally an <see cref="InactiveGroupHeader"/>
+    /// followed by inactive players if the group is expanded.
+    /// </summary>
+    public ObservableCollection<object> DisplayItems { get; } = [];
+
+    // Singleton header object so bindings survive list rebuilds.
+    private readonly InactiveGroupHeader _inactiveHeader = new();
+
     // ── Rotation FIFO pointers (mirrors JS lastFieldIdx / lastBenchIdx) ───
     private int _lastFieldIdx = -1;
     private int _lastBenchIdx = -1;
@@ -71,6 +81,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         UpdateTimerDisplays();
         UpdateRotateButtonText();
         UpdateStartButtonState();
+        RefreshDisplayItems();
     }
 
     // ── INotifyPropertyChanged ────────────────────────────────────────────
@@ -150,6 +161,13 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _showInactivePlayers;
         set => Set(ref _showInactivePlayers, value);
+    }
+
+    /// <summary>Toggles the inactive group between expanded and collapsed.</summary>
+    public void ToggleInactiveExpanded()
+    {
+        _inactiveHeader.IsExpanded = !_inactiveHeader.IsExpanded;
+        RefreshDisplayItems();
     }
 
     public bool IsMember      => _userRole == "member";
@@ -260,6 +278,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _timer.ResetCountdown(continueRunning: _timer.TimerRunning);
         MarkNextPlayers();
         RefreshRotationPairs();
+        RefreshDisplayItems();
         _ = AutoSaveAsync();
     }
 
@@ -300,6 +319,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         var oldPosition = player.Position;
         if (oldPosition == newPosition) return;
 
+#if DEBUG
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+#endif
+
         // Enforce single-goalie rule
         if (newPosition == PlayerPosition.Goalie)
         {
@@ -322,10 +345,35 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             player.Name,
             new Dictionary<string, object?> { ["from"] = oldPosition.ToString(), ["to"] = newPosition.ToString() });
 
+#if DEBUG
+        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] Log: {sw.ElapsedMilliseconds} ms"); sw.Restart();
+#endif
+
         MarkNextPlayers();
+
+#if DEBUG
+        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] MarkNextPlayers: {sw.ElapsedMilliseconds} ms"); sw.Restart();
+#endif
+
         RefreshRotationPairs();
+
+#if DEBUG
+        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] RefreshRotationPairs: {sw.ElapsedMilliseconds} ms"); sw.Restart();
+#endif
+
+        // Single RefreshDisplayItems call after all state mutations are complete.
+        RefreshDisplayItems();
+
+#if DEBUG
+        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] RefreshDisplayItems: {sw.ElapsedMilliseconds} ms"); sw.Restart();
+#endif
+
         UpdateStartButtonState();
         _ = AutoSaveAsync();
+
+#if DEBUG
+        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] UpdateStartButtonState+AutoSave fire: {sw.ElapsedMilliseconds} ms");
+#endif
     }
 
     public void ReorderPlayer(int fromIndex, int toIndex)
@@ -334,15 +382,45 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (fromIndex < 0 || fromIndex >= Players.Count) return;
         if (toIndex   < 0 || toIndex   >= Players.Count) return;
 
+        // Remember which specific players are currently marked as "next to rotate"
+        // so we can restore the pointers after the list order changes —
+        // matching the JS behaviour in enableDragAndDrop > drop handler.
+        var field = FieldCandidates();
+        var bench = BenchCandidates();
+        var nextFieldPlayer = field.Count > 0 && _lastFieldIdx >= 0
+            ? Players.ElementAtOrDefault(NextIndexFrom(field, _lastFieldIdx))
+            : null;
+        var nextBenchPlayer = bench.Count > 0 && _lastBenchIdx >= 0
+            ? Players.ElementAtOrDefault(NextIndexFrom(bench, _lastBenchIdx))
+            : null;
+
         var player = Players[fromIndex];
         Players.RemoveAt(fromIndex);
         Players.Insert(toIndex, player);
 
-        // Preserve next-to-rotate pointers
-        _lastFieldIdx = -1;
-        _lastBenchIdx = -1;
+        // Re-anchor the FIFO pointers to the same player objects at their new positions.
+        if (nextFieldPlayer is not null)
+        {
+            var newIdx = Players.IndexOf(nextFieldPlayer);
+            _lastFieldIdx = newIdx >= 0 ? (newIdx - 1 + Players.Count) % Players.Count : -1;
+        }
+        else
+        {
+            _lastFieldIdx = -1;
+        }
+
+        if (nextBenchPlayer is not null)
+        {
+            var newIdx = Players.IndexOf(nextBenchPlayer);
+            _lastBenchIdx = newIdx >= 0 ? (newIdx - 1 + Players.Count) % Players.Count : -1;
+        }
+        else
+        {
+            _lastBenchIdx = -1;
+        }
 
         MarkNextPlayers();
+        RefreshDisplayItems();
         _logger.Log(GameEventType.PlayerReordered,
             $"{player.Name} moved from {fromIndex + 1} to {toIndex + 1}",
             player.Name,
@@ -487,6 +565,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         UpdateTimerDisplays();
         MarkNextPlayers();
         RefreshRotationPairs();
+        RefreshDisplayItems();
         UpdateStartButtonState();
     }
 
@@ -563,6 +642,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         UpdateStartButtonState();
         MarkNextPlayers();
         RefreshRotationPairs();
+        RefreshDisplayItems();
         OnPropertyChanged(nameof(ScoresVisible));
         _ = AutoSaveAsync();
     }
@@ -616,15 +696,12 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 ["rotationNumber"] = rotNum
             });
 
-        // Swap positions
+        // Swap positions only — do not reorder the list.
         fieldPlayer.Position = PlayerPosition.Bench;
         benchPlayer.Position = PlayerPosition.Field;
 
-        // Physically swap rows to preserve order
-        Players.Move(fieldIdx, benchIdx);
-
-        _lastFieldIdx = benchIdx; // benchPlayer is now at the field slot position
-        _lastBenchIdx = fieldIdx;
+        _lastFieldIdx = fieldIdx;
+        _lastBenchIdx = benchIdx;
     }
 
     private List<int> FieldCandidates() =>
@@ -671,19 +748,30 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     private void MarkNextPlayers()
     {
-        foreach (var p in Players)
-            p.IsNextToRotate = false;
-
+        // Build the desired "next to rotate" set FIRST, then only fire
+        // PropertyChanged for players whose flag actually changes.
+        // The old approach cleared all flags then re-set them, causing up to
+        // 2×N PropertyChanged events even when the set was unchanged.
+        // With ~16 players and 4 bindings per row that was ~30-55 ms of JNI
+        // marshalling on every single swipe.
         var field = FieldCandidates();
         var bench = BenchCandidates();
         var count = Math.Min(RotationCount, Math.Min(field.Count, bench.Count));
 
+        var desiredNext = new HashSet<int>();
         for (int i = 0; i < count; i++)
         {
             var fi = NextIndexFromWithOffset(field, _lastFieldIdx, i);
             var bi = NextIndexFromWithOffset(bench, _lastBenchIdx, i);
-            if (fi >= 0) Players[fi].IsNextToRotate = true;
-            if (bi >= 0) Players[bi].IsNextToRotate = true;
+            if (fi >= 0) desiredNext.Add(fi);
+            if (bi >= 0) desiredNext.Add(bi);
+        }
+
+        for (int i = 0; i < Players.Count; i++)
+        {
+            bool shouldBe = desiredNext.Contains(i);
+            if (Players[i].IsNextToRotate != shouldBe)
+                Players[i].IsNextToRotate = shouldBe;
         }
     }
 
@@ -795,6 +883,70 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         !IsMember &&
         (Phase != GamePhase.Setup ||
          Players.Any(p => p.Position is PlayerPosition.Field or PlayerPosition.Goalie));
+
+    // ── DisplayItems builder ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Updates <see cref="DisplayItems"/> surgically — only inserting or removing
+    /// items that actually changed position.  This avoids triggering a full
+    /// RecyclerView <c>notifyDataSetChanged</c> (which causes the visible hang)
+    /// and instead emits cheap item-inserted / item-removed notifications.
+    /// </summary>
+    private void RefreshDisplayItems()
+    {
+#if DEBUG
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+#endif
+        // Build the desired list without touching DisplayItems yet.
+        var desired = new List<object>();
+
+        foreach (var p in Players.Where(p => p.Position != PlayerPosition.Inactive))
+            desired.Add(p);
+
+        var inactive = Players.Where(p => p.Position == PlayerPosition.Inactive).ToList();
+        if (inactive.Count > 0)
+        {
+            _inactiveHeader.Count = inactive.Count;
+            desired.Add(_inactiveHeader);
+
+            if (_inactiveHeader.IsExpanded)
+            {
+                foreach (var p in inactive)
+                    desired.Add(p);
+            }
+        }
+
+        // Apply surgical diff: remove items that are no longer present or have
+        // moved, then insert/move items into the right positions.
+        // Simple O(n) pass: walk desired; ensure each slot in DisplayItems matches.
+        for (int i = 0; i < desired.Count; i++)
+        {
+            if (i < DisplayItems.Count)
+            {
+                if (!ReferenceEquals(DisplayItems[i], desired[i]))
+                {
+                    // Remove stale items from this position onward and rebuild tail.
+                    while (DisplayItems.Count > i)
+                        DisplayItems.RemoveAt(DisplayItems.Count - 1);
+                    DisplayItems.Add(desired[i]);
+                }
+                // else: already correct — no notification fired.
+            }
+            else
+            {
+                DisplayItems.Add(desired[i]);
+            }
+        }
+
+        // Trim any trailing items.
+        while (DisplayItems.Count > desired.Count)
+            DisplayItems.RemoveAt(DisplayItems.Count - 1);
+
+#if DEBUG
+        sw.Stop();
+        System.Diagnostics.Debug.WriteLine($"[PERF] RefreshDisplayItems (surgical): {sw.ElapsedMilliseconds} ms  items={DisplayItems.Count}");
+#endif
+    }
 
     // ── Auto-save ─────────────────────────────────────────────────────────
 

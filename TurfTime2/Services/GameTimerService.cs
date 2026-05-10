@@ -11,7 +11,19 @@ namespace TurfTime2.Services;
 public sealed class GameTimerService : IGameTimerService, IDisposable
 {
     // ── IGameTimerService state ────────────────────────────────────────────
-    public int  MatchDurationSeconds   { get; set; } = 90 * 60;
+    private int _matchDurationSeconds = 90 * 60;
+    public int MatchDurationSeconds
+    {
+        get => _matchDurationSeconds;
+        set
+        {
+            _matchDurationSeconds = value;
+            // Keep the displayed time in sync while no game is running yet.
+            if (Phase == GamePhase.Setup)
+                MatchRemainingSeconds = value;
+        }
+    }
+
     public int  MatchRemainingSeconds  { get; private set; }
     public int  HalfDurationSeconds    { get; private set; }
     public int  CountdownPresetSeconds { get; set; } = 2 * 60;
@@ -32,7 +44,9 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
 
     public GameTimerService()
     {
-        MatchRemainingSeconds    = MatchDurationSeconds;
+        // Phase is already GamePhase.Setup (default), so the property setter
+        // will have set MatchRemainingSeconds = MatchDurationSeconds.
+        // Initialise countdown here.
         CountdownRemainingSeconds = CountdownPresetSeconds;
     }
 

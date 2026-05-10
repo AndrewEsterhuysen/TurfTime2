@@ -27,8 +27,10 @@ public sealed class CloudRosterService : ICloudRosterService
 
     public async Task SaveAsync(string teamId, RosterSnapshot snapshot, bool isAdmin)
     {
-        // Always save locally
-        SaveLocal(teamId, snapshot);
+        // Serialize and persist locally on a background thread — Preferences.Set
+        // calls SharedPreferences.commit() on Android which is synchronous disk I/O
+        // and blocks the UI thread if called directly.
+        _ = Task.Run(() => SaveLocal(teamId, snapshot));
 
         if (!isAdmin) return;                          // members never write to cloud
         if (teamId.StartsWith("local_", StringComparison.Ordinal)) return;
