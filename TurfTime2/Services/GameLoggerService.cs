@@ -15,6 +15,7 @@ public sealed class GameLoggerService : IGameLoggerService
     private const int    MaxHistorySessions = 20;
 
     private readonly ISessionStorageService _storage;
+    private readonly object _lock = new();
 
     public GameSession? CurrentSession { get; private set; }
 
@@ -110,6 +111,8 @@ public sealed class GameLoggerService : IGameLoggerService
     {
         Preferences.Remove(SessionHistoryKey);
     }
+
+    public Task WarmUpAsync() => _storage.WarmUpAsync();
 
     // â”€â”€ Internals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

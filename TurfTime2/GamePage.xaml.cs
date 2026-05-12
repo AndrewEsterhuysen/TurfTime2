@@ -1,10 +1,6 @@
 ﻿using TurfTime2.Models;
 using TurfTime2.Services;
 using TurfTime2.ViewModels;
-#if ANDROID
-using AndroidView = Android.Views.View;
-using AndroidViewGroup = Android.Views.ViewGroup;
-#endif
 
 namespace TurfTime2;
 
@@ -20,13 +16,6 @@ public partial class GamePage : ContentPage
     public GamePage()
     {
         InitializeComponent();
-
-#if ANDROID
-        // CollectionView (RecyclerView) clips its children by default on Android,
-        // which hides the pan animation when a row slides outside its bounds.
-        // Disable clipping so the translated row remains visible during the swipe.
-        SwipeableRoster.Loaded += (_, _) => DisableAndroidClipping(SwipeableRoster);
-#endif
     }
 
     protected override async void OnAppearing()
@@ -111,9 +100,31 @@ public partial class GamePage : ContentPage
     private int      _dragTargetIndex;
     private double   _rowHeight = 52;
     private Player?  _currentDragTarget;
+    // Previous TotalX/Y from the last Running event. Using per-frame deltas instead
+    // of absolute (Total - start) prevents layout-shift drift: each time a drag-target
+    // BoxView appears/disappears the layout shifts and corrupts the absolute offset,
+    // whereas deltas only care about how much the finger moved since the last frame.
+    private double   _prevTotalX;
+    private double   _prevTotalY;
 
-    private const double IntentThreshold  = 12;  // dp before we commit to swipe or drag
-    private const double SwipeThreshold   = 80;  // dp horizontal to commit a swipe
+    private const double IntentThreshold  = 6;   // dp before we commit to swipe or drag
+    private const double SwipeThreshold   = 90;  // dp horizontal to commit a swipe
+    // Require a clearly horizontal movement to call it a swipe; anything more vertical
+    // is treated as a drag so reordering feels immediate without a long-press.
+    private const double SwipeDragBias    = 1.5; // |dx| must exceed |dy| * bias to be a swipe
+
+    // ── Drag diagnostics ─────────────────────────────────────────────────
+    // Set to true to suppress swipe entirely and force every pan into drag mode.
+    // This lets drag be tested in isolation without horizontal gestures interfering.
+    // IMPORTANT: revert to false before shipping.
+    private const bool DragOnlyMode = false;
+
+    // Running event counter — distinguishes a real drag stream from single-event noise.
+    private int _panRunningCount;
+
+    // Cumulative Y displacement since drag intent was committed (dp).
+    // Used for index targeting so layout shifts don't corrupt the threshold math.
+    private double _dragTotalY;
 
     private void OnPlayerPanUpdated(object sender, PanUpdatedEventArgs e)
     {
@@ -124,60 +135,157 @@ public partial class GamePage : ContentPage
         switch (e.StatusType)
         {
             case GestureStatus.Started:
+                // If _panRow is already set, the previous sequence ended without us
+                // receiving Completed/Canceled (e.g. emulator focus loss, finger lift
+                // outside the view). Clean up the orphaned state so the new gesture
+                // isn't permanently blocked.
+                if (_panRow is not null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DRAG] ⚠️ Started fired while _panRow was still set (orphaned state). Cleaning up previous row '{_panPlayer?.Name}'.");
+                    _panRow.TranslationX = 0;
+                    _panRow.TranslationY = 0;
+                    ClearDragIndicator();
+                    _panRow    = null;
+                    _panPlayer = null;
+                    _panIntent = PanIntent.Unknown;
+                }
+
                 _panRow    = row;
                 _panPlayer = player;
                 _panIntent = PanIntent.Unknown;
+                _panRunningCount = 0;
                 _dragFromIndex   = _vm.Players.IndexOf(player);
                 _dragTargetIndex = _dragFromIndex;
-                if (SwipeableRoster.Height > 0 && _vm.DisplayItems.Count > 0)
-                    _rowHeight = SwipeableRoster.Height / _vm.DisplayItems.Count;
-#if ANDROID
-                DisallowParentInterceptTouch(row);
-#endif
+                _prevTotalX = 0;
+                _prevTotalY = 0;
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DRAG] ✅ Started — player='{player.Name}' fromIndex={_dragFromIndex} " +
+                    $"rowHeight={_rowHeight:F1} DragOnlyMode={DragOnlyMode}");
                 break;
 
             case GestureStatus.Running:
                 if (_panRow is null || _panPlayer is null) return;
+                // Always operate on the locked row — the sender may be a different
+                // row if the finger slides between items on Android.
+                var activeRow    = _panRow;
+                var activePlayer = _panPlayer;
+
+                // MAUI's PanGestureRecognizer already delivers TotalX/Y in dp on all
+                // platforms — no density conversion needed.
+                double totalX = e.TotalX;
+                double totalY = e.TotalY;
+
+                _panRunningCount++;
+                if (_panRunningCount == 1)
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DRAG] 🔄 First Running event — TotalX={totalX:F1} TotalY={totalY:F1}");
 
                 // Commit to an intent once the finger has moved far enough.
                 if (_panIntent == PanIntent.Unknown)
                 {
-                    if (Math.Abs(e.TotalX) < IntentThreshold &&
-                        Math.Abs(e.TotalY) < IntentThreshold)
+                    if (Math.Abs(totalX) < IntentThreshold &&
+                        Math.Abs(totalY) < IntentThreshold)
+                    {
                         break; // not yet decided
+                    }
 
-                    _panIntent = Math.Abs(e.TotalX) >= Math.Abs(e.TotalY)
-                        ? PanIntent.Swipe
-                        : PanIntent.Drag;
+                    if (DragOnlyMode)
+                    {
+                        // Isolation: ignore horizontal bias, always drag.
+                        _panIntent = PanIntent.Drag;
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[DRAG] 🔒 DragOnlyMode=true — forcing Drag intent. TotalX={totalX:F1} TotalY={totalY:F1}");
+                    }
+                    else
+                    {
+                        _panIntent = Math.Abs(totalX) >= Math.Abs(totalY) * SwipeDragBias
+                            ? PanIntent.Swipe
+                            : PanIntent.Drag;
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[DRAG] 🎯 Intent decided: {_panIntent} — " +
+                            $"TotalX={totalX:F1} TotalY={totalY:F1} bias={SwipeDragBias} " +
+                            $"absX={Math.Abs(totalX):F1} vs absY*bias={Math.Abs(totalY) * SwipeDragBias:F1}");
+                    }
+
+                    // Seed prev values at commit point so the first delta is zero
+                    // and the row begins translating smoothly from its resting position.
+                    _prevTotalX = totalX;
+                    _prevTotalY = totalY;
+                    _dragTotalY = 0;
                 }
+
+                // Per-frame delta — immune to layout shifts caused by BoxView
+                // indicator rows appearing/disappearing as the drag target changes.
+                double dx = totalX - _prevTotalX;
+                double dy = totalY - _prevTotalY;
+                _prevTotalX = totalX;
+                _prevTotalY = totalY;
 
                 if (_panIntent == PanIntent.Swipe)
                 {
-                    row.TranslationX = e.TotalX;
+                    if (DragOnlyMode)
+                    {
+                        // Should not reach here in isolation mode, but guard anyway.
+                        System.Diagnostics.Debug.WriteLine("[DRAG] ⛔ DragOnlyMode: suppressed swipe translation");
+                    }
+                    else
+                    {
+                        activeRow.TranslationX += dx;
+                    }
                 }
                 else
                 {
-                    UpdateDragIndicator(_panPlayer, e.TotalY);
+                    activeRow.TranslationY += dy;
+                    _dragTotalY += dy;
+                    // Log every 5th frame so the output is readable but complete.
+                    if (_panRunningCount % 10 == 0)
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[DRAG] 📍 Dragging '{activePlayer.Name}' — " +
+                            $"dy={dy:F1} TranslationY={activeRow.TranslationY:F1} dragTotalY={_dragTotalY:F1} " +
+                            $"fromIdx={_dragFromIndex} targetIdx={_dragTargetIndex} rowH={_rowHeight:F1}");
+                    UpdateDragIndicator(activePlayer, _dragTotalY);
                 }
                 break;
 
             case GestureStatus.Completed:
             case GestureStatus.Canceled:
+                if (_panRow is null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DRAG] ⚠️ {e.StatusType} received but _panRow is null — gesture may have been stolen by ScrollView.");
+                    break;
+                }
+                var endRow    = _panRow;
+                var endPlayer = _panPlayer;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DRAG] 🏁 {e.StatusType} — intent={_panIntent} player='{endPlayer?.Name}' " +
+                    $"runningEvents={_panRunningCount} from={_dragFromIndex} target={_dragTargetIndex} " +
+                    $"TranslationY={endRow.TranslationY:F1}");
+
                 ClearDragIndicator();
 
                 if (_panIntent == PanIntent.Drag)
                 {
+                    endRow.TranslationY = 0;
+
                     if (e.StatusType == GestureStatus.Completed
                         && _dragTargetIndex != _dragFromIndex
-                        && _panPlayer is not null)
+                        && endPlayer is not null)
                     {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[DRAG] ✅ Reordering '{endPlayer.Name}' from {_dragFromIndex} → {_dragTargetIndex}");
                         _vm.ReorderPlayer(_dragFromIndex, _dragTargetIndex);
+                    }
+                    else if (_dragTargetIndex == _dragFromIndex)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[DRAG] ℹ️ Drag ended at same index — no reorder.");
                     }
                 }
                 else
                 {
-                    // Swipe intent (or unknown = tap, treat as snap-back).
-                    CommitSwipe(row, player);
+                    CommitSwipe(endRow, endPlayer!);
                 }
 
                 _panRow    = null;
@@ -221,7 +329,9 @@ public partial class GamePage : ContentPage
 
     private void UpdateDragIndicator(Player dragging, double totalY)
     {
-        int delta     = (int)(totalY / Math.Max(_rowHeight, 10));
+        // Snap at half a row height so dragging 50 % of the way into the next slot registers.
+        double snapUnit = Math.Max(_rowHeight / 2.0, 10);
+        int delta     = (int)(totalY / snapUnit);
         int newTarget = Math.Clamp(_dragFromIndex + delta, 0, _vm!.Players.Count - 1);
 
         if (newTarget == _dragTargetIndex) return;
@@ -245,12 +355,10 @@ public partial class GamePage : ContentPage
     }
 
 #if ANDROID
-    private static void DisallowParentInterceptTouch(View view)
-    {
-        if (view.Handler?.PlatformView is AndroidView native)
-            native.Parent?.RequestDisallowInterceptTouchEvent(true);
-    }
+
 #endif
+
+
 
     // ── Inactive group header tap ─────────────────────────────────────────
 
@@ -354,7 +462,7 @@ public partial class GamePage : ContentPage
         // Resync: scroll the roster back to the first row so the user can
         // immediately see who has just rotated onto the field.
         if (SwipeableRoster.IsVisible && _vm?.DisplayItems.Count > 0)
-            SwipeableRoster.ScrollTo(_vm.DisplayItems[0], animate: false);
+            SwipeableRoster.ScrollTo(0, position: ScrollToPosition.Start, animate: false);
     }
 
     private async void OnRotatePressed(object sender, EventArgs e)
@@ -553,23 +661,8 @@ public partial class GamePage : ContentPage
     }
 
 #if ANDROID
-    // ── Android clip-children fix ─────────────────────────────────────────
-    // CollectionView (RecyclerView) and each row's ViewGroup clip their children
-    // by default, which prevents a translated child from being visible outside
-    // its own bounding box during the swipe animation.
-    private static void DisableAndroidClipping(Microsoft.Maui.Controls.View mauiView)
-    {
-        var nativeView = mauiView.Handler?.PlatformView as AndroidViewGroup;
-        if (nativeView is null) return;
-
-        // Disable on the RecyclerView itself and its parent chain up to 3 levels.
-        AndroidViewGroup? current = nativeView;
-        for (int i = 0; i < 4 && current is not null; i++)
-        {
-            current.SetClipChildren(false);
-            current.SetClipToPadding(false);
-            current = current.Parent as AndroidViewGroup;
-        }
-    }
+    // ── Android clip-children fix is no longer needed ─────────────────────
+    // SwipeableRoster is now a ScrollView (not CollectionView/RecyclerView),
+    // so there is no RecyclerView to intercept touches or clip children.
 #endif
 }

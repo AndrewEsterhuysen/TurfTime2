@@ -23,11 +23,14 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<RotationPair> RotationPairs { get; } = [];
 
     /// <summary>
-    /// Flat list shown in the swipeable CollectionView.  Contains <see cref="Player"/>
+    /// Flat list shown in the swipeable roster.  Contains <see cref="Player"/>
     /// items for active players, then optionally an <see cref="InactiveGroupHeader"/>
     /// followed by inactive players if the group is expanded.
     /// </summary>
     public ObservableCollection<object> DisplayItems { get; } = [];
+
+    /// <summary>True when the roster has no items to show; drives the empty-state label.</summary>
+    public bool IsRosterEmpty => DisplayItems.Count == 0;
 
     // Singleton header object so bindings survive list rebuilds.
     private readonly InactiveGroupHeader _inactiveHeader = new();
@@ -219,6 +222,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _userRole      = userRole;
         TeamName       = Preferences.Get("team_name", string.Empty);
 
+        // Pre-warm Firebase auth tokens in both services concurrently so the
+        // first swipe never has to wait for an anonymous sign-up round trip (~800 ms).
+        _ = _cloud.WarmUpAsync();
+        _ = _logger.WarmUpAsync();
+
         var snapshot = await _cloud.LoadAsync(teamId).ConfigureAwait(false);
         if (snapshot is not null)
             ApplySnapshot(snapshot);
@@ -332,8 +340,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         player.Position = newPosition;
 
-        // Log the change
-        var eventType = newPosition switch
+        // Capture logger args now (immutable) — the actual write happens off the UI thread at the end.
+        var logEventType = newPosition switch
         {
             PlayerPosition.Field    => GameEventType.PlayerToField,
             PlayerPosition.Bench    => GameEventType.PlayerToBench,
@@ -341,13 +349,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             PlayerPosition.Inactive => GameEventType.PlayerToInactive,
             _                       => GameEventType.PlayerToInactive
         };
-        _logger.Log(eventType, $"{player.Name} moved to {newPosition}",
-            player.Name,
-            new Dictionary<string, object?> { ["from"] = oldPosition.ToString(), ["to"] = newPosition.ToString() });
-
-#if DEBUG
-        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] Log: {sw.ElapsedMilliseconds} ms"); sw.Restart();
-#endif
+        var logPlayerName = player.Name;
+        var logFrom       = oldPosition.ToString();
+        var logTo         = newPosition.ToString();
 
         MarkNextPlayers();
 
@@ -370,6 +374,12 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         UpdateStartButtonState();
         _ = AutoSaveAsync();
+
+        // Fire-and-forget: log off the UI thread so Preferences.Set never blocks rendering.
+        _ = Task.Run(() => _logger.Log(logEventType,
+            $"{logPlayerName} moved to {logTo}",
+            logPlayerName,
+            new Dictionary<string, object?> { ["from"] = logFrom, ["to"] = logTo }));
 
 #if DEBUG
         sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] UpdateStartButtonState+AutoSave fire: {sw.ElapsedMilliseconds} ms");
@@ -421,12 +431,17 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         MarkNextPlayers();
         RefreshDisplayItems();
-        _logger.Log(GameEventType.PlayerReordered,
-            $"{player.Name} moved from {fromIndex + 1} to {toIndex + 1}",
-            player.Name,
-            new Dictionary<string, object?> { ["fromIndex"] = fromIndex, ["toIndex"] = toIndex });
 
         _ = AutoSaveAsync();
+
+        // Fire-and-forget: log off the UI thread.
+        var reorderedName = player.Name;
+        var reorderedFrom = fromIndex;
+        var reorderedTo   = toIndex;
+        _ = Task.Run(() => _logger.Log(GameEventType.PlayerReordered,
+            $"{reorderedName} moved from {reorderedFrom + 1} to {reorderedTo + 1}",
+            reorderedName,
+            new Dictionary<string, object?> { ["fromIndex"] = reorderedFrom, ["toIndex"] = reorderedTo }));
     }
 
     // ── Timer settings ────────────────────────────────────────────────────
@@ -941,6 +956,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // Trim any trailing items.
         while (DisplayItems.Count > desired.Count)
             DisplayItems.RemoveAt(DisplayItems.Count - 1);
+
+        OnPropertyChanged(nameof(IsRosterEmpty));
 
 #if DEBUG
         sw.Stop();

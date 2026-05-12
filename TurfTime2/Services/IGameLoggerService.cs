@@ -24,4 +24,10 @@ public interface IGameLoggerService
     IReadOnlyList<GameSession> GetSessionHistory();
 
     void ClearHistory();
+
+    /// <summary>
+    /// Pre-warms the Firestore auth token so the first session archive has no cold-start delay.
+    /// Safe to call fire-and-forget.
+    /// </summary>
+    Task WarmUpAsync();
 }

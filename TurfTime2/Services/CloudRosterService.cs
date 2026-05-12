@@ -71,14 +71,21 @@ public sealed class CloudRosterService : ICloudRosterService
         }
     }
 
-    public async Task ForceSyncAsync(string teamId, RosterSnapshot snapshot)
+    public Task ForceSyncAsync(string teamId, RosterSnapshot snapshot)
     {
         _debounceCts?.Cancel();
         SaveLocal(teamId, snapshot);
 
-        if (teamId.StartsWith("local_", StringComparison.Ordinal)) return;
+        if (teamId.StartsWith("local_", StringComparison.Ordinal)) return Task.CompletedTask;
 
-        await UploadToFirestoreAsync(teamId, snapshot).ConfigureAwait(false);
+        return UploadToFirestoreAsync(teamId, snapshot);
+    }
+
+    /// <summary>Pre-warms the Firebase auth token on a background thread.</summary>
+    public async Task WarmUpAsync()
+    {
+        try { await Task.Run(GetAuthTokenAsync).ConfigureAwait(false); }
+        catch { /* warm-up is best-effort */ }
     }
 
     // ── Local storage ─────────────────────────────────────────────────────

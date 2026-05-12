@@ -19,4 +19,10 @@ public interface ICloudRosterService
 
     /// <summary>Force an immediate cloud upload (bypasses debounce).</summary>
     Task ForceSyncAsync(string teamId, RosterSnapshot snapshot);
+
+    /// <summary>
+    /// Pre-warms the Firebase anonymous auth token so the first save has no cold-start delay.
+    /// Safe to call fire-and-forget.
+    /// </summary>
+    Task WarmUpAsync();
 }

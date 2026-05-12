@@ -15,4 +15,10 @@ public interface ISessionStorageService
 
     /// <summary>Load the full session JSON for a given session ID.</summary>
     Task<GameSession?> LoadSessionAsync(string teamId, string sessionId);
+
+    /// <summary>
+    /// Pre-warms the Firebase anonymous auth token so the first session save has no cold-start delay.
+    /// Safe to call fire-and-forget.
+    /// </summary>
+    Task WarmUpAsync();
 }

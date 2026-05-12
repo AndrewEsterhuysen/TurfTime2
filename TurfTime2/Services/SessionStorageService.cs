@@ -163,6 +163,15 @@ public sealed class SessionStorageService : ISessionStorageService
         return result.OrderByDescending(s => s.StartTime).ToList();
     }
 
+    // ── Warm-up ───────────────────────────────────────────────────────────
+
+    /// <summary>Pre-warms the Firebase auth token on a background thread.</summary>
+    public async Task WarmUpAsync()
+    {
+        try { await Task.Run(GetAuthTokenAsync).ConfigureAwait(false); }
+        catch { /* warm-up is best-effort */ }
+    }
+
     // ── Auth ──────────────────────────────────────────────────────────────
 
     private static async Task<string?> GetAuthTokenAsync()

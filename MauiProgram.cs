@@ -22,6 +22,12 @@ namespace TurfTime2
                 {
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                     fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+                })
+                .ConfigureMauiHandlers(handlers =>
+                {
+#if ANDROID
+                    handlers.AddHandler<DragRow, TurfTime2.Platforms.Android.DragRowHandler>();
+#endif
                 });
 
             // Register Firebase services

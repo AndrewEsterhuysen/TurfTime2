@@ -26,13 +26,15 @@
         <!-- ── Player row template for VIEW_A ── -->
         <DataTemplate x:Key="PlayerRowTemplate" x:DataType="models:Player">
             <!--
-                StackLayout root: gold drop-indicator bar sits above the row content.
+                DragRow root: calls RequestDisallowInterceptTouchEvent(true) at
+                ACTION_DOWN on Android, preventing the CollectionView/RecyclerView
+                from intercepting vertical gestures before PanGestureRecognizer fires.
                 ONE PanGestureRecognizer on the outer Grid handles both intents.
                 After ~12 dp the handler commits to swipe (horizontal) or drag
                 (vertical) so the two actions never conflict.
                 The ☰ label is a visual cue only — no child gesture recognizer.
             -->
-            <StackLayout Spacing="0">
+            <local:DragRow Spacing="0">
                 <!-- Gold insertion-point indicator — visible only when IsDragTarget -->
                 <BoxView HeightRequest="3"
                          Color="#FFD700"
@@ -89,7 +91,7 @@
                         </Grid>
                     </Border>
                 </Grid>
-            </StackLayout>
+            </local:DragRow>
         </DataTemplate>
         <!-- ── Inactive / absent group header template ── -->
         <DataTemplate x:Key="InactiveHeaderTemplate" x:DataType="models:InactiveGroupHeader">
@@ -114,7 +116,7 @@
             </Grid>
         </DataTemplate>
 
-        <!-- ── Template selector ── -->
+        <!-- Template selector -->
         <local:RosterItemTemplateSelector x:Key="RosterSelector"
             PlayerTemplate="{StaticResource PlayerRowTemplate}"
             InactiveHeaderTemplate="{StaticResource InactiveHeaderTemplate}" />
