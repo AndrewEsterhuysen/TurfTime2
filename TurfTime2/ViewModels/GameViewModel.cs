@@ -404,9 +404,17 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             ? Players.ElementAtOrDefault(NextIndexFrom(bench, _lastBenchIdx))
             : null;
 
+        // Map player indices to DisplayItems indices BEFORE mutating Players,
+        // while the two lists are still in sync.
+        int displayFrom = PlayerIndexToDisplayIndex(fromIndex);
+        int displayTo   = PlayerIndexToDisplayIndex(toIndex);
+
         var player = Players[fromIndex];
-        Players.RemoveAt(fromIndex);
-        Players.Insert(toIndex, player);
+
+        // Option 2: Move() emits NotifyCollectionChangedAction.Move → Android
+        // notifyItemMoved() — the native row view slides in-place with no
+        // detach/reattach, eliminating the DragRowHandler recreation storm.
+        Players.Move(fromIndex, toIndex);
 
         // Re-anchor the FIFO pointers to the same player objects at their new positions.
         if (nextFieldPlayer is not null)
@@ -430,7 +438,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         }
 
         MarkNextPlayers();
-        RefreshDisplayItems();
+
+        // Mirror the move in DisplayItems with a single Move() notification.
+        // Only do this when both indices mapped to valid display slots (i.e. the
+        // player is active/visible and the header is not involved).
+        if (displayFrom >= 0 && displayTo >= 0 && displayFrom != displayTo)
+            DisplayItems.Move(displayFrom, displayTo);
+        else
+            RefreshDisplayItems(); // fallback for edge cases (inactive players, etc.)
+
+        OnPropertyChanged(nameof(IsRosterEmpty));
 
         _ = AutoSaveAsync();
 
@@ -900,6 +917,19 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
          Players.Any(p => p.Position is PlayerPosition.Field or PlayerPosition.Goalie));
 
     // ── DisplayItems builder ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the index of Players[playerIndex] inside DisplayItems,
+    /// or -1 if the player is not currently visible (e.g. inactive and collapsed).
+    /// </summary>
+    private int PlayerIndexToDisplayIndex(int playerIndex)
+    {
+        if (playerIndex < 0 || playerIndex >= Players.Count) return -1;
+        var player = Players[playerIndex];
+        for (int i = 0; i < DisplayItems.Count; i++)
+            if (ReferenceEquals(DisplayItems[i], player)) return i;
+        return -1;
+    }
 
     /// <summary>
     /// Updates <see cref="DisplayItems"/> surgically — only inserting or removing
