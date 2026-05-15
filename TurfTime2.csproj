@@ -127,9 +127,6 @@
 		<MauiXaml Update="TurfTime2\HelpPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</MauiXaml>
-		<MauiXaml Update="TurfTime2\LogPage.xaml">
-			<Generator>MSBuild:Compile</Generator>
-		</MauiXaml>
 		<MauiXaml Update="TurfTime2\ReportsPage.xaml">
 		  <Generator>MSBuild:Compile</Generator>
 		</MauiXaml>

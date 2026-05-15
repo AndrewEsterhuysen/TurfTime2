@@ -222,10 +222,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _userRole      = userRole;
         TeamName       = Preferences.Get("team_name", string.Empty);
 
-        // Pre-warm Firebase auth tokens in both services concurrently so the
-        // first swipe never has to wait for an anonymous sign-up round trip (~800 ms).
-        _ = _cloud.WarmUpAsync();
-        _ = _logger.WarmUpAsync();
+        bool isLocal = teamId.StartsWith("local_", StringComparison.Ordinal);
+
+        if (!isLocal)
+        {
+            // Pre-warm Firebase auth tokens in both services concurrently so the
+            // first swipe never has to wait for an anonymous sign-up round trip (~800 ms).
+            // Skipped for local teams — they never touch cloud/Firebase.
+            _ = _cloud.WarmUpAsync();
+            _ = _logger.WarmUpAsync();
+        }
 
         var snapshot = await _cloud.LoadAsync(teamId).ConfigureAwait(false);
         if (snapshot is not null)
@@ -579,7 +585,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _timer.CountdownPresetSeconds = s.CountdownPresetSeconds;
         TeamAScore = s.TeamAScore;
         TeamBScore = s.TeamBScore;
-        ViewMode   = (TeamViewMode)s.ViewMode;
+        ViewMode   = (TeamViewMode)s.ViewMode == TeamViewMode.Rotation
+                         ? TeamViewMode.Rotation
+                         : TeamViewMode.Swipeable;
 
         for (int i = 0; i < Math.Min(s.Players.Count, Players.Count); i++)
         {

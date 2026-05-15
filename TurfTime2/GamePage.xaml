@@ -6,7 +6,7 @@
              xmlns:conv="clr-namespace:TurfTime2.Converters"
              xmlns:local="clr-namespace:TurfTime2"
              Shell.NavBarIsVisible="False"
-             BackgroundColor="#1b5e20">
+             BackgroundColor="Black">
 
     <ContentPage.Resources>
         <Color x:Key="FieldColor">#388e3c</Color>
@@ -126,53 +126,97 @@
     <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="0">
 
         <!-- ══ HEADER ══ -->
-        <Grid Grid.Row="0" ColumnDefinitions="*,*,*" Padding="8,6,8,4" BackgroundColor="#1a4a1e">
+        <Grid Grid.Row="0"
+              RowDefinitions="Auto,Auto,Auto,Auto"
+              BackgroundColor="#0a0a0a"
+              Padding="8,6,8,6">
 
-            <!-- Left: Us score -->
-            <StackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="0">
-                <Label Text="Us"
+            <!-- Row 0: ⚽  Turf Timer  🥅 -->
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto">
+                <Label Grid.Column="0"
+                       Text="⚽"
+                       FontSize="22"
+                       VerticalOptions="Center"
+                       HorizontalOptions="Start" />
+                <Label Grid.Column="1"
+                       Text="Turf Timer"
+                       TextColor="White"
+                       FontSize="20"
+                       FontAttributes="Bold"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center" />
+                <Label Grid.Column="2"
+                       Text="🥅"
+                       FontSize="22"
+                       VerticalOptions="Center"
+                       HorizontalOptions="End" />
+            </Grid>
+
+            <!-- Row 1: Team name -->
+            <Label Grid.Row="1"
+                   Text="{Binding TeamName}"
+                   TextColor="#ffe082"
+                   FontSize="13"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center"
+                   LineBreakMode="TailTruncation"
+                   Margin="0,2,0,0" />
+
+            <!-- Row 2: Column header labels -->
+            <Grid Grid.Row="2"
+                  ColumnDefinitions="*,*,*,*"
+                  Margin="0,6,0,1">
+                <Label Grid.Column="0"
+                       Text="Us"
                        TextColor="#ccffcc"
                        FontSize="11"
                        HorizontalOptions="Center"
                        IsVisible="{Binding ScoresVisible}" />
-                <Label Text="{Binding TeamAScore}"
+                <Label Grid.Column="1"
+                       Text="{Binding MatchTimeLabelText}"
+                       TextColor="#99cc99"
+                       FontSize="11"
+                       HorizontalOptions="Center" />
+                <Label Grid.Column="2"
+                       Text="Rotate"
+                       TextColor="#99cc99"
+                       FontSize="11"
+                       HorizontalOptions="Center" />
+                <Label Grid.Column="3"
+                       Text="Them"
+                       TextColor="#ccffcc"
+                       FontSize="11"
+                       HorizontalOptions="Center"
+                       IsVisible="{Binding ScoresVisible}" />
+            </Grid>
+
+            <!-- Row 3: Values — scores, match timer, rotation timer -->
+            <Grid Grid.Row="3"
+                  ColumnDefinitions="*,*,*,*"
+                  Margin="0,0,0,2">
+                <!-- Us score -->
+                <Label Grid.Column="0"
+                       Text="{Binding TeamAScore}"
                        TextColor="{StaticResource AccentColor}"
                        FontSize="24"
                        FontAttributes="Bold"
                        HorizontalOptions="Center"
                        IsVisible="{Binding ScoresVisible}" />
-            </StackLayout>
-
-            <!-- Centre: Match timer / team name / rotation timer stacked -->
-            <StackLayout Grid.Column="1" HorizontalOptions="Center" VerticalOptions="Center" Spacing="1">
                 <!-- Match timer -->
-                <Label Text="{Binding MatchTimeLabelText}"
-                       TextColor="#99cc99"
-                       FontSize="10"
-                       HorizontalOptions="Center" />
-                <Label x:Name="MatchTimerLabel"
+                <Label Grid.Column="1"
+                       x:Name="MatchTimerLabel"
                        Text="{Binding MatchTimeDisplay}"
                        TextColor="White"
-                       FontSize="26"
+                       FontSize="24"
                        FontAttributes="Bold"
                        HorizontalOptions="Center">
                     <Label.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnMatchTimerTapped" />
                     </Label.GestureRecognizers>
                 </Label>
-                <!-- Team name (between the two timers) -->
-                <Label Text="{Binding TeamName}"
-                       TextColor="#ffe082"
-                       FontSize="12"
-                       FontAttributes="Bold"
-                       HorizontalOptions="Center"
-                       LineBreakMode="TailTruncation" />
                 <!-- Rotation countdown -->
-                <Label Text="Rotate"
-                       TextColor="#99cc99"
-                       FontSize="10"
-                       HorizontalOptions="Center" />
-                <Label x:Name="CountdownLabel"
+                <Label Grid.Column="2"
+                       x:Name="CountdownLabel"
                        Text="{Binding CountdownDisplay}"
                        TextColor="White"
                        FontSize="20"
@@ -182,22 +226,16 @@
                         <TapGestureRecognizer Tapped="OnCountdownTimerTapped" />
                     </Label.GestureRecognizers>
                 </Label>
-            </StackLayout>
-
-            <!-- Right: Them score -->
-            <StackLayout Grid.Column="2" HorizontalOptions="Center" VerticalOptions="Center" Spacing="0">
-                <Label Text="Them"
-                       TextColor="#ccffcc"
-                       FontSize="11"
-                       HorizontalOptions="Center"
-                       IsVisible="{Binding ScoresVisible}" />
-                <Label Text="{Binding TeamBScore}"
+                <!-- Them score -->
+                <Label Grid.Column="3"
+                       Text="{Binding TeamBScore}"
                        TextColor="{StaticResource AccentColor}"
                        FontSize="24"
                        FontAttributes="Bold"
                        HorizontalOptions="Center"
                        IsVisible="{Binding ScoresVisible}" />
-            </StackLayout>
+            </Grid>
+
         </Grid>
 
         <!-- ══ Member read-only banner ══ -->
@@ -231,11 +269,6 @@
                 </CollectionView.EmptyView>
             </CollectionView>
 
-            <!-- VIEW_B: Table (built in code-behind) -->
-            <ScrollView x:Name="TableView" IsVisible="False">
-                <StackLayout x:Name="TableStack" Spacing="1" />
-            </ScrollView>
-
             <!-- VIEW_C: Rotation display with score buttons -->
             <Grid x:Name="RotationView"
                   IsVisible="False"
@@ -268,18 +301,19 @@
                                     SelectionMode="None">
                         <CollectionView.ItemTemplate>
                             <DataTemplate x:DataType="models:RotationPair">
-                                <Grid ColumnDefinitions="*,*" Margin="4,2">
-                                    <Label Grid.Column="0"
-                                           Text="{Binding BenchPlayerName, StringFormat='💺 {0} ➜'}"
+                                <VerticalStackLayout Spacing="0" Margin="4,4,4,8">
+                                    <!-- Bench player coming ON — left aligned -->
+                                    <Label Text="{Binding BenchPlayerName, StringFormat='💺 {0}  ➜ on'}"
                                            TextColor="#bbdefb"
-                                           FontSize="15"
+                                           FontSize="16"
+                                           FontAttributes="Bold"
                                            HorizontalOptions="Start" />
-                                    <Label Grid.Column="1"
-                                           Text="{Binding FieldPlayerName, StringFormat='⬅ ⚽ {0}'}"
+                                    <!-- Field player coming OFF — right aligned -->
+                                    <Label Text="{Binding FieldPlayerName, StringFormat='off ➜  ⚽ {0}'}"
                                            TextColor="#ffccbc"
-                                           FontSize="15"
+                                           FontSize="16"
                                            HorizontalOptions="End" />
-                                </Grid>
+                                </VerticalStackLayout>
                             </DataTemplate>
                         </CollectionView.ItemTemplate>
                         <CollectionView.EmptyView>

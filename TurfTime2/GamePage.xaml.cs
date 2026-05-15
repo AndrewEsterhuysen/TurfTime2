@@ -502,8 +502,7 @@ public partial class GamePage : ContentPage
         if (_vm is null) return;
         var next = _vm.ViewMode switch
         {
-            TeamViewMode.Swipeable => TeamViewMode.Table,
-            TeamViewMode.Table     => TeamViewMode.Rotation,
+            TeamViewMode.Swipeable => TeamViewMode.Rotation,
             _                      => TeamViewMode.Swipeable
         };
         _vm.ViewMode = next;
@@ -521,11 +520,7 @@ public partial class GamePage : ContentPage
     private void ApplyViewMode(TeamViewMode mode)
     {
         SwipeableRoster.IsVisible = mode == TeamViewMode.Swipeable;
-        TableView.IsVisible       = mode == TeamViewMode.Table;
         RotationView.IsVisible    = mode == TeamViewMode.Rotation;
-
-        if (mode == TeamViewMode.Table)
-            BuildTableView();
     }
 
     private void UpdateViewButtonText(TeamViewMode mode)
@@ -533,107 +528,8 @@ public partial class GamePage : ContentPage
         ViewBtn.Text = mode switch
         {
             TeamViewMode.Swipeable => "Swipe",
-            TeamViewMode.Table     => "Table",
             _                      => "Rotation"
         };
-    }
-
-    // ── Table view builder (VIEW_B) ───────────────────────────────────────
-
-    private void BuildTableView()
-    {
-        if (_vm is null) return;
-        TableStack.Children.Clear();
-
-        var header = new Grid
-        {
-            ColumnDefinitions = Columns("*", "Auto", "Auto", "Auto", "Auto"),
-            BackgroundColor   = Color.FromArgb("#1a4a1e"),
-            Padding           = new Thickness(8, 4)
-        };
-        AddHeaderCell(header, "Player",  0);
-        AddHeaderCell(header, "⚽",      1);
-        AddHeaderCell(header, "💺",      2);
-        AddHeaderCell(header, "🥅",      3);
-        AddHeaderCell(header, "❌",      4);
-        TableStack.Children.Add(header);
-
-        bool odd = false;
-        foreach (var p in _vm.Players)
-        {
-            if (_vm.Phase != GamePhase.Setup && p.Position == PlayerPosition.Inactive) continue;
-
-            var rowBg = p.Position switch
-            {
-                PlayerPosition.Field    => Color.FromArgb("#388e3c"),
-                PlayerPosition.Bench    => Color.FromArgb("#1565c0"),
-                PlayerPosition.Goalie   => Color.FromArgb("#f57f17"),
-                PlayerPosition.Inactive => Color.FromArgb("#424242"),
-                _                       => odd ? Color.FromArgb("#2a6b2e") : Color.FromArgb("#1b5e20")
-            };
-            odd = !odd;
-
-            var row = new Grid
-            {
-                ColumnDefinitions = Columns("*", "Auto", "Auto", "Auto", "Auto"),
-                BackgroundColor   = rowBg,
-                Padding           = new Thickness(8, 3)
-            };
-
-            var nameLabel = new Label
-            {
-                Text            = p.Name,
-                TextColor       = Colors.White,
-                FontSize        = 14,
-                FontAttributes  = p.IsNextToRotate ? FontAttributes.Bold : FontAttributes.None,
-                VerticalOptions = LayoutOptions.Center
-            };
-            Grid.SetColumn(nameLabel, 0);
-            row.Children.Add(nameLabel);
-
-            var positions = new[] { PlayerPosition.Field, PlayerPosition.Bench, PlayerPosition.Goalie, PlayerPosition.Inactive };
-            for (int col = 1; col <= 4; col++)
-            {
-                var pos     = positions[col - 1];
-                var rb      = new RadioButton { IsChecked = p.Position == pos, HorizontalOptions = LayoutOptions.Center, VerticalOptions = LayoutOptions.Center };
-                var captured = pos;
-                var captured_p = p;
-                rb.CheckedChanged += (s, ev) => { if (ev.Value) _vm?.SetPlayerPosition(captured_p, captured); };
-                Grid.SetColumn(rb, col);
-                row.Children.Add(rb);
-            }
-
-            // Separator line
-            var separator = new BoxView { HeightRequest = 1, Color = Color.FromArgb("#ffffff22"), HorizontalOptions = LayoutOptions.Fill };
-
-            TableStack.Children.Add(row);
-            TableStack.Children.Add(separator);
-        }
-    }
-
-    private static ColumnDefinitionCollection Columns(params string[] widths)
-    {
-        var defs = new ColumnDefinitionCollection();
-        foreach (var w in widths)
-            defs.Add(w == "*"
-                ? new ColumnDefinition { Width = GridLength.Star }
-                : new ColumnDefinition { Width = GridLength.Auto });
-        return defs;
-    }
-
-    private static void AddHeaderCell(Grid grid, string text, int col)
-    {
-        var label = new Label
-        {
-            Text              = text,
-            TextColor         = Colors.White,
-            FontAttributes    = FontAttributes.Bold,
-            FontSize          = 12,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions   = LayoutOptions.Center
-        };
-        Grid.SetColumn(label, col);
-        grid.Children.Add(label);
     }
 
     // ── Keep screen on ────────────────────────────────────────────────────

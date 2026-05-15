@@ -181,7 +181,6 @@ public partial class HelpPage : ContentPage
 
     <h3>🎨 Settings</h3>
     <ul>
-        <li><strong>Log:</strong> View game history, export CSV, share summary</li>
         <li><strong>Skins:</strong> Choose Classic (warm tones) or Modern (high contrast) theme</li>
         <li><strong>Rotation Style:</strong> Customize next-player highlighting:
             <ul>

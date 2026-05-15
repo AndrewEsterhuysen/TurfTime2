@@ -42,34 +42,6 @@
                 </Grid>
             </Frame>
 
-            <!-- Log Option -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="0"
-                   HasShadow="True">
-                <Grid>
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnLogTapped" />
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Padding="20" Spacing="15">
-                        <Label Text="📋" FontSize="32" VerticalOptions="Center" />
-                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Log" 
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   TextColor="White" />
-                            <Label Text="View game session logs and export data" 
-                                   FontSize="14"
-                                   TextColor="#E0E0E0" />
-                        </VerticalStackLayout>
-                        <Label Text="›" 
-                               FontSize="32"
-                               TextColor="White"
-                               VerticalOptions="Center" />
-                    </HorizontalStackLayout>
-                </Grid>
-            </Frame>
-
             <!-- Reports Option -->
             <Frame BackgroundColor="#2e7d32"
                    CornerRadius="10"

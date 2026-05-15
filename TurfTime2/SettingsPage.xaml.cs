@@ -20,19 +20,6 @@ public partial class SettingsPage : ContentPage
         }
     }
 
-    private async void OnLogTapped(object sender, EventArgs e)
-    {
-        try
-        {
-            await Shell.Current.GoToAsync("settings/log");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
-            await DisplayAlert("Error", "Could not navigate to Log page.", "OK");
-        }
-    }
-
     private async void OnReportsTapped(object sender, EventArgs e)
     {
         try

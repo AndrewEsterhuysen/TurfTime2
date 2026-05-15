@@ -13,7 +13,6 @@
 
             // Register routes for navigation from Settings page
             Routing.RegisterRoute("settings/teamdetails", typeof(TeamDetailsPage));
-            Routing.RegisterRoute("settings/log", typeof(LogPage));
             Routing.RegisterRoute("settings/reports", typeof(ReportsPage));
             Routing.RegisterRoute("settings/skins", typeof(SkinsPage));
             Routing.RegisterRoute("settings/rotationstyle", typeof(RotationStylePage));
@@ -44,13 +43,18 @@
             var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
             var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
             bool hasTeam = !string.IsNullOrEmpty(teamMode) && !string.IsNullOrEmpty(teamId);
+            bool isLocal = teamMode == "local";
 
             System.Diagnostics.Debug.WriteLine($"[AppShell] ========================================");
             System.Diagnostics.Debug.WriteLine($"[AppShell] UpdateMenuItemAvailability called");
             System.Diagnostics.Debug.WriteLine($"[AppShell] Team Mode: '{teamMode}'");
             System.Diagnostics.Debug.WriteLine($"[AppShell] Team ID: '{teamId}'");
             System.Diagnostics.Debug.WriteLine($"[AppShell] Has Team: {hasTeam}");
+            System.Diagnostics.Debug.WriteLine($"[AppShell] Is Local: {isLocal}");
             System.Diagnostics.Debug.WriteLine($"[AppShell] Items.Count: {Items.Count}");
+
+            // Hide Chat tab for local teams — chat requires cloud/Firestore.
+            ChatTab.IsVisible = !isLocal;
 
             // Find Game tab in the TabBar
             // Structure: Shell -> Items[0] (TabBar) -> Items (ShellContent)
