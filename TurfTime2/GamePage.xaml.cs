@@ -46,12 +46,18 @@ public partial class GamePage : ContentPage
 
         RotationStylePage.RotationStyleChanged += OnRotationStyleChanged;
         DragState.NativeSwipeReleased += OnNativeSwipeReleased;
+
+        // Re-subscribe every time the page appears (OnDisappearing unsubscribes).
+        if (_vm is not null)
+            _vm.PropertyChanged += OnViewModelPropertyChanged;
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
         SetKeepScreenOn(false);
+        if (_vm is not null)
+            _vm.PropertyChanged -= OnViewModelPropertyChanged;
         RotationStylePage.RotationStyleChanged -= OnRotationStyleChanged;
         DragState.NativeSwipeReleased -= OnNativeSwipeReleased;
     }
@@ -67,6 +73,7 @@ public partial class GamePage : ContentPage
         _vm         = new GameViewModel(timer, logger, cloud);
 
         BindingContext = _vm;
+        _vm.PropertyChanged += OnViewModelPropertyChanged;
 
         Preferences.Set("_gamepage_last_team", teamId);
         await _vm.InitialiseAsync(teamId, userRole);
@@ -579,14 +586,16 @@ public partial class GamePage : ContentPage
     {
         SwipeableRoster.IsVisible = mode == TeamViewMode.Swipeable;
         RotationView.IsVisible    = mode == TeamViewMode.Rotation;
+        UpdateViewButtonText(mode);
     }
 
     private void UpdateViewButtonText(TeamViewMode mode)
     {
+        // Button text shows what view will be shown when pressed
         ViewBtn.Text = mode switch
         {
-            TeamViewMode.Swipeable => "Swipe",
-            _                      => "Rotation"
+            TeamViewMode.Swipeable => "Rotation",
+            _                      => "Team"
         };
     }
 
@@ -604,6 +613,66 @@ public partial class GamePage : ContentPage
                     window.ClearFlags(Android.Views.WindowManagerFlags.KeepScreenOn);
         }
 #endif
+    }
+
+    // ── Rotation alert (vibrate + flash) ─────────────────────────────────
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(GameViewModel.RotationDue) && _vm?.RotationDue == true)
+            _ = TriggerRotationAlertAsync();
+    }
+
+    private async Task TriggerRotationAlertAsync()
+    {
+        // Vibrate immediately — this is off-thread and free.
+        try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(400)); }
+        catch { /* vibration not supported on this device */ }
+
+        // Clear the flag first so the VM can continue (e.g. start the next
+        // countdown) while the animation plays.
+        if (_vm is not null)
+            _vm.RotationDue = false;
+
+        // Yield one frame so the rotation layout rebuild (RefreshDisplayItems +
+        // DragLayoutViewGroup inflate) can complete before we start competing
+        // for the UI thread with six Animate() callbacks.
+        await Task.Delay(200);
+
+        // Flash the page background white three times.
+        await FlashBackgroundAsync();
+    }
+
+    private async Task FlashBackgroundAsync()
+    {
+        var orig = BackgroundColor ?? Colors.Black;
+        float or = (float)orig.Red, og = (float)orig.Green, ob = (float)orig.Blue;
+
+        for (int i = 0; i < 2; i++)
+        {
+            var tcsIn  = new TaskCompletionSource();
+            var tcsOut = new TaskCompletionSource();
+
+            this.Animate("flashIn",
+                callback: t => BackgroundColor = new Color(
+                    or + (1f - or) * (float)t,
+                    og + (1f - og) * (float)t,
+                    ob + (1f - ob) * (float)t),
+                length: 60,
+                finished: (_, _) => tcsIn.TrySetResult());
+            await tcsIn.Task;
+
+            this.Animate("flashOut",
+                callback: t => BackgroundColor = new Color(
+                    1f - (1f - or) * (float)t,
+                    1f - (1f - og) * (float)t,
+                    1f - (1f - ob) * (float)t),
+                length: 60,
+                finished: (_, _) => tcsOut.TrySetResult());
+            await tcsOut.Task;
+        }
+
+        BackgroundColor = orig;
     }
 
     // ── Rotate button animation ───────────────────────────────────────────

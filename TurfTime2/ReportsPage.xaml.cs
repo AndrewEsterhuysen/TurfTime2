@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using TurfTime2.Models;
 
@@ -86,110 +86,59 @@ public partial class ReportsPage : ContentPage
         }
     }
 
-    private async Task LoadLocalSessionsAsync(string teamId)
+    private Task LoadLocalSessionsAsync(string teamId)
     {
         try
         {
-            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Loading local sessions for team: {teamId}");
+            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Loading local sessions from Preferences for team: {teamId}");
 
-            // Load the main index.html page to ensure we have the same localStorage context as GamePage
-#if WINDOWS
-            var indexPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "index.html");
-            ReportWebView.Source = new UrlWebViewSource { Url = indexPath };
-#else
-            ReportWebView.Source = new UrlWebViewSource { Url = "file:///android_asset/wwwroot/index.html" };
-#endif
+            const string SessionHistoryKey = "roster.sessionHistory.v1";
+            var raw = Preferences.Get(SessionHistoryKey, string.Empty);
 
-            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Loading wwwroot/index.html to access localStorage");
-
-            // Wait for the page to fully load
-            await Task.Delay(1500);
-
-            // Get session history from localStorage via JavaScript
-            var script = @"
-                (function() {
-                    try {
-                        const historyKey = 'roster.sessionHistory.v1';
-                        const raw = localStorage.getItem(historyKey);
-                        if (!raw) {
-                            return JSON.stringify({ sessions: [] });
-                        }
-                        return raw;
-                    } catch (error) {
-                        console.error('[ReportsPage] Error loading localStorage:', error);
-                        return JSON.stringify({ sessions: [] });
-                    }
-                })();
-            ";
-
-            var historyJson = await ReportWebView.EvaluateJavaScriptAsync(script);
-
-            if (string.IsNullOrEmpty(historyJson) || historyJson == "null" || historyJson == "\"null\"")
+            if (string.IsNullOrEmpty(raw))
             {
-                System.Diagnostics.Debug.WriteLine($"[ReportsPage] No session history found in localStorage");
+                System.Diagnostics.Debug.WriteLine("[ReportsPage] No session history found in Preferences");
                 ShowNoDataMessage();
-                return;
+                return Task.CompletedTask;
             }
 
-            // Clean up the JSON string
-            historyJson = historyJson.Trim('"').Replace("\\\"", "\"").Replace("\\\\", "\\");
+            var sessions = JsonSerializer.Deserialize<List<TurfTime2.Models.GameSession>>(raw);
 
-            var history = JsonDocument.Parse(historyJson);
-            if (history.RootElement.TryGetProperty("sessions", out var sessions) && 
-                sessions.GetArrayLength() > 0)
+            if (sessions is null || sessions.Count == 0)
             {
-                // Build list of all sessions and cache their data
-                availableReports.Clear();
-                sessionJsonCache.Clear();
+                System.Diagnostics.Debug.WriteLine("[ReportsPage] No sessions found in Preferences history");
+                ShowNoDataMessage();
+                return Task.CompletedTask;
+            }
 
-                foreach (var sessionElement in sessions.EnumerateArray())
+            availableReports.Clear();
+            sessionJsonCache.Clear();
+
+            foreach (var session in sessions)
+            {
+                var summary = new SessionSummary
                 {
-                    var sessionJson = sessionElement.GetRawText();
-                    var session = JsonDocument.Parse(sessionJson);
-                    var root = session.RootElement;
-
-                    if (root.TryGetProperty("sessionId", out var sessionId) &&
-                        root.TryGetProperty("startTime", out var startTime))
-                    {
-                        var summary = new SessionSummary
-                        {
-                            SessionId = sessionId.GetString() ?? "",
-                            StartTime = DateTime.Parse(startTime.GetString() ?? DateTime.Now.ToString())
-                        };
-
-                        // Get duration if available
-                        if (root.TryGetProperty("matchDuration", out var duration))
-                        {
-                            summary.MatchDuration = duration.GetInt32();
-                        }
-
-                        availableReports.Add(summary);
-                        sessionJsonCache[summary.SessionId] = sessionJson;
-                    }
-                }
-
-                System.Diagnostics.Debug.WriteLine($"[ReportsPage] Found {availableReports.Count} local sessions");
-
-                // Populate picker
-                PopulateGamePicker();
-
-                StatusLabel.IsVisible = false;
-                System.Diagnostics.Debug.WriteLine($"[ReportsPage] ✅ Local sessions loaded successfully");
+                    SessionId     = session.SessionId,
+                    StartTime     = session.StartTime.LocalDateTime,
+                    EndTime       = session.EndTime?.LocalDateTime,
+                    MatchDuration = session.MatchDurationSeconds
+                };
+                availableReports.Add(summary);
+                sessionJsonCache[session.SessionId] = JsonSerializer.Serialize(session);
             }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine($"[ReportsPage] No sessions found in history");
-                ShowNoDataMessage();
-            }
+
+            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Found {availableReports.Count} local sessions");
+            PopulateGamePicker();
+            StatusLabel.IsVisible = false;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[ReportsPage] ❌ Error loading local sessions: {ex.Message}");
-            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Stack trace: {ex.StackTrace}");
+            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Error loading local sessions: {ex.Message}");
             ShowNoDataMessage();
         }
-    }
 
+        return Task.CompletedTask;
+    }
     private async Task<bool> LoadCloudSessionsAsync(string teamId)
     {
         try
@@ -361,9 +310,9 @@ public partial class ReportsPage : ContentPage
             sb.AppendLine("        <div class='section-title'>Match Summary</div>");
             sb.AppendLine("        <div class='summary-grid'>");
 
-            if (root.TryGetProperty("startTime", out var startTime))
+            if (root.TryGetProperty("StartTime", out var startTime))
             {
-                var startDate = DateTime.Parse(startTime.GetString());
+                var startDate = DateTime.Parse(startTime.GetString()!);
                 sb.AppendLine($"        <div class='summary-item'>");
                 sb.AppendLine($"            <div class='summary-label'>Date</div>");
                 sb.AppendLine($"            <div class='summary-value'>{startDate:MMM dd, yyyy}</div>");
@@ -372,9 +321,28 @@ public partial class ReportsPage : ContentPage
                 sb.AppendLine($"            <div class='summary-label'>Start Time</div>");
                 sb.AppendLine($"            <div class='summary-value'>{startDate:h:mm tt}</div>");
                 sb.AppendLine($"        </div>");
+
+                // End time and actual match duration
+                if (root.TryGetProperty("EndTime", out var endTimeProp) &&
+                    endTimeProp.ValueKind != JsonValueKind.Null)
+                {
+                    var endDate = DateTime.Parse(endTimeProp.GetString()!);
+                    sb.AppendLine($"        <div class='summary-item'>");
+                    sb.AppendLine($"            <div class='summary-label'>End Time</div>");
+                    sb.AppendLine($"            <div class='summary-value'>{endDate:h:mm tt}</div>");
+                    sb.AppendLine($"        </div>");
+
+                    var actualDuration = endDate - startDate;
+                    var durMin = (int)actualDuration.TotalMinutes;
+                    var durSec = actualDuration.Seconds;
+                    sb.AppendLine($"        <div class='summary-item'>");
+                    sb.AppendLine($"            <div class='summary-label'>Actual Duration</div>");
+                    sb.AppendLine($"            <div class='summary-value'>{durMin}:{durSec:D2}</div>");
+                    sb.AppendLine($"        </div>");
+                }
             }
 
-            if (root.TryGetProperty("matchDuration", out var duration))
+            if (root.TryGetProperty("MatchDurationSeconds", out var duration))
             {
                 var minutes = duration.GetInt32() / 60;
                 sb.AppendLine($"        <div class='summary-item'>");
@@ -383,7 +351,7 @@ public partial class ReportsPage : ContentPage
                 sb.AppendLine($"        </div>");
             }
 
-            if (root.TryGetProperty("location", out var location) && location.ValueKind != JsonValueKind.Null)
+            if (root.TryGetProperty("Location", out var location) && location.ValueKind != JsonValueKind.Null)
             {
                 sb.AppendLine($"        <div class='summary-item'>");
                 sb.AppendLine($"            <div class='summary-label'>Location</div>");
@@ -395,7 +363,7 @@ public partial class ReportsPage : ContentPage
             sb.AppendLine("    </div>");
 
             // Match Timeline Section
-            if (root.TryGetProperty("logs", out var logs) && logs.GetArrayLength() > 0)
+            if (root.TryGetProperty("Events", out var logs) && logs.GetArrayLength() > 0)
             {
                 sb.AppendLine("    <div class='section'>");
                 sb.AppendLine("        <div class='section-title'>Match Timeline</div>");
@@ -404,12 +372,12 @@ public partial class ReportsPage : ContentPage
 
                 foreach (var log in logs.EnumerateArray())
                 {
-                    if (log.TryGetProperty("timestamp", out var timestamp) &&
-                        log.TryGetProperty("description", out var description))
+                    if (log.TryGetProperty("Timestamp", out var timestamp) &&
+                        log.TryGetProperty("Description", out var description))
                     {
                         var time = DateTime.Parse(timestamp.GetString());
                         var desc = description.GetString();
-                        var playerName = log.TryGetProperty("playerName", out var pn) ? pn.GetString() : "";
+                        var playerName = log.TryGetProperty("PlayerName", out var pn) ? pn.GetString() : "";
 
                         sb.AppendLine($"            <tr>");
                         sb.AppendLine($"                <td>{time:HH:mm:ss}</td>");
@@ -424,8 +392,10 @@ public partial class ReportsPage : ContentPage
             }
 
             // Player Statistics Section
-            if (root.TryGetProperty("summary", out var summary) &&
-                summary.TryGetProperty("playerStats", out var playerStats) &&
+            if (root.TryGetProperty("Summary", out var summary) &&
+                summary.ValueKind == JsonValueKind.Object &&
+                summary.TryGetProperty("PlayerStats", out var playerStats) &&
+                playerStats.ValueKind == JsonValueKind.Array &&
                 playerStats.GetArrayLength() > 0)
             {
                 sb.AppendLine("    <div class='section'>");
@@ -435,12 +405,12 @@ public partial class ReportsPage : ContentPage
 
                 foreach (var player in playerStats.EnumerateArray())
                 {
-                    if (player.TryGetProperty("playerName", out var name))
+                    if (player.TryGetProperty("PlayerName", out var name))
                     {
-                        var fieldTime = player.TryGetProperty("timeOnField", out var ft) ? ft.GetInt32() : 0;
-                        var benchTime = player.TryGetProperty("timeOnBench", out var bt) ? bt.GetInt32() : 0;
-                        var rotIn = player.TryGetProperty("rotationsIn", out var ri) ? ri.GetInt32() : 0;
-                        var rotOut = player.TryGetProperty("rotationsOut", out var ro) ? ro.GetInt32() : 0;
+                        var fieldTime = player.TryGetProperty("FieldSeconds", out var ft) ? ft.GetInt32() : 0;
+                        var benchTime = player.TryGetProperty("BenchSeconds", out var bt) ? bt.GetInt32() : 0;
+                        var rotIn = player.TryGetProperty("RotationsIn", out var ri) ? ri.GetInt32() : 0;
+                        var rotOut = player.TryGetProperty("RotationsOut", out var ro) ? ro.GetInt32() : 0;
 
                         var fieldMinutes = fieldTime / 60;
                         var fieldSeconds = fieldTime % 60;

@@ -29,6 +29,7 @@ internal sealed class DragLayoutViewGroup : LayoutViewGroup
     private float _downX;
     private float _downY;
     private bool  _dragLocked;
+    private bool  _slipDetected;
 
     // Token used to cancel a pending long-press timer when the finger moves
     // or lifts before the hold duration has elapsed.
@@ -43,9 +44,10 @@ internal sealed class DragLayoutViewGroup : LayoutViewGroup
             switch (ev.Action)
             {
                 case MotionEventActions.Down:
-                    _downX      = ev.GetX();
-                    _downY      = ev.GetY();
-                    _dragLocked = false;
+                    _downX         = ev.GetX();
+                    _downY         = ev.GetY();
+                    _dragLocked    = false;
+                    _slipDetected  = false;
                     DragState.LongPressConfirmed = false;
 
                     // Cancel any leftover timer from a previous gesture.
@@ -70,14 +72,17 @@ internal sealed class DragLayoutViewGroup : LayoutViewGroup
                     break;
 
                 case MotionEventActions.Move:
-                    // If the timer hasn't fired yet and the finger has slipped,
-                    // cancel: the user is scrolling, not dragging.
-                    if (!DragState.LongPressConfirmed)
+                    // Only check while waiting for the long-press timer and before
+                    // a slip was already detected. Once either condition is true we
+                    // have nothing further to do on every subsequent MOVE event —
+                    // avoiding 200+ Debug.WriteLine calls per gesture on the UI thread.
+                    if (!_slipDetected && !DragState.LongPressConfirmed)
                     {
                         float dx = Math.Abs(ev.GetX() - _downX);
                         float dy = Math.Abs(ev.GetY() - _downY);
                         if (dx > SlipThresholdDp || dy > SlipThresholdDp)
                         {
+                            _slipDetected = true;
                             CancelLongPressTimer();
                             System.Diagnostics.Debug.WriteLine(
                                 $"[DragLayoutViewGroup] 🔓 Finger slipped (dx={dx:F1} dy={dy:F1}) — timer cancelled, scrolling");

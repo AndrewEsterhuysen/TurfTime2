@@ -289,16 +289,27 @@
                   RowDefinitions="Auto,*"
                   ColumnDefinitions="80,*,80">
 
-                <Button Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
-                        x:Name="TeamAScoreBtn"
-                        Text="{Binding TeamAScore, StringFormat='Us&#10;{0}'}"
-                        BackgroundColor="{StaticResource FieldColor}"
-                        TextColor="White"
-                        FontSize="22"
-                        FontAttributes="Bold"
-                        VerticalOptions="Fill"
-                        Clicked="OnTeamAScoreClicked"
-                        IsVisible="{Binding ScoresVisible}" />
+                <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
+                      x:Name="TeamAScoreBtn"
+                      BackgroundColor="{StaticResource FieldColor}"
+                      IsVisible="{Binding ScoresVisible}">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnTeamAScoreClicked" />
+                    </Grid.GestureRecognizers>
+                    <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="4">
+                        <Label Text="Us"
+                               TextColor="White"
+                               FontSize="14"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center"
+                               Rotation="-90" />
+                        <Label Text="{Binding TeamAScore}"
+                               TextColor="White"
+                               FontSize="22"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Grid>
 
                 <StackLayout Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
                              VerticalOptions="Center"
@@ -307,7 +318,7 @@
                     <Label Text="Next Rotation"
                            TextColor="White"
                            FontAttributes="Bold"
-                           FontSize="18"
+                           FontSize="22"
                            HorizontalOptions="Center"
                            Margin="0,0,0,8" />
                     <CollectionView x:Name="RotationPairsView"
@@ -317,16 +328,30 @@
                             <DataTemplate x:DataType="models:RotationPair">
                                 <VerticalStackLayout Spacing="0" Margin="4,4,4,8">
                                     <!-- Bench player coming ON — left aligned -->
-                                    <Label Text="{Binding BenchPlayerName, StringFormat='💺 {0}  ➜ on'}"
-                                           TextColor="#bbdefb"
-                                           FontSize="16"
+                                    <Label TextColor="#bbdefb"
+                                           FontSize="20"
                                            FontAttributes="Bold"
-                                           HorizontalOptions="Start" />
+                                           HorizontalOptions="Start">
+                                        <Label.FormattedText>
+                                            <FormattedString>
+                                                <Span Text="&#x1F6CB; " />
+                                                <Span Text="{Binding BenchPlayerName}" />
+                                                <Span Text="  on" />
+                                            </FormattedString>
+                                        </Label.FormattedText>
+                                    </Label>
                                     <!-- Field player coming OFF — right aligned -->
-                                    <Label Text="{Binding FieldPlayerName, StringFormat='off ➜  ⚽ {0}'}"
-                                           TextColor="#ffccbc"
-                                           FontSize="16"
-                                           HorizontalOptions="End" />
+                                    <Label TextColor="#ffccbc"
+                                           FontSize="20"
+                                           HorizontalOptions="End">
+                                        <Label.FormattedText>
+                                            <FormattedString>
+                                                <Span Text="off  " />
+                                                <Span Text="&#x26BD; " />
+                                                <Span Text="{Binding FieldPlayerName}" />
+                                            </FormattedString>
+                                        </Label.FormattedText>
+                                    </Label>
                                 </VerticalStackLayout>
                             </DataTemplate>
                         </CollectionView.ItemTemplate>
@@ -338,16 +363,27 @@
                     </CollectionView>
                 </StackLayout>
 
-                <Button Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
-                        x:Name="TeamBScoreBtn"
-                        Text="{Binding TeamBScore, StringFormat='Them&#10;{0}'}"
-                        BackgroundColor="#c62828"
-                        TextColor="White"
-                        FontSize="22"
-                        FontAttributes="Bold"
-                        VerticalOptions="Fill"
-                        Clicked="OnTeamBScoreClicked"
-                        IsVisible="{Binding ScoresVisible}" />
+                <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                      x:Name="TeamBScoreBtn"
+                      BackgroundColor="#c62828"
+                      IsVisible="{Binding ScoresVisible}">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnTeamBScoreClicked" />
+                    </Grid.GestureRecognizers>
+                    <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="4">
+                        <Label Text="Them"
+                               TextColor="White"
+                               FontSize="14"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center"
+                               Rotation="-90" />
+                        <Label Text="{Binding TeamBScore}"
+                               TextColor="White"
+                               FontSize="22"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Grid>
             </Grid>
 
         </Grid>
@@ -384,7 +420,7 @@
 
             <Button Grid.Column="2"
                     x:Name="ViewBtn"
-                    Text="Swipe"
+                    Text="Rotation"
                     BackgroundColor="{StaticResource CardBg}"
                     TextColor="White"
                     FontSize="13"

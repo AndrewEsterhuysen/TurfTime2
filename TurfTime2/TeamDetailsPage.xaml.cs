@@ -87,7 +87,7 @@ public partial class TeamDetailsPage : ContentPage
 			JoinTeamSection.IsVisible = true;
 			RejoinAdminSection.IsVisible = true;
 			LocalTeamSection.IsVisible = false;
-			LoadSharedTeams();
+			_ = LoadSharedTeamsAsync();
 		}
 		else
 		{
@@ -105,7 +105,7 @@ public partial class TeamDetailsPage : ContentPage
 			SharedCheckbox.IsChecked = false;
 			LocalTeamSection.IsVisible = true;
 			JoinTeamSection.IsVisible = false;
-			LoadLocalTeams();
+			_ = LoadLocalTeamsAsync();
 		}
 		else
 		{
@@ -136,59 +136,49 @@ public partial class TeamDetailsPage : ContentPage
 		CreateLocalSection.IsVisible = isLocal;
 	}
 
-	private void LoadLocalTeams()
+	private async Task LoadLocalTeamsAsync()
 	{
-		var teamListJson = Preferences.Get("local_team_id_list", "[]");
-
 		try
 		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Loading local teams...");
+			System.Diagnostics.Debug.WriteLine("[TeamDetails] Loading local teams...");
 
-			var teamIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(teamListJson) ?? new List<string>();
-			var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
-			var currentTeamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
-
-			// Create new list instead of clearing to force Android CollectionView refresh
-			var newTeams = new List<LocalTeamItem>();
-
-			foreach (var teamId in teamIds)
+			// Read from Preferences on a background thread to avoid blocking the UI thread.
+			var newTeams = await Task.Run(() =>
 			{
-				var teamName = Preferences.Get($"{teamId}_name", string.Empty);
-				if (!string.IsNullOrEmpty(teamName))
-				{
-					newTeams.Add(new LocalTeamItem
-					{
-						TeamId = teamId,
-						TeamName = teamName,
-						IsActive = currentTeamMode == "local" && currentTeamId == teamId
-					});
-				}
-			}
+				var teamListJson = Preferences.Get("local_team_id_list", "[]");
+				var teamIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(teamListJson) ?? [];
+				var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+				var currentTeamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
 
-			// Clear and re-add all items to trigger proper UI update on Android
+				var result = new List<LocalTeamItem>();
+				foreach (var teamId in teamIds)
+				{
+					var teamName = Preferences.Get($"{teamId}_name", string.Empty);
+					if (!string.IsNullOrEmpty(teamName))
+					{
+						result.Add(new LocalTeamItem
+						{
+							TeamId = teamId,
+							TeamName = teamName,
+							IsActive = currentTeamMode == "local" && currentTeamId == teamId
+						});
+					}
+				}
+				return result;
+			}).ConfigureAwait(true); // resume on the UI thread for collection/UI updates
+
+			// Batch all ObservableCollection changes — each Add fires a layout pass on Android.
 			_localTeams.Clear();
 			foreach (var team in newTeams)
-			{
 				_localTeams.Add(team);
-			}
 
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Found {_localTeams.Count} local teams");
 
-			// Show team switcher if there are teams
-			if (_localTeams.Count > 0)
-			{
-				// Update label with team count badge
-				LocalTeamSwitcherLabel.Text = $"Your Teams ({_localTeams.Count})";
-				LocalTeamsCollection.IsVisible = true;
-				LocalTeamSwitcherLabel.IsVisible = true;
-				TeamSeparator.IsVisible = true; // Show separator between existing teams and create section
-			}
-			else
-			{
-				LocalTeamsCollection.IsVisible = false;
-				LocalTeamSwitcherLabel.IsVisible = false;
-				TeamSeparator.IsVisible = false; // Hide separator when no teams exist
-			}
+			var hasTeams = _localTeams.Count > 0;
+			LocalTeamSwitcherLabel.Text = hasTeams ? $"Your Teams ({_localTeams.Count})" : string.Empty;
+			LocalTeamsCollection.IsVisible = hasTeams;
+			LocalTeamSwitcherLabel.IsVisible = hasTeams;
+			TeamSeparator.IsVisible = hasTeams;
 		}
 		catch (Exception ex)
 		{
@@ -196,36 +186,39 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
-	private void LoadSharedTeams()
+	private async Task LoadSharedTeamsAsync()
 	{
-		var teamListJson = Preferences.Get("team_id_list", "[]");
-
 		try
 		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Loading shared teams...");
+			System.Diagnostics.Debug.WriteLine("[TeamDetails] Loading shared teams...");
 
-			var teamIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(teamListJson) ?? new List<string>();
-			var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
-			var currentTeamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
-
-			var newTeams = new List<SharedTeamItem>();
-
-			foreach (var teamId in teamIds)
+			// Read from Preferences on a background thread to avoid blocking the UI thread.
+			var newTeams = await Task.Run(() =>
 			{
-				var teamName = Preferences.Get($"{teamId}_name", string.Empty);
-				if (!string.IsNullOrEmpty(teamName))
+				var teamListJson = Preferences.Get("team_id_list", "[]");
+				var teamIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(teamListJson) ?? [];
+				var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+				var currentTeamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+
+				var result = new List<SharedTeamItem>();
+				foreach (var teamId in teamIds)
 				{
-					var isActive = currentTeamMode == "shared" && currentTeamId == teamId;
-					var role = Preferences.Get($"{teamId}_role", "member");
-					newTeams.Add(new SharedTeamItem
+					var teamName = Preferences.Get($"{teamId}_name", string.Empty);
+					if (!string.IsNullOrEmpty(teamName))
 					{
-						TeamId = teamId,
-						TeamName = teamName,
-						IsActive = isActive,
-						Role = char.ToUpperInvariant(role[0]) + role[1..]
-					});
+						var isActive = currentTeamMode == "shared" && currentTeamId == teamId;
+						var role = Preferences.Get($"{teamId}_role", "member");
+						result.Add(new SharedTeamItem
+						{
+							TeamId = teamId,
+							TeamName = teamName,
+							IsActive = isActive,
+							Role = char.ToUpperInvariant(role[0]) + role[1..]
+						});
+					}
 				}
-			}
+				return result;
+			}).ConfigureAwait(true); // resume on the UI thread for collection/UI updates
 
 			_sharedTeams.Clear();
 			foreach (var team in newTeams)
@@ -233,19 +226,11 @@ public partial class TeamDetailsPage : ContentPage
 
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Found {_sharedTeams.Count} shared teams");
 
-			if (_sharedTeams.Count > 0)
-			{
-				SharedTeamSwitcherLabel.Text = $"Your Shared Teams ({_sharedTeams.Count})";
-				SharedTeamsCollection.IsVisible = true;
-				SharedTeamSwitcherLabel.IsVisible = true;
-				SharedTeamSeparator.IsVisible = true;
-			}
-			else
-			{
-				SharedTeamsCollection.IsVisible = false;
-				SharedTeamSwitcherLabel.IsVisible = false;
-				SharedTeamSeparator.IsVisible = false;
-			}
+			var hasTeams = _sharedTeams.Count > 0;
+			SharedTeamSwitcherLabel.Text = hasTeams ? $"Your Shared Teams ({_sharedTeams.Count})" : string.Empty;
+			SharedTeamsCollection.IsVisible = hasTeams;
+			SharedTeamSwitcherLabel.IsVisible = hasTeams;
+			SharedTeamSeparator.IsVisible = hasTeams;
 		}
 		catch (Exception ex)
 		{
@@ -286,7 +271,7 @@ public partial class TeamDetailsPage : ContentPage
 				"OK");
 
 			LoadCurrentTeam();
-			LoadSharedTeams();
+			_ = LoadSharedTeamsAsync();
 		});
 	}
 
@@ -348,7 +333,7 @@ public partial class TeamDetailsPage : ContentPage
 
 				// Refresh UI AFTER dialog closes to ensure it's visible
 				LoadCurrentTeam();
-				LoadLocalTeams();
+				_ = LoadLocalTeamsAsync();
 
 				// Force reload Game page if user is currently on it or will navigate to it
 					var gamePage = FindGamePage();
@@ -684,7 +669,7 @@ public partial class TeamDetailsPage : ContentPage
 			}
 
 			// Refresh team list to show new name
-			LoadLocalTeams();
+			_ = LoadLocalTeamsAsync();
 
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✅ Team renamed successfully");
 
@@ -749,7 +734,7 @@ public partial class TeamDetailsPage : ContentPage
 			}
 
 			// Refresh team list
-			LoadLocalTeams();
+			_ = LoadLocalTeamsAsync();
 		}
 		catch (Exception ex)
 		{
@@ -1276,7 +1261,7 @@ private void RegisterTeamId(string teamId)
 						SyncTeamIdToLocalStorage(restoredTeamId);
 						RefreshAppShellMenu();
 						LoadCurrentTeam();
-						LoadSharedTeams();
+						_ = LoadSharedTeamsAsync();
 
 						AdminRejoinTeamIdEntry.Text = string.Empty;
 						AdminRejoinCodeEntry.Text = string.Empty;
@@ -1687,7 +1672,7 @@ private void RegisterTeamId(string teamId)
 				"OK");
 
 			LoadCurrentTeam();
-			LoadLocalTeams();
+			_ = LoadLocalTeamsAsync();
 			LocalTeamNameEntry.Text = string.Empty;
 
 			// Force reload Game page on next navigation

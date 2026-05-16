@@ -70,6 +70,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _logger = logger;
         _cloud  = cloud;
 
+        // Restore countdown preset persisted from the previous session.
+        var savedCountdown = Preferences.Get("game.countdownPresetSeconds", 0);
+        if (savedCountdown > 0)
+            _timer.CountdownPresetSeconds = savedCountdown;
+
         // Build default 16-player roster
         for (int i = 1; i <= 16; i++)
             Players.Add(new Player { Name = $"Player {i}" });
@@ -263,10 +268,22 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 return;
 
             case GamePhase.HalfTime:
-                _timer.StartSecondHalf();
-                _logger.Log(GameEventType.HalfTime, "Half-time");
-                _logger.Log(GameEventType.SecondHalfStarted, "Second half started");
-                StartButtonText = "Resume";
+                if (_timer.TimerRunning)
+                {
+                    // User pressed "1/2 Time" — stop the timers for the break.
+                    _timer.PauseMatch();
+                    _logger.Log(GameEventType.HalfTime, "Half-time");
+                    StartButtonText = "Resume";
+                }
+                else
+                {
+                    // User pressed "Resume" — start the second half.
+                    _timer.StartSecondHalf();
+                    _timer.ResumeMatch();
+                    _timer.ResetCountdown(continueRunning: true);
+                    _logger.Log(GameEventType.SecondHalfStarted, "Second half started");
+                    StartButtonText = "Pause";
+                }
                 UpdateTimerLabelText();
                 return;
 
@@ -482,7 +499,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     public void SetCountdownPreset(int minutes, int seconds)
     {
-        _timer.CountdownPresetSeconds = minutes * 60 + seconds;
+        var totalSeconds = minutes * 60 + seconds;
+        _timer.CountdownPresetSeconds = totalSeconds;
+        Preferences.Set("game.countdownPresetSeconds", totalSeconds);
         _timer.ResetCountdown(continueRunning: _timer.TimerRunning);
         UpdateCountdownDisplay();
         _ = AutoSaveAsync();
@@ -627,6 +646,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _timer.StartMatch();
+        System.Diagnostics.Debug.WriteLine($"[GameViewModel] ▶️ Match started/resumed — Phase={Phase} TimerRunning={_timer.TimerRunning}");
         StartButtonText = "Pause";
         UpdateTimerLabelText();
         OnPropertyChanged(nameof(ScoresVisible));
@@ -855,6 +875,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnHalfTimeReached(object? sender, EventArgs e)
     {
+        // Timers keep running; the button changes to "1/2 Time" so the user
+        // can choose when to take the break.
         StartButtonText = "1/2 Time";
         UpdateTimerLabelText();
         OnPropertyChanged(nameof(Phase));
@@ -886,8 +908,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     private void UpdateCountdownDisplay()
     {
-        var r = _timer.CountdownRemainingSeconds;
-        CountdownDisplay = $"{r / 60}:{r % 60:D2}";
+        var r   = _timer.CountdownRemainingSeconds;
+        var abs  = Math.Abs(r);
+        var sign = r < 0 ? "-" : string.Empty;
+        CountdownDisplay = $"{sign}{abs / 60}:{abs % 60:D2}";
     }
 
     private void UpdateTimerLabelText()

@@ -36,7 +36,11 @@ public sealed class Player : INotifyPropertyChanged
     public int FieldSeconds
     {
         get => _fieldSeconds;
-        set => SetField(ref _fieldSeconds, value);
+        set
+        {
+            if (SetField(ref _fieldSeconds, value))
+                OnPropertyChanged(nameof(FieldTimeDisplay));
+        }
     }
 
     /// <summary>Highlighted as the next player to rotate in/out.</summary>

@@ -150,7 +150,10 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
             if (Phase == GamePhase.FirstHalf)
             {
                 Phase = GamePhase.HalfTime;
-                PauseMatch(); // pause; user must click to start 2nd half
+                // Reset countdown to preset and keep it running so it counts
+                // through zero into negative — showing half-time overtime.
+                CountdownRemainingSeconds = CountdownPresetSeconds;
+                _countdownRunning = true;
                 HalfTimeReached?.Invoke(this, EventArgs.Empty);
             }
             else if (Phase == GamePhase.SecondHalf)
@@ -162,12 +165,15 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
         }
 
         // ── Countdown timer ───────────────────────────────────────────────
-        if (_countdownRunning && CountdownRemainingSeconds > 0)
+        if (_countdownRunning)
         {
             CountdownRemainingSeconds--;
             CountdownTickOccurred?.Invoke(this, CountdownRemainingSeconds);
 
-            if (CountdownRemainingSeconds == 0)
+            // During half-time the countdown runs into negative (showing overtime).
+            // RotationDue is not fired and the countdown does not stop until the
+            // user presses the 1/2 Time button to start the second half.
+            if (CountdownRemainingSeconds == 0 && Phase != GamePhase.HalfTime)
             {
                 _countdownRunning = false;
                 RotationDue?.Invoke(this, EventArgs.Empty);
