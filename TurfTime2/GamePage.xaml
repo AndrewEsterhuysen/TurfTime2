@@ -22,6 +22,7 @@
         <conv:NextToBorderColorConverter  x:Key="NextToBorderColor" />
         <conv:NextToBorderThicknessConverter x:Key="NextToBorderThickness" />
         <conv:NextToArrowConverter        x:Key="NextToArrow" />
+        <conv:BoolToOpacityConverter      x:Key="BoolToOpacity" />
 
         <!-- ── Player row template for VIEW_A ── -->
         <DataTemplate x:Key="PlayerRowTemplate" x:DataType="models:Player">
@@ -35,11 +36,11 @@
                 The ☰ label is a visual cue only — no child gesture recognizer.
             -->
             <local:DragRow Spacing="0">
-                <!-- Gold insertion-point indicator — visible only when IsDragTarget -->
+                <!-- Gold insertion-point indicator — always 3dp tall; opacity avoids layout reflow -->
                 <BoxView HeightRequest="3"
                          Color="#FFD700"
-                         IsVisible="{Binding IsDragTarget}"
-                         HorizontalOptions="Fill" />
+                         HorizontalOptions="Fill"
+                         Opacity="{Binding IsDragTarget, Converter={StaticResource BoolToOpacity}}" />
 
                 <Grid ColumnDefinitions="0.15*,0.7*,0.15*">
                     <Grid.GestureRecognizers>
@@ -51,6 +52,12 @@
                             StrokeShape="RoundRectangle 0"
                             BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
                             Margin="0,1,0,0">
+                        <Border.Triggers>
+                            <!-- Dim the row while it is being dragged so it stands out as the grabbed item -->
+                            <DataTrigger TargetType="Border" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </DataTrigger>
+                        </Border.Triggers>
                         <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto"
                               Padding="4,9">
                             <!-- Drag handle (visual only — gesture is on the outer Grid) -->
@@ -59,7 +66,14 @@
                                    TextColor="#88ffffff"
                                    FontSize="18"
                                    VerticalOptions="Center"
-                                   Margin="0,0,6,0" />
+                                   Margin="0,0,6,0">
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                        <Setter Property="TextColor" Value="#FF6B35" />
+                                        <Setter Property="FontSize" Value="22" />
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
                             <!-- Position icon: ⚽ 💺 🥅 ❌ -->
                             <Label Grid.Column="1"
                                    Text="{Binding PositionIcon}"

@@ -14,6 +14,7 @@ public sealed class Player : INotifyPropertyChanged
     private int _fieldSeconds;
     private bool _isNextToRotate;
     private bool _isDragTarget;
+    private bool _isDragging;
 
     public string Name
     {
@@ -50,6 +51,13 @@ public sealed class Player : INotifyPropertyChanged
     {
         get => _isDragTarget;
         set => SetField(ref _isDragTarget, value);
+    }
+
+    /// <summary>True while this row is being actively dragged by the user.</summary>
+    public bool IsDragging
+    {
+        get => _isDragging;
+        set => SetField(ref _isDragging, value);
     }
 
     public string PositionIcon => Position switch

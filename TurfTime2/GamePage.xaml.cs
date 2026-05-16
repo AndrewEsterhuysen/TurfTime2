@@ -45,6 +45,7 @@ public partial class GamePage : ContentPage
         }
 
         RotationStylePage.RotationStyleChanged += OnRotationStyleChanged;
+        DragState.NativeSwipeReleased += OnNativeSwipeReleased;
     }
 
     protected override void OnDisappearing()
@@ -52,6 +53,7 @@ public partial class GamePage : ContentPage
         base.OnDisappearing();
         SetKeepScreenOn(false);
         RotationStylePage.RotationStyleChanged -= OnRotationStyleChanged;
+        DragState.NativeSwipeReleased -= OnNativeSwipeReleased;
     }
 
     // ── ViewModel factory ─────────────────────────────────────────────────
@@ -77,6 +79,38 @@ public partial class GamePage : ContentPage
     {
         if (_vm is null) return;
         _vm.UpdateRotationStyle(style);
+    }
+
+    // Fallback for when MAUI's PanGestureRecognizer drops the Completed event
+    // (e.g. the finger exits the view bounds during a fast swipe on Android).
+    // The native layer fires NativeSwipeReleased on every ACTION_UP/CANCEL that
+    // was NOT a confirmed drag, so we check _panRow before acting.
+    private void OnNativeSwipeReleased()
+    {
+        if (_panRow is null) return; // MAUI already delivered Completed — nothing to do
+
+        var row    = _panRow;
+        var player = _panPlayer;
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[DRAG] 🛡️ NativeSwipeReleased fallback — MAUI dropped Completed for '{player?.Name}'. " +
+            $"Snapping row back from TranslationX={row.TranslationX:F1}");
+
+        // Run on the UI thread; native callbacks arrive on the Android touch thread.
+        Dispatcher.Dispatch(() =>
+        {
+            if (_panIntent == PanIntent.Swipe)
+                CommitSwipe(row, player!);
+            else
+                _ = row.TranslateTo(0, 0, 180, Easing.SpringOut);
+
+            if (player is not null) player.IsDragging = false;
+            ClearDragIndicator();
+            _panRow    = null;
+            _panPlayer = null;
+            _panIntent = PanIntent.Unknown;
+            DragState.LongPressConfirmed = false;
+        });
     }
 
     // ── Unified pan handler ───────────────────────────────────────────────
@@ -145,6 +179,7 @@ public partial class GamePage : ContentPage
                         $"[DRAG] ⚠️ Started fired while _panRow was still set (orphaned state). Cleaning up previous row '{_panPlayer?.Name}'.");
                     _panRow.TranslationX = 0;
                     _panRow.TranslationY = 0;
+                    if (_panPlayer is not null) _panPlayer.IsDragging = false;
                     ClearDragIndicator();
                     _panRow    = null;
                     _panPlayer = null;
@@ -166,6 +201,7 @@ public partial class GamePage : ContentPage
 
             case GestureStatus.Running:
                 if (_panRow is null || _panPlayer is null) return;
+
                 // Always operate on the locked row — the sender may be a different
                 // row if the finger slides between items on Android.
                 var activeRow    = _panRow;
@@ -200,19 +236,35 @@ public partial class GamePage : ContentPage
                     else
                     {
                         _panIntent = Math.Abs(totalX) >= Math.Abs(totalY) * SwipeDragBias
-                            ? PanIntent.Swipe
-                            : PanIntent.Drag;
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[DRAG] 🎯 Intent decided: {_panIntent} — " +
-                            $"TotalX={totalX:F1} TotalY={totalY:F1} bias={SwipeDragBias} " +
-                            $"absX={Math.Abs(totalX):F1} vs absY*bias={Math.Abs(totalY) * SwipeDragBias:F1}");
-                    }
+                                ? PanIntent.Swipe
+                                : PanIntent.Drag;
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[DRAG] 🎯 Intent decided: {_panIntent} — " +
+                                $"TotalX={totalX:F1} TotalY={totalY:F1} bias={SwipeDragBias} " +
+                                $"absX={Math.Abs(totalX):F1} vs absY*bias={Math.Abs(totalY) * SwipeDragBias:F1}");
+                        }
 
-                    // Seed prev values at commit point so the first delta is zero
-                    // and the row begins translating smoothly from its resting position.
-                    _prevTotalX = totalX;
-                    _prevTotalY = totalY;
-                    _dragTotalY = 0;
+                        // Drag requires long-press confirmation; swipe does not.
+                        // If drag intent was detected but the user hasn't held long enough,
+                        // discard this gesture — the parent scroller handles it.
+                        if (_panIntent == PanIntent.Drag && !DragState.LongPressConfirmed)
+                        {
+                            System.Diagnostics.Debug.WriteLine("[DRAG] ⏳ Drag intent but long-press not confirmed — discarding");
+                            _panRow    = null;
+                            _panPlayer = null;
+                            _panIntent = PanIntent.Unknown;
+                            break;
+                        }
+
+                        // Seed prev values at commit point so the first delta is zero
+                        // and the row begins translating smoothly from its resting position.
+                        _prevTotalX = totalX;
+                        _prevTotalY = totalY;
+                        _dragTotalY = 0;
+
+                        // Arm the visual drag indicator on the source row.
+                        if (_panIntent == PanIntent.Drag && activePlayer is not null)
+                            activePlayer.IsDragging = true;
                 }
 
                 // Per-frame delta — immune to layout shifts caused by BoxView
@@ -269,6 +321,7 @@ public partial class GamePage : ContentPage
                 if (_panIntent == PanIntent.Drag)
                 {
                     endRow.TranslationY = 0;
+                    if (endPlayer is not null) endPlayer.IsDragging = false;
 
                     if (e.StatusType == GestureStatus.Completed
                         && _dragTargetIndex != _dragFromIndex
@@ -291,6 +344,7 @@ public partial class GamePage : ContentPage
                 _panRow    = null;
                 _panPlayer = null;
                 _panIntent = PanIntent.Unknown;
+                DragState.LongPressConfirmed = false;
                 break;
         }
     }
@@ -316,15 +370,19 @@ public partial class GamePage : ContentPage
                 ? PlayerPosition.Inactive
                 : PlayerPosition.Bench);
 
-        // Apply the change BEFORE animating so the recycled/rebound view
-        // already has the correct color when it snaps back — no off-screen hang.
-        _vm?.SetPlayerPosition(player, newPosition);
-
-        // Brief overshoot in the swipe direction then spring to centre.
+        // Start the visual animation immediately, then apply the state change
+        // on the next frame so MarkNextPlayers/RefreshDisplayItems (up to 50 ms)
+        // never blocks the animation from starting.
         double bump = swipeLeft ? -30 : 30;
+        var capturedPlayer  = player;
+        var capturedPosition = newPosition;
+        var capturedVm = _vm;
         _ = row.TranslateTo(bump, 0, 60, Easing.CubicOut)
-               .ContinueWith(_ => Dispatcher.Dispatch(
-                   () => row.TranslateTo(0, 0, 140, Easing.SpringOut)));
+               .ContinueWith(_ => Dispatcher.Dispatch(() =>
+               {
+                   capturedVm?.SetPlayerPosition(capturedPlayer, capturedPosition);
+                   _ = row.TranslateTo(0, 0, 140, Easing.SpringOut);
+               }));
     }
 
     private void UpdateDragIndicator(Player dragging, double totalY)

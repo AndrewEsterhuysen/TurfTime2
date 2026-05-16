@@ -61,3 +61,12 @@ public sealed class NextToArrowConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
         => throw new NotSupportedException();
 }
+
+/// <summary>bool -> 1.0 (true) or 0.0 (false), used to toggle visibility without layout reflow.</summary>
+public sealed class BoolToOpacityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+        => value is true ? 1.0 : 0.0;
+    public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+        => throw new NotSupportedException();
+}
