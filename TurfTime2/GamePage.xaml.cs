@@ -35,6 +35,7 @@ public partial class GamePage : ContentPage
             Preferences.Set("_gamepage_last_team", teamId);
             await _vm.InitialiseAsync(teamId, userRole);
             ApplyViewMode(_vm.ViewMode);
+            await WarmUpRosterRowsAsync();
         }
 
         // Re-read rotation style preference whenever the page appears
@@ -78,6 +79,34 @@ public partial class GamePage : ContentPage
         Preferences.Set("_gamepage_last_team", teamId);
         await _vm.InitialiseAsync(teamId, userRole);
         ApplyViewMode(_vm.ViewMode);
+
+        // Warm up the CollectionView's RecyclerView row handlers so that
+        // the first Rotate doesn't pay the DragLayoutViewGroup inflation
+        // cost (which causes frame jank at rotation time).
+        await WarmUpRosterRowsAsync();
+    }
+
+    /// <summary>
+    /// Forces the RecyclerView to inflate all visible DragRow native views
+    /// at startup, avoiding first-rotation jank caused by lazy inflation.
+    /// </summary>
+    private async Task WarmUpRosterRowsAsync()
+    {
+        if (_vm is null || _vm.DisplayItems.Count == 0) return;
+
+        // Wait one frame for the layout pass to complete, then trigger a
+        // scroll to the end and back to ensure all visible rows are inflated.
+        await Task.Yield();
+
+        var roster = SwipeableRoster;
+        if (!roster.IsVisible || _vm.DisplayItems.Count == 0) return;
+
+        int last = _vm.DisplayItems.Count - 1;
+        roster.ScrollTo(last, position: ScrollToPosition.End,   animate: false);
+        await Task.Yield();
+        roster.ScrollTo(0,    position: ScrollToPosition.Start, animate: false);
+
+        System.Diagnostics.Debug.WriteLine($"[GamePage] 🔥 Roster rows warmed up ({_vm.DisplayItems.Count} items)");
     }
 
     // ── Rotation style event ──────────────────────────────────────────────
@@ -92,9 +121,24 @@ public partial class GamePage : ContentPage
     // (e.g. the finger exits the view bounds during a fast swipe on Android).
     // The native layer fires NativeSwipeReleased on every ACTION_UP/CANCEL that
     // was NOT a confirmed drag, so we check _panRow before acting.
+    //
+    // _nativeReleaseHandled is a one-shot guard: Android can deliver both
+    // ACTION_UP and ACTION_CANCEL for the same gesture, causing double-fires.
+    // The first arrival claims the token; the second sees it taken and returns.
+    private volatile bool _nativeReleaseHandled;
+
     private void OnNativeSwipeReleased()
     {
         if (_panRow is null) return; // MAUI already delivered Completed — nothing to do
+
+        // Claim the one-shot token. If another native callback already claimed it,
+        // this is a duplicate UP/CANCEL for the same gesture — ignore it.
+        if (_nativeReleaseHandled)
+        {
+            System.Diagnostics.Debug.WriteLine("[DRAG] 🛡️ NativeSwipeReleased — duplicate UP/CANCEL, ignoring.");
+            return;
+        }
+        _nativeReleaseHandled = true;
 
         var row    = _panRow;
         var player = _panPlayer;
@@ -136,7 +180,9 @@ public partial class GamePage : ContentPage
     private Player?    _panPlayer;
     private PanIntent  _panIntent;
 
-    // Drag state.
+    // Drag state — these are DisplayItems (visual) indices, NOT Players indices.
+    // Players is kept in insertion order; DisplayItems is sorted Field→Goalie→Bench.
+    // We convert to Players indices only when calling ReorderPlayer.
     private int      _dragFromIndex;
     private int      _dragTargetIndex;
     private double   _rowHeight = 52;
@@ -197,12 +243,25 @@ public partial class GamePage : ContentPage
                 _panPlayer = player;
                 _panIntent = PanIntent.Unknown;
                 _panRunningCount = 0;
-                _dragFromIndex   = _vm.Players.IndexOf(player);
+                _nativeReleaseHandled = false; // reset one-shot guard for this new gesture
+                // Capture actual row height from the live view so drag threshold
+                // arithmetic matches the real pixel-to-dp row size. Fall back to
+                // the default only if the height hasn't been measured yet (first frame).
+                if (row.Height > 0)
+                    _rowHeight = row.Height;
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DRAG] 📏 Row height captured: {_rowHeight:F1} dp (view.Height={row.Height:F1})");
+                // Use the visual (DisplayItems) index so drag arithmetic matches what the user sees.
+                int visualFrom = -1;
+                for (int vi = 0; vi < _vm.DisplayItems.Count; vi++)
+                    if (ReferenceEquals(_vm.DisplayItems[vi], player)) { visualFrom = vi; break; }
+                _dragFromIndex   = visualFrom;
                 _dragTargetIndex = _dragFromIndex;
                 _prevTotalX = 0;
                 _prevTotalY = 0;
                 System.Diagnostics.Debug.WriteLine(
-                    $"[DRAG] ✅ Started — player='{player.Name}' fromIndex={_dragFromIndex} " +
+                    $"[DRAG] ✅ Started — player='{player.Name}' visualFromIndex={_dragFromIndex} " +
+                    $"playersIndex={_vm.Players.IndexOf(player)} displayCount={_vm.DisplayItems.Count} " +
                     $"rowHeight={_rowHeight:F1} DragOnlyMode={DragOnlyMode}");
                 break;
 
@@ -302,7 +361,7 @@ public partial class GamePage : ContentPage
                         System.Diagnostics.Debug.WriteLine(
                             $"[DRAG] 📍 Dragging '{activePlayer.Name}' — " +
                             $"dy={dy:F1} TranslationY={activeRow.TranslationY:F1} dragTotalY={_dragTotalY:F1} " +
-                            $"fromIdx={_dragFromIndex} targetIdx={_dragTargetIndex} rowH={_rowHeight:F1}");
+                            $"visualFrom={_dragFromIndex} visualTarget={_dragTargetIndex} rowH={_rowHeight:F1} displayCount={_vm?.DisplayItems.Count}");
                     UpdateDragIndicator(activePlayer, _dragTotalY);
                 }
                 break;
@@ -332,11 +391,25 @@ public partial class GamePage : ContentPage
 
                     if (e.StatusType == GestureStatus.Completed
                         && _dragTargetIndex != _dragFromIndex
-                        && endPlayer is not null)
+                        && endPlayer is not null
+                        && _vm is not null)
                     {
+                        // _dragFromIndex / _dragTargetIndex are DisplayItems (visual) indices.
+                        // ReorderPlayer expects Players (canonical) indices — look them up by reference.
+                        var fromPlayer   = _vm.DisplayItems.ElementAtOrDefault(_dragFromIndex)   as Player;
+                        var targetPlayer = _vm.DisplayItems.ElementAtOrDefault(_dragTargetIndex) as Player;
+                        int playersFrom   = fromPlayer   is not null ? _vm.Players.IndexOf(fromPlayer)   : -1;
+                        int playersTarget = targetPlayer is not null ? _vm.Players.IndexOf(targetPlayer) : -1;
+
                         System.Diagnostics.Debug.WriteLine(
-                            $"[DRAG] ✅ Reordering '{endPlayer.Name}' from {_dragFromIndex} → {_dragTargetIndex}");
-                        _vm.ReorderPlayer(_dragFromIndex, _dragTargetIndex);
+                            $"[DRAG] ✅ Reordering '{endPlayer.Name}' visualFrom={_dragFromIndex} → visualTarget={_dragTargetIndex} " +
+                            $"playersFrom={playersFrom} → playersTarget={playersTarget}");
+
+                        if (playersFrom >= 0 && playersTarget >= 0)
+                            _vm.ReorderPlayer(playersFrom, playersTarget);
+                        else
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[DRAG] ⚠️ Could not resolve Players indices — fromPlayer={fromPlayer?.Name ?? "null"} targetPlayer={targetPlayer?.Name ?? "null"}");
                     }
                     else if (_dragTargetIndex == _dragFromIndex)
                     {
@@ -356,20 +429,30 @@ public partial class GamePage : ContentPage
         }
     }
 
-    // Snaps back immediately if threshold not met, or applies the position
-    // change first (so color/icon update is instant) then does a short bounce.
-    private void CommitSwipe(View row, Player player)
+    // Snaps back immediately if threshold not met. If the threshold is met,
+    // runs BOTH animation stages (bump + snap-back) to completion BEFORE calling
+    // SetPlayerPosition. This is critical: SetPlayerPosition → RefreshDisplayItems
+    // → DisplayItems.Move() fires RecyclerView notifyItemMoved, which can rebind
+    // this view holder to a different player while the row is mid-animation —
+    // orphaning the in-flight TranslationX and breaking the next gesture. By
+    // completing the animation first the row is at TranslationX = 0 when
+    // RecyclerView reorders, so there is nothing to fight against.
+    private async void CommitSwipe(View row, Player player)
     {
         double totalX = row.TranslationX;
 
+        System.Diagnostics.Debug.WriteLine(
+            $"[SWIPE] CommitSwipe '{player.Name}' TranslationX={totalX:F1} threshold={SwipeThreshold}");
+
         if (Math.Abs(totalX) < SwipeThreshold)
         {
+            System.Diagnostics.Debug.WriteLine("[SWIPE] Below threshold — snapping back");
             _ = row.TranslateTo(0, 0, 180, Easing.SpringOut);
             return;
         }
 
-        bool swipeLeft    = totalX < 0;
-        var  newPosition  = swipeLeft
+        bool swipeLeft   = totalX < 0;
+        var  newPosition = swipeLeft
             ? (player.Position == PlayerPosition.Field
                 ? PlayerPosition.Goalie
                 : PlayerPosition.Field)
@@ -377,19 +460,22 @@ public partial class GamePage : ContentPage
                 ? PlayerPosition.Inactive
                 : PlayerPosition.Bench);
 
-        // Start the visual animation immediately, then apply the state change
-        // on the next frame so MarkNextPlayers/RefreshDisplayItems (up to 50 ms)
-        // never blocks the animation from starting.
+        System.Diagnostics.Debug.WriteLine(
+            $"[SWIPE] ✅ Committed — swipeLeft={swipeLeft} '{player.Position}' → '{newPosition}'");
+
+        // Stage 1: bump in the swipe direction.
         double bump = swipeLeft ? -30 : 30;
-        var capturedPlayer  = player;
-        var capturedPosition = newPosition;
-        var capturedVm = _vm;
-        _ = row.TranslateTo(bump, 0, 60, Easing.CubicOut)
-               .ContinueWith(_ => Dispatcher.Dispatch(() =>
-               {
-                   capturedVm?.SetPlayerPosition(capturedPlayer, capturedPosition);
-                   _ = row.TranslateTo(0, 0, 140, Easing.SpringOut);
-               }));
+        await row.TranslateTo(bump, 0, 60, Easing.CubicOut);
+
+        // Stage 2: snap back to rest.  Row is at TranslationX == 0 before the
+        // collection is mutated, so RecyclerView notifyItemMoved fires cleanly.
+        await row.TranslateTo(0, 0, 140, Easing.SpringOut);
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[SWIPE] 🎬 Animation complete — calling SetPlayerPosition for '{player.Name}'");
+
+        // Apply the state change now that the animation is fully settled.
+        _vm?.SetPlayerPosition(player, newPosition);
     }
 
     private void UpdateDragIndicator(Player dragging, double totalY)
@@ -397,7 +483,14 @@ public partial class GamePage : ContentPage
         // Snap at half a row height so dragging 50 % of the way into the next slot registers.
         double snapUnit = Math.Max(_rowHeight / 2.0, 10);
         int delta     = (int)(totalY / snapUnit);
-        int newTarget = Math.Clamp(_dragFromIndex + delta, 0, _vm!.Players.Count - 1);
+        // Clamp against DisplayItems (visual list) so we never address a slot that
+        // doesn't exist on screen — Players may be a different size/order.
+        int maxVisual = (_vm?.DisplayItems.Count ?? 1) - 1;
+        int newTarget = Math.Clamp(_dragFromIndex + delta, 0, maxVisual);
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[DRAG] 🎯 UpdateDragIndicator — totalY={totalY:F1} snapUnit={snapUnit:F1} delta={delta} " +
+            $"fromVisual={_dragFromIndex} newTarget={newTarget} maxVisual={maxVisual}");
 
         if (newTarget == _dragTargetIndex) return;
 
@@ -406,9 +499,19 @@ public partial class GamePage : ContentPage
 
         if (newTarget != _dragFromIndex)
         {
-            _currentDragTarget = _vm.Players.ElementAtOrDefault(newTarget);
+            // Look up the player at the visual target slot in DisplayItems.
+            _currentDragTarget = _vm?.DisplayItems.ElementAtOrDefault(newTarget) as Player;
             if (_currentDragTarget is not null)
+            {
                 _currentDragTarget.IsDragTarget = true;
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DRAG] 🔴 IsDragTarget=true on '{_currentDragTarget.Name}' (visualIdx={newTarget})");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[DRAG] ⚠️ No Player found at DisplayItems[{newTarget}] (header or out of range)");
+            }
         }
     }
 
@@ -489,6 +592,36 @@ public partial class GamePage : ContentPage
         }
     }
 
+    // ── Player name edit ──────────────────────────────────────────────────
+
+    private async void OnPlayerNameTapped(object sender, TappedEventArgs e)
+    {
+        if (_vm is null) return;
+        if (sender is not BindableObject bindable) return;
+        if (bindable.BindingContext is not Player player) return;
+
+        if (_vm.Phase == GamePhase.Setup)
+        {
+            // Pre-game: rename the player.
+            var result = await DisplayPromptAsync(
+                title: "Rename Player",
+                message: string.Empty,
+                accept: "Save",
+                cancel: "Cancel",
+                placeholder: player.Name,
+                initialValue: player.Name,
+                keyboard: Keyboard.Default);
+
+            if (result is null) return;
+            _vm.RenamePlayer(player, result);
+        }
+        else
+        {
+            // Live game: tap assigns the player to the next-rotation queue.
+            _vm.TapPlayerQueue(player);
+        }
+    }
+
     // ── Bottom button handlers ────────────────────────────────────────────
 
     private void OnStartClicked(object sender, EventArgs e)
@@ -520,6 +653,7 @@ public partial class GamePage : ContentPage
 
     private void OnRotateClicked(object sender, EventArgs e)
     {
+        System.Diagnostics.Debug.WriteLine("[GamePage] 👆 Rotate button pressed by user");
         _vm?.ExecuteRotations();
         if (_vm is not null) _vm.RotationDue = false;
         AnimateRotateBtn();
@@ -621,12 +755,15 @@ public partial class GamePage : ContentPage
     {
         if (e.PropertyName == nameof(GameViewModel.RotationDue) && _vm?.RotationDue == true)
             _ = TriggerRotationAlertAsync();
+
+        if (e.PropertyName == nameof(GameViewModel.RotationWarning) && _vm?.RotationWarning == true)
+            _ = TriggerRotationWarningAsync();
     }
 
     private async Task TriggerRotationAlertAsync()
     {
-        // Vibrate immediately — this is off-thread and free.
-        try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(400)); }
+        // 2s vibration at countdown zero.
+        try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(2000)); }
         catch { /* vibration not supported on this device */ }
 
         // Clear the flag first so the VM can continue (e.g. start the next
@@ -639,8 +776,20 @@ public partial class GamePage : ContentPage
         // for the UI thread with six Animate() callbacks.
         await Task.Delay(200);
 
-        // Flash the page background white three times.
+        // Flash the page background white.
         await FlashBackgroundAsync();
+    }
+
+    private Task TriggerRotationWarningAsync()
+    {
+        // 1s vibration 10s before countdown zero.
+        try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(1000)); }
+        catch { /* vibration not supported on this device */ }
+
+        if (_vm is not null)
+            _vm.RotationWarning = false;
+
+        return Task.CompletedTask;
     }
 
     private async Task FlashBackgroundAsync()

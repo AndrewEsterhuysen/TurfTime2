@@ -45,13 +45,15 @@
                 <Grid ColumnDefinitions="0.15*,0.7*,0.15*">
                     <Grid.GestureRecognizers>
                         <PanGestureRecognizer PanUpdated="OnPlayerPanUpdated" />
+                        <TapGestureRecognizer Tapped="OnPlayerNameTapped" />
                     </Grid.GestureRecognizers>
                     <Border Grid.Column="1"
                             Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
                             StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
                             StrokeShape="RoundRectangle 0"
                             BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
-                            Margin="0,1,0,0">
+                            Margin="0,1,0,0"
+                            InputTransparent="True">
                         <Border.Triggers>
                             <!-- Dim the row while it is being dragged so it stands out as the grabbed item -->
                             <DataTrigger TargetType="Border" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
@@ -88,13 +90,14 @@
                                    VerticalOptions="Center"
                                    IsVisible="{Binding IsNextToRotate}"
                                    Margin="0,0,6,0" />
-                            <!-- Player name -->
-                            <Label Grid.Column="3"
-                                   Text="{Binding Name}"
-                                   TextColor="White"
-                                   FontSize="16"
-                                   FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrs}}"
-                                   VerticalOptions="Center" />
+                            <!-- Player name (tap to rename — gesture is on the outer Grid) -->
+                             <Label Grid.Column="3"
+                                    Text="{Binding Name}"
+                                    TextColor="White"
+                                    FontSize="16"
+                                    FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrs}}"
+                                    VerticalOptions="Center"
+                                    InputTransparent="True" />
                             <!-- Field time -->
                             <Label Grid.Column="4"
                                    Text="{Binding FieldTimeDisplay}"
@@ -421,7 +424,7 @@
             <Button Grid.Column="2"
                     x:Name="ViewBtn"
                     Text="Rotation"
-                    BackgroundColor="{StaticResource CardBg}"
+                    BackgroundColor="{StaticResource BenchColor}"
                     TextColor="White"
                     FontSize="13"
                     Clicked="OnViewButtonClicked" />

@@ -27,6 +27,9 @@ public interface IGameTimerService
     /// <summary>Fires when the countdown reaches zero (rotation due).</summary>
     event EventHandler RotationDue;
 
+    /// <summary>Fires when the countdown reaches <see cref="RotationWarningSeconds"/> seconds remaining.</summary>
+    event EventHandler RotationWarning;
+
     /// <summary>Fires when the first half ends (half-time prompt).</summary>
     event EventHandler HalfTimeReached;
 

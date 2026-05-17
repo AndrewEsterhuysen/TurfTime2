@@ -35,8 +35,12 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
     public event EventHandler<int>? MatchTickOccurred;
     public event EventHandler<int>? CountdownTickOccurred;
     public event EventHandler?      RotationDue;
+    public event EventHandler?      RotationWarning;
     public event EventHandler?      HalfTimeReached;
     public event EventHandler?      RegulationTimeEnded;
+
+    // How many seconds before zero the RotationWarning event fires.
+    private const int RotationWarningSeconds = 10;
 
     // ── Internals ─────────────────────────────────────────────────────────
     private CancellationTokenSource? _cts;
@@ -131,7 +135,9 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
         {
             while (await timer.WaitForNextTickAsync(ct))
             {
-                MainThread.BeginInvokeOnMainThread(OnTick);
+                // Compute state changes on the background thread so the
+                // countdown arithmetic is not delayed by main-thread load.
+                OnTick();
             }
         }
         catch (OperationCanceledException) { /* normal stop */ }
@@ -141,44 +147,68 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
     {
         if (!TimerRunning) return;
 
-        // ── Match timer ───────────────────────────────────────────────────
+        // ── Match timer (background thread) ──────────────────────────────
         MatchRemainingSeconds--;
-        MatchTickOccurred?.Invoke(this, MatchRemainingSeconds);
+        var matchRemaining = MatchRemainingSeconds;
 
-        if (MatchRemainingSeconds <= 0)
+        EventHandler<int>?  matchTickHandler    = null;
+        EventHandler?       halfTimeHandler     = null;
+        EventHandler?       regulationHandler   = null;
+
+        if (matchRemaining <= 0)
         {
             if (Phase == GamePhase.FirstHalf)
             {
                 Phase = GamePhase.HalfTime;
-                // Reset countdown to preset and keep it running so it counts
-                // through zero into negative — showing half-time overtime.
                 CountdownRemainingSeconds = CountdownPresetSeconds;
                 _countdownRunning = true;
-                HalfTimeReached?.Invoke(this, EventArgs.Empty);
+                halfTimeHandler = HalfTimeReached;
             }
             else if (Phase == GamePhase.SecondHalf)
             {
                 Phase = GamePhase.Ended;
-                // Allow overtime — timer continues counting negative seconds
-                RegulationTimeEnded?.Invoke(this, EventArgs.Empty);
+                regulationHandler = RegulationTimeEnded;
             }
         }
+        matchTickHandler = MatchTickOccurred;
 
-        // ── Countdown timer ───────────────────────────────────────────────
+        // ── Countdown timer (background thread) ──────────────────────────
+        EventHandler<int>? countdownTickHandler = null;
+        EventHandler?      rotationDueHandler   = null;
+        EventHandler?      rotationWarningHandler = null;
+
         if (_countdownRunning)
         {
             CountdownRemainingSeconds--;
-            CountdownTickOccurred?.Invoke(this, CountdownRemainingSeconds);
+            var countdownRemaining = CountdownRemainingSeconds;
+            countdownTickHandler = CountdownTickOccurred;
 
             // During half-time the countdown runs into negative (showing overtime).
             // RotationDue is not fired and the countdown does not stop until the
             // user presses the 1/2 Time button to start the second half.
-            if (CountdownRemainingSeconds == 0 && Phase != GamePhase.HalfTime)
+            if (countdownRemaining == 0 && Phase != GamePhase.HalfTime)
             {
                 _countdownRunning = false;
-                RotationDue?.Invoke(this, EventArgs.Empty);
+                rotationDueHandler = RotationDue;
+            }
+            else if (countdownRemaining == RotationWarningSeconds && Phase != GamePhase.HalfTime)
+            {
+                rotationWarningHandler = RotationWarning;
             }
         }
+
+        // ── Dispatch UI notifications to the main thread ─────────────────
+        var snapMatch      = matchRemaining;
+        var snapCountdown  = CountdownRemainingSeconds;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            matchTickHandler?.Invoke(this, snapMatch);
+            halfTimeHandler?.Invoke(this, EventArgs.Empty);
+            regulationHandler?.Invoke(this, EventArgs.Empty);
+            countdownTickHandler?.Invoke(this, snapCountdown);
+            rotationWarningHandler?.Invoke(this, EventArgs.Empty);
+            rotationDueHandler?.Invoke(this, EventArgs.Empty);
+        });
     }
 
     // ── IDisposable ───────────────────────────────────────────────────────
