@@ -67,7 +67,7 @@ public sealed class Player : INotifyPropertyChanged
     public string PositionIcon => Position switch
     {
         PlayerPosition.Field    => "⚽",
-        PlayerPosition.Bench    => "💺",
+        PlayerPosition.Bench    => "🪑",
         PlayerPosition.Goalie   => "🥅",
         PlayerPosition.Inactive => "❌",
         _                       => string.Empty

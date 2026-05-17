@@ -211,14 +211,19 @@
             <Grid Grid.Row="3"
                   ColumnDefinitions="*,*,*,*"
                   Margin="0,0,0,2">
-                <!-- Us score -->
-                <Label Grid.Column="0"
-                       Text="{Binding TeamAScore}"
-                       TextColor="{StaticResource AccentColor}"
-                       FontSize="24"
-                       FontAttributes="Bold"
-                       HorizontalOptions="Center"
-                       IsVisible="{Binding ScoresVisible}" />
+                <!-- Us score — full cell is the tap target -->
+                <Grid Grid.Column="0"
+                      IsVisible="{Binding ScoresVisible}">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnTeamAScoreTapped" />
+                    </Grid.GestureRecognizers>
+                    <Label Text="{Binding TeamAScore}"
+                           TextColor="{StaticResource AccentColor}"
+                           FontSize="24"
+                           FontAttributes="Bold"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+                </Grid>
                 <!-- Match timer -->
                 <Label Grid.Column="1"
                        x:Name="MatchTimerLabel"
@@ -243,14 +248,19 @@
                         <TapGestureRecognizer Tapped="OnCountdownTimerTapped" />
                     </Label.GestureRecognizers>
                 </Label>
-                <!-- Them score -->
-                <Label Grid.Column="3"
-                       Text="{Binding TeamBScore}"
-                       TextColor="{StaticResource AccentColor}"
-                       FontSize="24"
-                       FontAttributes="Bold"
-                       HorizontalOptions="Center"
-                       IsVisible="{Binding ScoresVisible}" />
+                <!-- Them score — full cell is the tap target -->
+                <Grid Grid.Column="3"
+                      IsVisible="{Binding ScoresVisible}">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnTeamBScoreTapped" />
+                    </Grid.GestureRecognizers>
+                    <Label Text="{Binding TeamBScore}"
+                           TextColor="{StaticResource AccentColor}"
+                           FontSize="24"
+                           FontAttributes="Bold"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+                </Grid>
             </Grid>
 
         </Grid>
@@ -297,10 +307,10 @@
                       BackgroundColor="{StaticResource FieldColor}"
                       IsVisible="{Binding ScoresVisible}">
                     <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnTeamAScoreClicked" />
+                        <TapGestureRecognizer Tapped="OnTeamAScoreTapped" />
                     </Grid.GestureRecognizers>
                     <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="4">
-                        <Label Text="Us"
+                        <Label Text=" Us "
                                TextColor="White"
                                FontSize="14"
                                FontAttributes="Bold"
@@ -337,7 +347,7 @@
                                            HorizontalOptions="Start">
                                         <Label.FormattedText>
                                             <FormattedString>
-                                                <Span Text="&#x1F6CB; " />
+                                                <Span Text="&#x1FA91; " />
                                                 <Span Text="{Binding BenchPlayerName}" />
                                                 <Span Text="  on" />
                                             </FormattedString>
@@ -371,10 +381,10 @@
                       BackgroundColor="#c62828"
                       IsVisible="{Binding ScoresVisible}">
                     <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnTeamBScoreClicked" />
+                        <TapGestureRecognizer Tapped="OnTeamBScoreTapped" />
                     </Grid.GestureRecognizers>
                     <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="4">
-                        <Label Text="Them"
+                        <Label Text="   Them "
                                TextColor="White"
                                FontSize="14"
                                FontAttributes="Bold"
@@ -396,12 +406,12 @@
               ColumnDefinitions="*,*,*"
               Padding="4,6,4,6"
               ColumnSpacing="6"
-              BackgroundColor="#1a4a1e">
+              BackgroundColor="Black">
 
             <Button Grid.Column="0"
                     x:Name="StartBtn"
                     Text="{Binding StartButtonText}"
-                    BackgroundColor="{StaticResource AccentColor}"
+                    BackgroundColor="Black"
                     TextColor="White"
                     FontAttributes="Bold"
                     FontSize="15"
@@ -413,7 +423,7 @@
             <Button Grid.Column="1"
                     x:Name="RotateBtn"
                     Text="{Binding RotateButtonText}"
-                    BackgroundColor="{StaticResource CardBg}"
+                    BackgroundColor="Black"
                     TextColor="White"
                     FontAttributes="Bold"
                     FontSize="15"
@@ -423,10 +433,14 @@
 
             <Button Grid.Column="2"
                     x:Name="ViewBtn"
-                    Text="Rotation"
-                    BackgroundColor="{StaticResource BenchColor}"
+                    Text="View: Rotation"
+                    BackgroundColor="Black"
                     TextColor="White"
                     FontSize="13"
+                    Margin="0"
+                    Padding="0"
+                    LineBreakMode="WordWrap"
+                    HorizontalOptions="FillAndExpand"
                     Clicked="OnViewButtonClicked" />
 
         </Grid>

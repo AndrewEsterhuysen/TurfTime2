@@ -351,6 +351,26 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _ = AutoSaveAsync();
     }
 
+    /// <summary>Decrement Us score, minimum 0.</summary>
+    public void DecrementTeamAScore()
+    {
+        if (TeamAScore > 0)
+        {
+            TeamAScore--;
+            _ = AutoSaveAsync();
+        }
+    }
+
+    /// <summary>Decrement Them score, minimum 0.</summary>
+    public void DecrementTeamBScore()
+    {
+        if (TeamBScore > 0)
+        {
+            TeamBScore--;
+            _ = AutoSaveAsync();
+        }
+    }
+
     /// <summary>Set a field player as the next to rotate out.</summary>
     public void SetNextFieldPlayer(Player player)
     {

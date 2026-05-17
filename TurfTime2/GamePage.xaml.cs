@@ -710,9 +710,66 @@ public partial class GamePage : ContentPage
     }
 
     // ── Score buttons ─────────────────────────────────────────────────────
+    // Android does not reliably fire two TapGestureRecognizers with different
+    // NumberOfTapsRequired on the same element.  We handle both in a single
+    // handler using a short-interval timer: second tap within 300 ms = undo (−1).
 
-    private void OnTeamAScoreClicked(object sender, EventArgs e) => _vm?.IncrementTeamAScore();
-    private void OnTeamBScoreClicked(object sender, EventArgs e) => _vm?.IncrementTeamBScore();
+    private const int DoubleTapWindowMs = 300;
+
+    private DateTime _lastTeamATap = DateTime.MinValue;
+    private CancellationTokenSource? _teamATapCts;
+
+    private DateTime _lastTeamBTap = DateTime.MinValue;
+    private CancellationTokenSource? _teamBTapCts;
+
+    private async void OnTeamAScoreTapped(object sender, TappedEventArgs e)
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastTeamATap).TotalMilliseconds <= DoubleTapWindowMs)
+        {
+            // Double-tap: cancel the pending increment, decrement instead.
+            _teamATapCts?.Cancel();
+            _lastTeamATap = DateTime.MinValue;
+            _vm?.DecrementTeamAScore();
+            return;
+        }
+
+        _lastTeamATap = now;
+        _teamATapCts?.Cancel();
+        _teamATapCts = new CancellationTokenSource();
+        var cts = _teamATapCts;
+
+        try
+        {
+            await Task.Delay(DoubleTapWindowMs, cts.Token);
+            _vm?.IncrementTeamAScore();
+        }
+        catch (TaskCanceledException) { /* superseded by double-tap */ }
+    }
+
+    private async void OnTeamBScoreTapped(object sender, TappedEventArgs e)
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastTeamBTap).TotalMilliseconds <= DoubleTapWindowMs)
+        {
+            _teamBTapCts?.Cancel();
+            _lastTeamBTap = DateTime.MinValue;
+            _vm?.DecrementTeamBScore();
+            return;
+        }
+
+        _lastTeamBTap = now;
+        _teamBTapCts?.Cancel();
+        _teamBTapCts = new CancellationTokenSource();
+        var cts = _teamBTapCts;
+
+        try
+        {
+            await Task.Delay(DoubleTapWindowMs, cts.Token);
+            _vm?.IncrementTeamBScore();
+        }
+        catch (TaskCanceledException) { /* superseded by double-tap */ }
+    }
 
     // ── View switching ────────────────────────────────────────────────────
 
@@ -728,8 +785,8 @@ public partial class GamePage : ContentPage
         // Button text shows what view will be shown when pressed
         ViewBtn.Text = mode switch
         {
-            TeamViewMode.Swipeable => "Rotation",
-            _                      => "Team"
+            TeamViewMode.Swipeable => "View: Rotation",
+            _                      => "View: Team"
         };
     }
 
