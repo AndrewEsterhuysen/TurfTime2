@@ -1,0 +1,5 @@
+﻿My suggestion for the cloud release later
+When you're ready to enable cloud teams, the only changes needed are:
+1.	XAML: Set IsVisible="True" on the two HorizontalStackLayout checkbox wrappers and revert LocalTeamSection / CreateLocalSection to IsVisible="False"
+2.	Code-behind: Revert OnAppearing to the original mode-based checkbox logic and UpdateCreateTeamSubSections back to the isShared/isLocal branching
+Everything else — all Firestore calls, invite code flow, admin recovery, shared teams collection — is fully intact and untouched.

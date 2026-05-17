@@ -75,17 +75,20 @@
                    Padding="15"
                    CornerRadius="8">
                 <VerticalStackLayout Spacing="10">
-                    <Label Text="Select Team Type" FontAttributes="Bold" FontSize="16"/>
+                    <Label Text="Select Team" FontAttributes="Bold" FontSize="16"/>
 
-                    <HorizontalStackLayout Spacing="10">
+                    <!-- Hidden checkboxes — Local is always active in this release -->
+                    <HorizontalStackLayout IsVisible="False">
                         <CheckBox x:Name="SharedCheckbox"
                                   CheckedChanged="OnSharedCheckboxChanged"/>
-                        <Label Text="Shared (Cloud sync with team members)"
-                               FontSize="14"
-                               VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                    <HorizontalStackLayout IsVisible="False">
+                        <CheckBox x:Name="LocalCheckbox"
+                                  IsChecked="True"
+                                  CheckedChanged="OnLocalCheckboxChanged"/>
                     </HorizontalStackLayout>
 
-                    <!-- Shared Teams List (visible when Shared is selected) -->
+                    <!-- Shared Teams List (hidden — cloud feature, reserved for future release) -->
                     <StackLayout x:Name="SharedTeamSection" IsVisible="False" Spacing="10">
 
                         <Label x:Name="SharedTeamSwitcherLabel"
@@ -136,16 +139,8 @@
 
                     </StackLayout>
 
-                    <HorizontalStackLayout Spacing="10">
-                        <CheckBox x:Name="LocalCheckbox"
-                                  CheckedChanged="OnLocalCheckboxChanged"/>
-                        <Label Text="Local (Device only, no cloud sync)"
-                               FontSize="14"
-                               VerticalOptions="Center"/>
-                    </HorizontalStackLayout>
-
-                    <!-- Local Teams List (visible when Local is selected) -->
-                    <StackLayout x:Name="LocalTeamSection" IsVisible="False" Spacing="10">
+                    <!-- Local Teams List -->
+                    <StackLayout x:Name="LocalTeamSection" IsVisible="True" Spacing="10">
 
                         <Label x:Name="LocalTeamSwitcherLabel"
                                Text="Your Teams"
@@ -215,7 +210,7 @@
                 </VerticalStackLayout>
             </Frame>
 
-            <!-- 4. Join Existing Team (visible when Shared is selected) -->
+            <!-- 4. Join Existing Team (cloud-only — hidden, reserved for future release) -->
             <Frame x:Name="JoinTeamSection"
                    IsVisible="False"
                    BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
@@ -236,7 +231,7 @@
                 </VerticalStackLayout>
             </Frame>
 
-            <!-- 4b. Rejoin as Admin (visible when Shared is selected) -->
+            <!-- 4b. Rejoin as Admin (cloud-only — hidden, reserved for future release) -->
             <Frame x:Name="RejoinAdminSection"
                    IsVisible="False"
                    BorderColor="#FF9800"
@@ -308,19 +303,21 @@
                     </Grid>
 
                     <Label x:Name="CreateTeamHint"
-                           Text="Tap to expand — most users join with an invite code above"
+                           Text="Tap to expand"
                            FontSize="11"
                            TextColor="{AppThemeBinding Light=#999, Dark=#888}"/>
 
                     <!-- Expanded content (hidden by default) -->
                     <StackLayout x:Name="CreateTeamContent" IsVisible="False" Spacing="10">
 
+                        <!-- 'No mode' label hidden — Local is always pre-selected -->
                         <Label x:Name="CreateTeamNoModeLabel"
                                Text="Please select Shared or Local above to see creation options."
                                FontSize="12"
+                               IsVisible="False"
                                TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
 
-                        <!-- Shared team creation -->
+                        <!-- Shared team creation (cloud-only — hidden, reserved for future release) -->
                         <StackLayout x:Name="CreateSharedSection" IsVisible="False" Spacing="10">
                             <Label Text="☁️ New Shared Team" FontAttributes="Bold" FontSize="14" Margin="0,5,0,0"/>
                             <Label Text="Club &amp; Team" FontSize="12" TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
@@ -370,7 +367,7 @@
                         </StackLayout>
 
                         <!-- Local team creation -->
-                        <StackLayout x:Name="CreateLocalSection" IsVisible="False" Spacing="10">
+                        <StackLayout x:Name="CreateLocalSection" IsVisible="True" Spacing="10">
                             <Label Text="📱 New Local Team" FontAttributes="Bold" FontSize="14" Margin="0,5,0,0"/>
                             <Entry x:Name="LocalTeamNameEntry"
                                    Placeholder="Team name (stored on this device only)"/>

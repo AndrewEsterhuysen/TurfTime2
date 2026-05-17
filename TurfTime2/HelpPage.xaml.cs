@@ -249,7 +249,6 @@ public partial class HelpPage : ContentPage
         <li>📱 <strong>Screen stays on</strong> while the Game page is open — no need to tap to keep it awake.</li>
         <li>🔔 <strong>Rotation alerts:</strong> Short vibration at 10 s; continuous vibration + yellow flash at zero.</li>
         <li>📈 <strong>Field time counter</strong> shows <em>total</em> accumulated time, not just the current stint.</li>
-        <li>👁️ <strong>View-only mode:</strong> If you joined as a team member (not admin), the amber banner shows and controls are disabled.</li>
     </ul>
 
 </body>
