@@ -25,20 +25,25 @@ namespace TurfTime2
             var appShell = new AppShell();
             var window = new Window(appShell);
 
-            if (string.IsNullOrEmpty(teamMode) || string.IsNullOrEmpty(teamId))
+            appShell.Loaded += async (s, e) =>
             {
-                // No team selected - navigate to Team Details page after shell loads
-                System.Diagnostics.Debug.WriteLine("[App] No team selected - will navigate to Team Details");
-                appShell.Loaded += async (s, e) =>
+                // Show welcome page unless the user has opted out
+                if (!Preferences.Get("welcome_dont_show", false))
                 {
+                    await appShell.Navigation.PushModalAsync(new WelcomePage(), animated: true);
+                }
+
+                if (string.IsNullOrEmpty(teamMode) || string.IsNullOrEmpty(teamId))
+                {
+                    // No team selected — pre-navigate to Team Details so it's ready when welcome closes
+                    System.Diagnostics.Debug.WriteLine("[App] No team selected - will navigate to Team Details after welcome");
                     await Shell.Current.GoToAsync("//SettingsPage/settings/teamdetails");
-                };
-            }
-            else
-            {
-                // Team selected - load normally (Game page as default)
-                System.Diagnostics.Debug.WriteLine($"[App] Team selected: {teamId} - starting at Game page");
-            }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[App] Team selected: {teamId} - starting at Game page");
+                }
+            };
 
             return window;
         }

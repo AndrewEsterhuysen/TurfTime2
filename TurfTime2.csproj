@@ -26,7 +26,7 @@
 		<ApplicationId>com.andrewestherhuysen.turftime</ApplicationId>
 
 		<!-- Versions -->
-		<ApplicationDisplayVersion>4.1.0</ApplicationDisplayVersion>
+		<ApplicationDisplayVersion>4.2.0</ApplicationDisplayVersion>
 		<ApplicationVersion>6</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
@@ -140,6 +140,9 @@
 			<Generator>MSBuild:Compile</Generator>
 		</MauiXaml>
 		<MauiXaml Update="TurfTime2\TeamDetailsPage.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="WelcomePage.xaml">
 		  <Generator>MSBuild:Compile</Generator>
 		</MauiXaml>
 	</ItemGroup>
