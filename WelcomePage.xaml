@@ -89,7 +89,7 @@
                             <Span Text="&#10;&#10;" />
                             <Span Text="💾  " /><Span Text="Local Data Retention" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — your rosters, game history, and settings are saved on-device so you're never caught without your data." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="🔄  " /><Span Text="Easy Substitution Management" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — a smart rotation queue ensures every player gets fair field time. Tap a player to move them up the queue." />
+                            <Span Text="🔄  " /><Span Text="Easy Substitution Management" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — a smart rotation queue ensures every player gets fair field time. Tap a player to move them up the queue. Perfect for fast-paced formats like fast fives where rotations happen frequently." />
                             <Span Text="&#10;&#10;" />
                             <Span Text="📋  " /><Span Text="Game Reports" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — generate a clear post-game summary for each match, ready to share with your team." />
                         </FormattedString>
@@ -147,7 +147,7 @@
                         <FormattedString>
                             <Span Text="TurfTimer is actively growing, and your experience on the pitch shapes every feature we build. You're not just using an app — " />
                             <Span Text="you're part of its story." FontAttributes="Bold" TextColor="#FFFFFF" />
-                            <Span Text=" We can't wait to deliver everything that's coming, and we're grateful to have you with us every step of the way. Game on! 🎉" />
+                            <Span Text=" We can't wait to deliver everything that's coming, and we're grateful to have you with us every step of the way. Please share your feedback, suggestions, and feature requests — your input helps us build what truly adds value. Game on! 🎉" />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>

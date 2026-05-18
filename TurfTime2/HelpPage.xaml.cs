@@ -208,9 +208,9 @@ public partial class HelpPage : ContentPage
         </li>
         <li><strong>Rotate</strong> (centre):
             <ul>
-                <li>Executes the next rotation — swaps the highlighted field player(s) off and the queued bench player(s) on.</li>
+                <li>Executes the next rotation — swaps the selected number of field players off and bench players on.</li>
                 <li>Resets the rotation countdown.</li>
-                <li><em>Hold 0.5 seconds</em> to change how many players rotate at once (1, 2, 3 …).</li>
+                <li>You can rotate <em>any number of players at once</em>, from 1 up to the total number of bench players available.</li>
             </ul>
         </li>
         <li><strong>View: Rotation / View: Team</strong> (right):
@@ -239,19 +239,11 @@ public partial class HelpPage : ContentPage
         <li><strong>Manual override:</strong> Tap a bench player during a match to move them to the front of the rotation-in queue. Tap a field player to move them to the front of the rotation-out queue. The cyan ➤ arrow shows the queued selection.</li>
         <li><strong>Reorder by dragging:</strong> Long-press and drag any row to permanently reposition the player in the rotation sequence.</li>
         <li>Manual queue selections are cleared after each rotation executes, returning to automatic FIFO.</li>
+        <li><strong>Rotation alert:</strong> A short vibration fires at 10 s remaining on the countdown — giving you a heads-up before the rotation is due.</li>
     </ul>
 
-    <!-- ═══════════════════════════════════════════════════ -->
-    <h3>💡 Tips</h3>
-    <ul>
-        <li>💾 <strong>Auto-save:</strong> Roster and game state are saved automatically between sessions.</li>
-        <li>🥅 <strong>One goalie at a time:</strong> Assigning a new goalie automatically removes the previous one.</li>
-        <li>📱 <strong>Screen stays on</strong> while the Game page is open — no need to tap to keep it awake.</li>
-        <li>🔔 <strong>Rotation alerts:</strong> Short vibration at 10 s; continuous vibration + yellow flash at zero.</li>
-        <li>📈 <strong>Field time counter</strong> shows <em>total</em> accumulated time, not just the current stint.</li>
-    </ul>
 
-</body>
+    </body>
 </html>";
     }
 }

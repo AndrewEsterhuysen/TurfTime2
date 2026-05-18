@@ -82,7 +82,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // Restore countdown preset persisted from the previous session.
         var savedCountdown = Preferences.Get("game.countdownPresetSeconds", 0);
         if (savedCountdown > 0)
+        {
             _timer.CountdownPresetSeconds = savedCountdown;
+            _timer.ResetCountdown(continueRunning: false);
+        }
 
         // Build default 16-player roster
         for (int i = 1; i <= 16; i++)
