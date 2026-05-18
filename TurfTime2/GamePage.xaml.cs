@@ -664,17 +664,11 @@ public partial class GamePage : ContentPage
             SwipeableRoster.ScrollTo(0, position: ScrollToPosition.Start, animate: false);
     }
 
-    private async void OnRotatePressed(object sender, EventArgs e)
+    private void OnRotatePressed(object sender, EventArgs e)
     {
+        // RotationCount is now controlled by tapping players on the Team page.
+        // Long-press on Rotate is intentionally a no-op.
         _rotateLongPressCts?.Cancel();
-        _rotateLongPressCts = new CancellationTokenSource();
-        var token = _rotateLongPressCts.Token;
-        try
-        {
-            await Task.Delay(500, token);
-            await ShowRotationCountDialog();
-        }
-        catch (OperationCanceledException) { }
     }
 
     private void OnRotateReleased(object sender, EventArgs e)
@@ -693,7 +687,16 @@ public partial class GamePage : ContentPage
         var result  = await DisplayActionSheet("Rotate how many players?", "Cancel", null, options);
         if (result is null || result == "Cancel") return;
         if (int.TryParse(result, out var count))
+        {
+            var previous = _vm.RotationCount;
             _vm.RotationCount = count;
+            if (count != previous)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GamePage] 🔢 RotationCount changed {previous} → {count} — re-seeding queues");
+                _vm.ReseedRotationQueues();
+            }
+        }
     }
 
     private void OnViewButtonClicked(object sender, EventArgs e)

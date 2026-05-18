@@ -39,11 +39,13 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     private int _lastFieldIdx = -1;
     private int _lastBenchIdx = -1;
 
-    // ── Manual tap-to-queue overrides ─────────────────────────────────────
-    // When non-empty these queues take priority over the auto-FIFO pointers.
-    // Cleared after each rotation so the app reverts to automatic selection.
-    private readonly Queue<int> _manualFieldQueue = new();
-    private readonly Queue<int> _manualBenchQueue = new();
+    // ── Rotation FIFO queues ──────────────────────────────────────────────
+    // Seeded by the automatic algorithm at game start and after each Rotate.
+    // Manual taps modify the queues in-place: a de-selected slot is replaced
+    // with null so subsequent slots retain their original queue positions.
+    // Null slots are skipped during rotation execution and display.
+    private readonly Queue<int?> _manualFieldQueue = new();
+    private readonly Queue<int?> _manualBenchQueue = new();
 
     // ── Bindable state ────────────────────────────────────────────────────
     private TeamViewMode _viewMode = TeamViewMode.Swipeable;
@@ -317,26 +319,46 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         var count = Math.Min(RotationCount,
             Math.Min(BenchCandidates().Count, FieldCandidates().Count));
 
-        System.Diagnostics.Debug.WriteLine($"[GameViewModel] 🔄 ExecuteRotations — swapping {count} player(s)");
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] 🔄 ExecuteRotations ─ swapping {count} player(s) | " +
+            $"field-q=[{QueueString(_manualFieldQueue)}] | " +
+            $"bench-q=[{QueueString(_manualBenchQueue)}]");
 
         for (int i = 0; i < count; i++)
             RotateOnce();
 
-        // Clear manual overrides — app reverts to automatic selection after rotation.
+        // Re-seed rotation queues for the next rotation after each execution.
+        SeedRotationQueues();
+
         System.Diagnostics.Debug.WriteLine(
-            $"[GameViewModel] 🔄 ExecuteRotations — clearing manual queues " +
-            $"field-q=[{string.Join(",", _manualFieldQueue.Select(i => Players[i].Name))}] " +
-            $"bench-q=[{string.Join(",", _manualBenchQueue.Select(i => Players[i].Name))}]");
-        _manualFieldQueue.Clear();
-        _manualBenchQueue.Clear();
+            $"[GameViewModel] ✅ ExecuteRotations ─ done | next: " +
+            $"field-q=[{QueueString(_manualFieldQueue)}] | " +
+            $"bench-q=[{QueueString(_manualBenchQueue)}]");
 
         _timer.ResetCountdown(continueRunning: _timer.TimerRunning);
         MarkNextPlayers();
         RefreshRotationPairs();
         RefreshDisplayItems();   // rebuilds CollectionView rows → causes [DragRowHandler] + [PERF] entries
         _ = AutoSaveAsync();
+    }
 
-        System.Diagnostics.Debug.WriteLine("[GameViewModel] ✅ ExecuteRotations complete — countdown reset, roster refreshed");
+    /// <summary>
+    /// Re-seeds the FIFO rotation buffers to match the current <see cref="RotationCount"/>.
+    /// Call this whenever RotationCount changes mid-game so the queues reflect the new size.
+    /// </summary>
+    public void ReseedRotationQueues()
+    {
+        if (IsMember) return;
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] 🌱 ReseedRotationQueues — RotationCount={RotationCount}");
+        SeedRotationQueues();
+        MarkNextPlayers();
+        RefreshRotationPairs();
+        RefreshDisplayItems();
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] 🌱 ReseedRotationQueues — done | " +
+            $"field-q=[{QueueString(_manualFieldQueue)}] | " +
+            $"bench-q=[{QueueString(_manualBenchQueue)}]");
     }
 
     public void IncrementTeamAScore()
@@ -391,10 +413,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// Assigns a player to the manual next-rotation queue for their position group.
-    /// Only valid during a live game (not Setup). Field players join the field queue;
-    /// bench players join the bench queue. Each queue is capped at <see cref="RotationCount"/>;
-    /// if already full the oldest entry is evicted (FIFO). After the next rotation the
-    /// queues are cleared and the app reverts to automatic selection.
+    /// Tapping a new player GROWS both queues by one (field + bench stay the same size).
+    /// Tapping an already-queued player REMOVES them and shrinks both queues by one.
+    /// <see cref="RotationCount"/> is updated to match the new queue size.
     /// </summary>
     public void TapPlayerQueue(Player player)
     {
@@ -404,58 +425,81 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         var idx = Players.IndexOf(player);
         if (idx < 0) return;
 
-        Queue<int>? queue = player.Position switch
+        Queue<int?>? ownQueue = player.Position switch
         {
             PlayerPosition.Field => _manualFieldQueue,
             PlayerPosition.Bench => _manualBenchQueue,
             _                    => null
         };
 
-        if (queue is null) return; // goalie / inactive — no queue
+        if (ownQueue is null) return; // goalie / inactive — no queue
 
-        // If the queue is empty, pre-fill it with the players the automatic FIFO
-        // would have selected next, so the manual tap adjusts an already-populated
-        // queue rather than starting from scratch.
-        if (queue.Count == 0)
-        {
-            bool isField = player.Position == PlayerPosition.Field;
-            var candidates = isField ? FieldCandidates() : BenchCandidates();
-            int lastIdx    = isField ? _lastFieldIdx : _lastBenchIdx;
-            int slots      = Math.Min(RotationCount, candidates.Count);
-            for (int i = 0; i < slots; i++)
-            {
-                var autoIdx = NextIndexFromWithOffset(candidates, lastIdx, i);
-                if (autoIdx >= 0) queue.Enqueue(autoIdx);
-            }
-        }
-
-        // Toggle: if already queued, remove (de-select) without evicting anyone else.
-        bool alreadyQueued = queue.Contains(idx);
+        bool alreadyQueued = ownQueue.Any(s => s == idx);
         System.Diagnostics.Debug.WriteLine(
             $"[GameViewModel] 👆 TapPlayerQueue ENTER — {player.Name} ({player.Position}) " +
-            $"idx={idx} alreadyQueued={alreadyQueued} queueBefore=[{string.Join(",", queue.Select(i => Players[i].Name))}] " +
+            $"idx={idx} alreadyQueued={alreadyQueued} " +
+            $"field-q=[{QueueString(_manualFieldQueue)}] bench-q=[{QueueString(_manualBenchQueue)}] " +
             $"RotationCount={RotationCount}");
+
+        var field = FieldCandidates();
+        var bench = BenchCandidates();
 
         if (alreadyQueued)
         {
-            // De-select: remove the tapped player, keep everyone else in order.
-            var temp = queue.ToArray().Where(i => i != idx).ToArray();
-            queue.Clear();
-            foreach (var i in temp) queue.Enqueue(i);
+            // Remove the slot from the own queue (compact — no null).
+            var trimmed = ownQueue.Where(s => s != idx).ToArray();
+            ownQueue.Clear();
+            foreach (var s in trimmed) ownQueue.Enqueue(s);
+
+            // Shrink the opposite queue by trimming its tail by one.
+            Queue<int?> otherQueue = player.Position == PlayerPosition.Field
+                ? _manualBenchQueue : _manualFieldQueue;
+            if (otherQueue.Count > 0)
+            {
+                var otherArr = otherQueue.ToArray()[..^1]; // drop last slot
+                otherQueue.Clear();
+                foreach (var s in otherArr) otherQueue.Enqueue(s);
+            }
+
+            // Clamp RotationCount down (min 1), skipping the property setter's side-effects.
+            _rotationCount = Math.Max(1, _rotationCount - 1);
+            UpdateRotateButtonText();
         }
         else
         {
-            // Add: evict exactly one oldest entry when at capacity, then enqueue.
-            if (queue.Count >= RotationCount)
-                queue.Dequeue();
+            // Guard: cannot exceed bench player count (both sides cap at bench size).
+            int maxSize = Math.Min(field.Count, bench.Count);
+            if (ownQueue.Count >= maxSize)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GameViewModel] 👆 TapPlayerQueue — skipped, already at max capacity ({maxSize})");
+                return;
+            }
 
-            queue.Enqueue(idx);
+            // Add the new player to their own queue.
+            ownQueue.Enqueue(idx);
+
+            // Grow the opposite queue by one auto-seeded slot.
+            Queue<int?> otherQueue = player.Position == PlayerPosition.Field
+                ? _manualBenchQueue : _manualFieldQueue;
+            List<int> otherCandidates = player.Position == PlayerPosition.Field ? bench : field;
+            int lastOtherIdx = player.Position == PlayerPosition.Field ? _lastBenchIdx : _lastFieldIdx;
+
+            // Find the next candidate after whoever is currently at the tail of the other queue.
+            int tailOffset = otherQueue.Count; // how many slots already filled
+            var newOtherIdx = NextIndexFromWithOffset(otherCandidates, lastOtherIdx, tailOffset);
+            if (newOtherIdx >= 0)
+                otherQueue.Enqueue(newOtherIdx);
+
+            // Grow RotationCount to match, skipping the property setter's side-effects.
+            _rotationCount = Math.Min(_rotationCount + 1, maxSize);
+            UpdateRotateButtonText();
         }
 
         System.Diagnostics.Debug.WriteLine(
-            $"[GameViewModel] 👆 TapPlayerQueue EXIT  — {player.Name} ({player.Position}) " +
-            $"field-q=[{string.Join(",", _manualFieldQueue.Select(i => Players[i].Name))}] " +
-            $"bench-q=[{string.Join(",", _manualBenchQueue.Select(i => Players[i].Name))}]");
+            $"[GameViewModel] 👆 TapPlayerQueue EXIT — {player.Name} ({player.Position}) " +
+            $"field-q=[{QueueString(_manualFieldQueue)}] bench-q=[{QueueString(_manualBenchQueue)}] " +
+            $"RotationCount={RotationCount}");
 
         MarkNextPlayers();
     }
@@ -757,6 +801,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         {
             ApplyInitialArrangement();
             _initialArrangementDone = true;
+            SeedRotationQueues();
             _logger.StartSession(
                 _timer.MatchDurationSeconds,
                 _timer.CountdownPresetSeconds);
@@ -811,6 +856,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _initialArrangementDone = false;
         _lastFieldIdx = -1;
         _lastBenchIdx = -1;
+        _manualFieldQueue.Clear();
+        _manualBenchQueue.Clear();
         TeamAScore = 0;
         TeamBScore = 0;
 
@@ -876,19 +923,45 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     // ── Rotation algorithm ────────────────────────────────────────────────
 
+    /// <summary>
+    /// Clears both rotation queues and re-populates them with the players the
+    /// automatic FIFO algorithm would select next, up to <see cref="RotationCount"/> slots.
+    /// Called once when the game starts and again after each Rotate execution so the
+    /// queues always reflect who is coming up next.
+    /// </summary>
+    private void SeedRotationQueues()
+    {
+        _manualFieldQueue.Clear();
+        _manualBenchQueue.Clear();
+
+        var field = FieldCandidates();
+        var bench = BenchCandidates();
+        int slots = Math.Min(RotationCount, Math.Min(field.Count, bench.Count));
+
+        for (int i = 0; i < slots; i++)
+        {
+            var fi = NextIndexFromWithOffset(field, _lastFieldIdx, i);
+            if (fi >= 0) _manualFieldQueue.Enqueue(fi);
+
+            var bi = NextIndexFromWithOffset(bench, _lastBenchIdx, i);
+            if (bi >= 0) _manualBenchQueue.Enqueue(bi);
+        }
+    }
+
     private void RotateOnce()
     {
         var field = FieldCandidates();
         var bench = BenchCandidates();
         if (field.Count == 0 || bench.Count == 0) return;
 
-        // Use the manual queue head if available; otherwise auto-FIFO.
-        int fieldIdx = _manualFieldQueue.Count > 0 && field.Contains(_manualFieldQueue.Peek())
-            ? _manualFieldQueue.Dequeue()
+        // Use the queue head if available; otherwise fall back to auto-FIFO.
+        // Queues are always compact (no null slots) so no drain loop is needed.
+        int fieldIdx = _manualFieldQueue.Count > 0
+            ? _manualFieldQueue.Dequeue()!.Value
             : NextIndexFrom(field, _lastFieldIdx);
 
-        int benchIdx = _manualBenchQueue.Count > 0 && bench.Contains(_manualBenchQueue.Peek())
-            ? _manualBenchQueue.Dequeue()
+        int benchIdx = _manualBenchQueue.Count > 0
+            ? _manualBenchQueue.Dequeue()!.Value
             : NextIndexFrom(bench, _lastBenchIdx);
 
         if (fieldIdx < 0 || benchIdx < 0 || fieldIdx == benchIdx) return;
@@ -905,6 +978,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 ["playerIn"]       = benchPlayer.Name,
                 ["rotationNumber"] = rotNum
             });
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] ⇄ Swap #{rotNum}: {fieldPlayer.Name} (Field→Bench) ↔ {benchPlayer.Name} (Bench→Field)");
 
         // Swap positions only — do not reorder the list.
         fieldPlayer.Position = PlayerPosition.Bench;
@@ -927,6 +1003,13 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             .Where(x => x.p.Position == PlayerPosition.Bench)
             .Select(x => x.i)
             .ToList();
+
+    /// <summary>Formats a rotation queue as a comma-separated name list for debug logging.
+    /// Null slots (de-selected) are shown as "NULL".</summary>
+    private string QueueString(Queue<int?> queue) =>
+        queue.Count == 0
+            ? "(empty)"
+            : string.Join(", ", queue.Select(s => s is int v ? Players[v].Name : "NULL"));
 
     /// <summary>
     /// Returns the next index in <paramref name="candidates"/> after <paramref name="lastIdx"/>,
@@ -970,9 +1053,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // ── Field side ──
         if (_manualFieldQueue.Count > 0)
         {
-            // Use the manual queue, clamped to 'count' entries.
-            foreach (var idx in _manualFieldQueue.Take(count))
-                if (idx >= 0 && idx < Players.Count) desiredNext.Add(idx);
+            // Null slots are de-selected by the user — skip them.
+            foreach (var slot in _manualFieldQueue.Take(count))
+                if (slot is int idx && idx >= 0 && idx < Players.Count) desiredNext.Add(idx);
         }
         else
         {
@@ -986,8 +1069,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // ── Bench side ──
         if (_manualBenchQueue.Count > 0)
         {
-            foreach (var idx in _manualBenchQueue.Take(count))
-                if (idx >= 0 && idx < Players.Count) desiredNext.Add(idx);
+            foreach (var slot in _manualBenchQueue.Take(count))
+                if (slot is int idx && idx >= 0 && idx < Players.Count) desiredNext.Add(idx);
         }
         else
         {
@@ -1020,11 +1103,15 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         for (int i = 0; i < count; i++)
         {
+            // A null slot means the user de-selected that position — skip the whole pair.
+            if (fieldQueue is not null && i < fieldQueue.Length && fieldQueue[i] is null) continue;
+            if (benchQueue is not null && i < benchQueue.Length && benchQueue[i] is null) continue;
+
             var fi = fieldQueue is not null && i < fieldQueue.Length
-                ? fieldQueue[i]
+                ? fieldQueue[i]!.Value
                 : NextIndexFromWithOffset(field, _lastFieldIdx, i);
             var bi = benchQueue is not null && i < benchQueue.Length
-                ? benchQueue[i]
+                ? benchQueue[i]!.Value
                 : NextIndexFromWithOffset(bench, _lastBenchIdx, i);
             if (fi >= 0 && bi >= 0)
                 RotationPairs.Add(new RotationPair(Players[bi].Name, Players[fi].Name));
