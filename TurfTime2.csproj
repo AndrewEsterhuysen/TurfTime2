@@ -26,8 +26,8 @@
 		<ApplicationId>com.andrewestherhuysen.turftime</ApplicationId>
 
 		<!-- Versions -->
-		<ApplicationDisplayVersion>4.2.0</ApplicationDisplayVersion>
-		<ApplicationVersion>6</ApplicationVersion>
+		<ApplicationDisplayVersion>4.3.0</ApplicationDisplayVersion>
+		<ApplicationVersion>7</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>

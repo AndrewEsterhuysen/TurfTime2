@@ -39,6 +39,10 @@
 		
 	</application>
 
+	<!-- Remove AD_ID permission injected transitively by Firebase/Google Play Services measurement libraries.
+			 This app does not use advertising features; FCM push notifications do not require it. -->
+	<uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
+
 	<!-- Required Permissions -->
 	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
