@@ -305,53 +305,97 @@ public partial class ReportsPage : ContentPage
             var session = JsonDocument.Parse(sessionJson);
             var root = session.RootElement;
 
+            // Team name (from session data or current preference)
+            var teamName = "";
+            if (root.TryGetProperty("TeamName", out var teamNameProp) && teamNameProp.ValueKind == JsonValueKind.String)
+                teamName = teamNameProp.GetString() ?? "";
+            else if (root.TryGetProperty("teamName", out var teamNameCamel) && teamNameCamel.ValueKind == JsonValueKind.String)
+                teamName = teamNameCamel.GetString() ?? "";
+            if (string.IsNullOrWhiteSpace(teamName))
+                teamName = Preferences.Get("team_name", "");
+            if (!string.IsNullOrWhiteSpace(teamName))
+                sb.AppendLine($"    <div style='text-align:center; font-size:22px; font-weight:bold; color:#1b5e20; margin-top:-20px; margin-bottom:20px;'>{teamName}</div>");
+
             // Match Summary Section
             sb.AppendLine("    <div class='section'>");
             sb.AppendLine("        <div class='section-title'>Match Summary</div>");
             sb.AppendLine("        <div class='summary-grid'>");
 
-            if (root.TryGetProperty("StartTime", out var startTime))
+            // Final Score — top of summary, full width
+            var scoreUs = 0;
+            var scoreThem = 0;
+            if (root.TryGetProperty("ScoreUs", out var scoreUsProp)) scoreUs = scoreUsProp.GetInt32();
+            else if (root.TryGetProperty("scoreUs", out var scoreUsCamel)) scoreUs = scoreUsCamel.GetInt32();
+            if (root.TryGetProperty("ScoreThem", out var scoreThemProp)) scoreThem = scoreThemProp.GetInt32();
+            else if (root.TryGetProperty("scoreThem", out var scoreThemCamel)) scoreThem = scoreThemCamel.GetInt32();
+
+            sb.AppendLine($"        <div class='summary-item' style='grid-column: 1 / -1;'>");
+            sb.AppendLine($"            <div class='summary-label'>Final Score (Us – Them)</div>");
+            sb.AppendLine($"            <div class='summary-value'>{scoreUs} – {scoreThem}</div>");
+            sb.AppendLine($"        </div>");
+
+            // 1. Date
+            if (root.TryGetProperty("StartTime", out var startTimeProp) || root.TryGetProperty("startTime", out startTimeProp))
             {
-                var startDate = DateTime.Parse(startTime.GetString()!);
+                var startDate = DateTime.Parse(startTimeProp.GetString()!);
+
                 sb.AppendLine($"        <div class='summary-item'>");
                 sb.AppendLine($"            <div class='summary-label'>Date</div>");
                 sb.AppendLine($"            <div class='summary-value'>{startDate:MMM dd, yyyy}</div>");
                 sb.AppendLine($"        </div>");
+
+                // 2. Target Duration (preset match duration)
+                int targetMinutes = 0;
+                if (root.TryGetProperty("MatchDurationSeconds", out var matchDurProp))
+                    targetMinutes = matchDurProp.GetInt32() / 60;
+                else if (root.TryGetProperty("matchDuration", out var matchDurCamel))
+                    targetMinutes = matchDurCamel.GetInt32() / 60;
                 sb.AppendLine($"        <div class='summary-item'>");
-                sb.AppendLine($"            <div class='summary-label'>Start Time</div>");
-                sb.AppendLine($"            <div class='summary-value'>{startDate:h:mm tt}</div>");
+                sb.AppendLine($"            <div class='summary-label'>Target Duration</div>");
+                sb.AppendLine($"            <div class='summary-value'>{targetMinutes} min</div>");
                 sb.AppendLine($"        </div>");
 
-                // End time and actual match duration
-                if (root.TryGetProperty("EndTime", out var endTimeProp) &&
+                // 3. Actual Duration + 4. Start Time + 5. Full Time
+                bool hasEndTime = false;
+                if ((root.TryGetProperty("EndTime", out var endTimeProp) || root.TryGetProperty("endTime", out endTimeProp)) &&
                     endTimeProp.ValueKind != JsonValueKind.Null)
                 {
                     var endDate = DateTime.Parse(endTimeProp.GetString()!);
-                    sb.AppendLine($"        <div class='summary-item'>");
-                    sb.AppendLine($"            <div class='summary-label'>End Time</div>");
-                    sb.AppendLine($"            <div class='summary-value'>{endDate:h:mm tt}</div>");
-                    sb.AppendLine($"        </div>");
-
                     var actualDuration = endDate - startDate;
                     var durMin = (int)actualDuration.TotalMinutes;
                     var durSec = actualDuration.Seconds;
+
                     sb.AppendLine($"        <div class='summary-item'>");
                     sb.AppendLine($"            <div class='summary-label'>Actual Duration</div>");
                     sb.AppendLine($"            <div class='summary-value'>{durMin}:{durSec:D2}</div>");
                     sb.AppendLine($"        </div>");
+
+                    // 4. Start Time
+                    sb.AppendLine($"        <div class='summary-item'>");
+                    sb.AppendLine($"            <div class='summary-label'>Start Time</div>");
+                    sb.AppendLine($"            <div class='summary-value'>{startDate:h:mm tt}</div>");
+                    sb.AppendLine($"        </div>");
+
+                    // 5. Full Time
+                    sb.AppendLine($"        <div class='summary-item'>");
+                    sb.AppendLine($"            <div class='summary-label'>Full Time</div>");
+                    sb.AppendLine($"            <div class='summary-value'>{endDate:h:mm tt}</div>");
+                    sb.AppendLine($"        </div>");
+
+                    hasEndTime = true;
+                }
+
+                if (!hasEndTime)
+                {
+                    // Still show start time if no end time
+                    sb.AppendLine($"        <div class='summary-item'>");
+                    sb.AppendLine($"            <div class='summary-label'>Start Time</div>");
+                    sb.AppendLine($"            <div class='summary-value'>{startDate:h:mm tt}</div>");
+                    sb.AppendLine($"        </div>");
                 }
             }
 
-            if (root.TryGetProperty("MatchDurationSeconds", out var duration))
-            {
-                var minutes = duration.GetInt32() / 60;
-                sb.AppendLine($"        <div class='summary-item'>");
-                sb.AppendLine($"            <div class='summary-label'>Match Duration</div>");
-                sb.AppendLine($"            <div class='summary-value'>{minutes} min</div>");
-                sb.AppendLine($"        </div>");
-            }
-
-            if (root.TryGetProperty("Location", out var location) && location.ValueKind != JsonValueKind.Null)
+            if (root.TryGetProperty("Location", out var location) && location.ValueKind != JsonValueKind.Null && !string.IsNullOrWhiteSpace(location.GetString()))
             {
                 sb.AppendLine($"        <div class='summary-item'>");
                 sb.AppendLine($"            <div class='summary-label'>Location</div>");
@@ -363,7 +407,9 @@ public partial class ReportsPage : ContentPage
             sb.AppendLine("    </div>");
 
             // Match Timeline Section
-            if (root.TryGetProperty("Events", out var logs) && logs.GetArrayLength() > 0)
+            JsonElement logs;
+            bool hasLogs = (root.TryGetProperty("Events", out logs) || root.TryGetProperty("logs", out logs)) && logs.GetArrayLength() > 0;
+            if (hasLogs)
             {
                 sb.AppendLine("    <div class='section'>");
                 sb.AppendLine("        <div class='section-title'>Match Timeline</div>");
@@ -372,12 +418,16 @@ public partial class ReportsPage : ContentPage
 
                 foreach (var log in logs.EnumerateArray())
                 {
-                    if (log.TryGetProperty("Timestamp", out var timestamp) &&
-                        log.TryGetProperty("Description", out var description))
+                    // Handle both PascalCase (C# model) and camelCase (JS/localStorage)
+                    var hasTimestamp = log.TryGetProperty("Timestamp", out var timestamp) || log.TryGetProperty("timestamp", out timestamp);
+                    var hasDescription = log.TryGetProperty("Description", out var description) || log.TryGetProperty("description", out description);
+                    if (hasTimestamp && hasDescription)
                     {
-                        var time = DateTime.Parse(timestamp.GetString());
+                        var time = DateTime.Parse(timestamp.GetString()!);
                         var desc = description.GetString();
-                        var playerName = log.TryGetProperty("PlayerName", out var pn) ? pn.GetString() : "";
+                        var playerName = "";
+                        if (log.TryGetProperty("PlayerName", out var pn) || log.TryGetProperty("playerName", out pn))
+                            playerName = pn.GetString() ?? "";
 
                         sb.AppendLine($"            <tr>");
                         sb.AppendLine($"                <td>{time:HH:mm:ss}</td>");
@@ -392,11 +442,13 @@ public partial class ReportsPage : ContentPage
             }
 
             // Player Statistics Section
-            if (root.TryGetProperty("Summary", out var summary) &&
-                summary.ValueKind == JsonValueKind.Object &&
-                summary.TryGetProperty("PlayerStats", out var playerStats) &&
-                playerStats.ValueKind == JsonValueKind.Array &&
-                playerStats.GetArrayLength() > 0)
+            JsonElement summary, playerStats = default;
+            bool hasSummary = (root.TryGetProperty("Summary", out summary) || root.TryGetProperty("summary", out summary)) &&
+                              summary.ValueKind == JsonValueKind.Object &&
+                              (summary.TryGetProperty("PlayerStats", out playerStats) || summary.TryGetProperty("playerStats", out playerStats)) &&
+                              playerStats.ValueKind == JsonValueKind.Array &&
+                              playerStats.GetArrayLength() > 0;
+            if (hasSummary)
             {
                 sb.AppendLine("    <div class='section'>");
                 sb.AppendLine("        <div class='section-title'>Player Statistics</div>");
@@ -405,26 +457,31 @@ public partial class ReportsPage : ContentPage
 
                 foreach (var player in playerStats.EnumerateArray())
                 {
-                    if (player.TryGetProperty("PlayerName", out var name))
-                    {
-                        var fieldTime = player.TryGetProperty("FieldSeconds", out var ft) ? ft.GetInt32() : 0;
-                        var benchTime = player.TryGetProperty("BenchSeconds", out var bt) ? bt.GetInt32() : 0;
-                        var rotIn = player.TryGetProperty("RotationsIn", out var ri) ? ri.GetInt32() : 0;
-                        var rotOut = player.TryGetProperty("RotationsOut", out var ro) ? ro.GetInt32() : 0;
+                    JsonElement name;
+                    if (!player.TryGetProperty("PlayerName", out name) && !player.TryGetProperty("playerName", out name))
+                        continue;
 
-                        var fieldMinutes = fieldTime / 60;
-                        var fieldSeconds = fieldTime % 60;
-                        var benchMinutes = benchTime / 60;
-                        var benchSeconds = benchTime % 60;
+                    var fieldTime = 0;
+                    if (player.TryGetProperty("FieldSeconds", out var ft) || player.TryGetProperty("timeOnField", out ft)) fieldTime = ft.GetInt32();
+                    var benchTime = 0;
+                    if (player.TryGetProperty("BenchSeconds", out var bt) || player.TryGetProperty("timeOnBench", out bt)) benchTime = bt.GetInt32();
+                    var rotIn = 0;
+                    if (player.TryGetProperty("RotationsIn", out var ri) || player.TryGetProperty("rotationsIn", out ri)) rotIn = ri.GetInt32();
+                    var rotOut = 0;
+                    if (player.TryGetProperty("RotationsOut", out var ro) || player.TryGetProperty("rotationsOut", out ro)) rotOut = ro.GetInt32();
 
-                        sb.AppendLine($"            <tr>");
-                        sb.AppendLine($"                <td>{name.GetString()}</td>");
-                        sb.AppendLine($"                <td>{fieldMinutes}:{fieldSeconds:D2}</td>");
-                        sb.AppendLine($"                <td>{benchMinutes}:{benchSeconds:D2}</td>");
-                        sb.AppendLine($"                <td>{rotIn}</td>");
-                        sb.AppendLine($"                <td>{rotOut}</td>");
-                        sb.AppendLine($"            </tr>");
-                    }
+                    var fieldMinutes = fieldTime / 60;
+                    var fieldSeconds = fieldTime % 60;
+                    var benchMinutes = benchTime / 60;
+                    var benchSeconds = benchTime % 60;
+
+                    sb.AppendLine($"            <tr>");
+                    sb.AppendLine($"                <td>{name.GetString()}</td>");
+                    sb.AppendLine($"                <td>{fieldMinutes}:{fieldSeconds:D2}</td>");
+                    sb.AppendLine($"                <td>{benchMinutes}:{benchSeconds:D2}</td>");
+                    sb.AppendLine($"                <td>{rotIn}</td>");
+                    sb.AppendLine($"                <td>{rotOut}</td>");
+                    sb.AppendLine($"            </tr>");
                 }
 
                 sb.AppendLine("        </table>");

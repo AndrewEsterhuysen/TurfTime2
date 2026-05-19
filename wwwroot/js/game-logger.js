@@ -156,7 +156,7 @@ class GameLogger {
     }
     
     // End current session and calculate summary
-    endSession() {
+    endSession(scoreUs = 0, scoreThem = 0, teamName = '') {
         console.log('[GameLogger] ⚠️ endSession() called');
 
         if (!this.currentSession) {
@@ -169,6 +169,9 @@ class GameLogger {
 
         this.currentSession.endTime = new Date().toISOString();
         this.currentSession.summary = this.calculateSummary();
+        this.currentSession.scoreUs = scoreUs;
+        this.currentSession.scoreThem = scoreThem;
+        this.currentSession.teamName = teamName || localStorage.getItem('team_name') || '';
 
         console.log('[GameLogger] 📊 Summary calculated:', this.currentSession.summary);
 

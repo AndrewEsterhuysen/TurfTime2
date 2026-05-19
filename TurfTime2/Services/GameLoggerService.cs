@@ -73,12 +73,15 @@ public sealed class GameLoggerService : IGameLoggerService
         PersistCurrentSession();
     }
 
-    public void EndSession(IReadOnlyList<Player> players)
+    public void EndSession(IReadOnlyList<Player> players, int scoreUs = 0, int scoreThem = 0, string? teamName = null)
     {
         if (CurrentSession is null) return;
 
         CurrentSession.EndTime = DateTimeOffset.UtcNow;
         CurrentSession.Summary = CalculateSummary(CurrentSession, players);
+        CurrentSession.ScoreUs = scoreUs;
+        CurrentSession.ScoreThem = scoreThem;
+        CurrentSession.TeamName = teamName ?? Preferences.Get("team_name", string.Empty);
 
         Log(GameEventType.GameEnded,
             $"Match ended",

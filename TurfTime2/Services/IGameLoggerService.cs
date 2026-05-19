@@ -19,7 +19,7 @@ public interface IGameLoggerService
     /// Ends the current session, calculates the summary, archives to history,
     /// and requests a Firestore save for cloud teams.
     /// </summary>
-    void EndSession(IReadOnlyList<Player> players);
+    void EndSession(IReadOnlyList<Player> players, int scoreUs = 0, int scoreThem = 0, string? teamName = null);
 
     IReadOnlyList<GameSession> GetSessionHistory();
 

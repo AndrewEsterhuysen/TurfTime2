@@ -1857,7 +1857,8 @@ class RosterManager {
                 console.log('[RosterManager] 🏁 Game ended - archiving session...');
                 if (this.logger && this.logger.currentSession) {
                     // End and archive the session
-                    this.logger.endSession();
+                    const teamName = localStorage.getItem('team_name') || '';
+                    this.logger.endSession(this.teamAScore || 0, this.teamBScore || 0, teamName);
                     console.log('[RosterManager] ✅ Session archived');
                 }
 

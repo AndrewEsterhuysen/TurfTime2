@@ -26,6 +26,9 @@ public sealed class GameSession
     public int RotationIntervalSeconds { get; init; }
     public List<GameEvent> Events { get; } = [];
     public GameSessionSummary? Summary { get; set; }
+    public int ScoreUs { get; set; }
+    public int ScoreThem { get; set; }
+    public string? TeamName { get; set; }
 }
 
 /// <summary>Lightweight listing record used by ReportsPage and SessionLoadHelper.</summary>

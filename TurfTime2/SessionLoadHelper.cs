@@ -236,6 +236,26 @@ public class SessionLoadHelper
             }
         }
 
+        if (fields.TryGetProperty("scoreUs", out var scoreUs) &&
+            scoreUs.TryGetProperty("integerValue", out var scoreUsValue))
+        {
+            if (int.TryParse(scoreUsValue.GetString(), out var s))
+                session["scoreUs"] = s;
+        }
+
+        if (fields.TryGetProperty("scoreThem", out var scoreThem) &&
+            scoreThem.TryGetProperty("integerValue", out var scoreThemValue))
+        {
+            if (int.TryParse(scoreThemValue.GetString(), out var s))
+                session["scoreThem"] = s;
+        }
+
+        if (fields.TryGetProperty("teamName", out var teamName) &&
+            teamName.TryGetProperty("stringValue", out var teamNameValue))
+        {
+            session["teamName"] = teamNameValue.GetString();
+        }
+
         if (fields.TryGetProperty("rotationInterval", out var rotationInterval) &&
             rotationInterval.TryGetProperty("integerValue", out var rotationIntervalValue))
         {

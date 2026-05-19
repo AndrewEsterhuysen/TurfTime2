@@ -839,7 +839,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     private void EndGame()
     {
-        _logger.EndSession(Players);
+        var teamName = Preferences.Get("team_name", string.Empty);
+        _logger.EndSession(Players, TeamAScore, TeamBScore, teamName);
         StartButtonText = "Reset";
         OnPropertyChanged(nameof(Phase));
     }
@@ -852,7 +853,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (Phase != GamePhase.Finished && _logger.CurrentSession is not null)
         {
             _logger.Log(GameEventType.GameRestarted, "Game restarted");
-            _logger.EndSession(Players);
+            _logger.EndSession(Players, TeamAScore, TeamBScore, Preferences.Get("team_name", string.Empty));
         }
 
         _timer.Reset();

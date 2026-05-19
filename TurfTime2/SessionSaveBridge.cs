@@ -157,6 +157,15 @@ public class SessionSaveBridge
         if (session.TryGetProperty("rotationInterval", out var rotationInterval))
             fields["rotationInterval"] = new { integerValue = rotationInterval.GetInt32().ToString() };
 
+        if (session.TryGetProperty("scoreUs", out var scoreUs))
+            fields["scoreUs"] = new { integerValue = scoreUs.GetInt32().ToString() };
+
+        if (session.TryGetProperty("scoreThem", out var scoreThem))
+            fields["scoreThem"] = new { integerValue = scoreThem.GetInt32().ToString() };
+
+        if (session.TryGetProperty("teamName", out var teamName) && teamName.ValueKind != JsonValueKind.Null)
+            fields["teamName"] = new { stringValue = teamName.GetString() };
+
         // Logs array
         if (session.TryGetProperty("logs", out var logs) && logs.ValueKind == JsonValueKind.Array)
         {
