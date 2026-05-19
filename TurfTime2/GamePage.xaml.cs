@@ -811,6 +811,15 @@ public partial class GamePage : ContentPage
 
     // ── Rotation alert (vibrate + flash) ─────────────────────────────────
 
+    // Track previous overdue states so we can detect the false→true edge
+    // and vibrate exactly once when a timer first crosses zero.
+    private bool _wasMatchTimerOverdue;
+    private bool _wasCountdownOverdue;
+
+    // Animation cancellation tokens — cancelled when overdue ends.
+    private CancellationTokenSource? _matchPulseCts;
+    private CancellationTokenSource? _countdownPulseCts;
+
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(GameViewModel.RotationDue) && _vm?.RotationDue == true)
@@ -818,6 +827,103 @@ public partial class GamePage : ContentPage
 
         if (e.PropertyName == nameof(GameViewModel.RotationWarning) && _vm?.RotationWarning == true)
             _ = TriggerRotationWarningAsync();
+
+        if (e.PropertyName == nameof(GameViewModel.MatchTimerOverdue))
+            HandleMatchTimerOverdue(_vm?.MatchTimerOverdue == true);
+
+        if (e.PropertyName == nameof(GameViewModel.CountdownOverdue))
+            HandleCountdownOverdue(_vm?.CountdownOverdue == true);
+    }
+
+    private void HandleMatchTimerOverdue(bool overdue)
+    {
+        if (overdue && !_wasMatchTimerOverdue)
+        {
+            // Crossed zero — vibrate once.
+            try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(1000)); }
+            catch { /* not supported */ }
+        }
+        _wasMatchTimerOverdue = overdue;
+
+        if (overdue)
+            StartOverduePulse(ref _matchPulseCts, MatchTimerLabel, StartBtn);
+        else
+            StopOverduePulse(ref _matchPulseCts, MatchTimerLabel, StartBtn);
+    }
+
+    private void HandleCountdownOverdue(bool overdue)
+    {
+        if (overdue && !_wasCountdownOverdue)
+        {
+            try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(1000)); }
+            catch { /* not supported */ }
+        }
+        _wasCountdownOverdue = overdue;
+
+        if (overdue)
+            StartOverduePulse(ref _countdownPulseCts, CountdownLabel, RotateBtn);
+        else
+            StopOverduePulse(ref _countdownPulseCts, CountdownLabel, RotateBtn);
+    }
+
+    private static void StartOverduePulse(
+        ref CancellationTokenSource? cts,
+        Label label,
+        Button button)
+    {
+        // Already pulsing — nothing to do.
+        if (cts is not null) return;
+
+        label.TextColor  = Colors.Red;
+        button.TextColor = Colors.Red;
+
+        var token = new CancellationTokenSource();
+        cts = token;
+        _ = RunPulseLoopAsync(label, button, token.Token);
+    }
+
+    private static void StopOverduePulse(
+        ref CancellationTokenSource? cts,
+        Label label,
+        Button button)
+    {
+        cts?.Cancel();
+        cts = null;
+
+        // Restore normal appearance.
+        label.CancelAnimations();
+        button.CancelAnimations();
+        label.Opacity  = 1;
+        button.Opacity = 1;
+        label.TextColor  = Colors.White;
+        button.TextColor = Colors.White;
+    }
+
+    /// <summary>
+    /// Loops a smooth opacity pulse (1→0.2→1) on the two views until
+    /// the cancellation token is cancelled.
+    /// </summary>
+    private static async Task RunPulseLoopAsync(
+        VisualElement label,
+        VisualElement button,
+        CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.WhenAll(
+                    label.FadeTo(0.2, 500, Easing.SinInOut),
+                    button.FadeTo(0.2, 500, Easing.SinInOut));
+
+                if (ct.IsCancellationRequested) break;
+
+                await Task.WhenAll(
+                    label.FadeTo(1.0, 500, Easing.SinInOut),
+                    button.FadeTo(1.0, 500, Easing.SinInOut));
+            }
+        }
+        catch (TaskCanceledException) { /* normal cancellation */ }
     }
 
     private async Task TriggerRotationAlertAsync()

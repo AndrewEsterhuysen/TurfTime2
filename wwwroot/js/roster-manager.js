@@ -2058,13 +2058,23 @@ class RosterManager {
         const s = Math.abs(this.matchRemainingSeconds) % 60;
         const two = (n) => n.toString().padStart(2, '0');
         const sign = this.matchRemainingSeconds < 0 ? '-' : '';
-        
+
         if (!this.timerRunning && s === 0 && this.currentHalf === 'setup') {
             this.timerLabel.textContent = `${m} min`;
         } else {
             this.timerLabel.textContent = `${sign}${two(m)}:${two(s)}`;
         }
-        
+
+        // Overdue = match is running and time has reached/passed zero (extra time).
+        const overdue = this.timerRunning && this.matchRemainingSeconds <= 0 && this.currentHalf !== 'setup';
+        if (overdue && !this._matchTimerOverdue) {
+            // Rising edge — vibrate 1 second.
+            try { if (navigator.vibrate) navigator.vibrate(1000); } catch (_) {}
+        }
+        this._matchTimerOverdue = overdue;
+        this.timerLabel.classList.toggle('timer-overdue', overdue);
+        this.startBtn.classList.toggle('btn-overdue', overdue);
+
         this.updateNameInputsEditability();
     }
     
@@ -2184,6 +2194,9 @@ class RosterManager {
 
     resetCountdown(continueRunning) {
         this.countdownRemaining = this.countdownPreset;
+        this._countdownOverdue = false;
+        this.countdownLabel.classList.remove('timer-overdue');
+        this.rotateBtn.classList.remove('btn-overdue');
         this.updateCountdownDisplay();
         this.setRotateAttention(false);
         this.pauseCountdown();
@@ -2195,6 +2208,16 @@ class RosterManager {
         const s = this.countdownRemaining % 60;
         const two = (n) => n.toString().padStart(2, '0');
         this.countdownLabel.textContent = `${m}:${two(s)}`;
+
+        // Overdue = countdown has hit zero while match is running.
+        const overdue = this.timerRunning && this.countdownRemaining <= 0;
+        if (overdue && !this._countdownOverdue) {
+            // Rising edge — vibrate 1 second.
+            try { if (navigator.vibrate) navigator.vibrate(1000); } catch (_) {}
+        }
+        this._countdownOverdue = overdue;
+        this.countdownLabel.classList.toggle('timer-overdue', overdue);
+        this.rotateBtn.classList.toggle('btn-overdue', overdue);
     }
 
     setRotateAttention(on) {
@@ -3420,7 +3443,7 @@ class RosterManager {
         }
 
         // Restore game state
-        if (model.matchDurationSeconds !== undefined) {
+        if (model.matchDurationSeconds !== undefined && model.matchDurationSeconds > 0) {
             this.matchDurationSeconds = model.matchDurationSeconds;
         }
         if (model.halfDurationSeconds !== undefined) {

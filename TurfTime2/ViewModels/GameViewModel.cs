@@ -68,6 +68,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     private string _startButtonText     = "Start";
     private string _rotateButtonText    = "Rotate 1";
 
+    // ── Timer overdue flags (true when the timer has reached/passed zero) ─
+    private bool _matchTimerOverdue;
+    private bool _countdownOverdue;
+
     // ── Constructor ───────────────────────────────────────────────────────
 
     public GameViewModel(
@@ -182,6 +186,20 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _rotationWarning;
         set => Set(ref _rotationWarning, value);
+    }
+
+    /// <summary>True while the match timer is at or past zero (extra time).</summary>
+    public bool MatchTimerOverdue
+    {
+        get => _matchTimerOverdue;
+        private set => Set(ref _matchTimerOverdue, value);
+    }
+
+    /// <summary>True while the rotation countdown is at or past zero.</summary>
+    public bool CountdownOverdue
+    {
+        get => _countdownOverdue;
+        private set => Set(ref _countdownOverdue, value);
     }
 
     public bool ShowInactivePlayers
@@ -764,7 +782,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     private void ApplySnapshot(RosterSnapshot s)
     {
-        _timer.MatchDurationSeconds   = s.MatchDurationSeconds;
+        _timer.MatchDurationSeconds   = s.MatchDurationSeconds > 0 ? s.MatchDurationSeconds : 90 * 60;
         _timer.CountdownPresetSeconds = s.CountdownPresetSeconds;
         // Keep the explicit Preferences key in sync so the constructor's
         // early-restore path always reflects the most recent saved value.
@@ -1178,6 +1196,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             ? $"{m} min"
             : $"{sign}{m:D2}:{s:D2}";
 
+        // Overdue = match is actively running and time has reached/passed zero.
+        MatchTimerOverdue = _timer.TimerRunning && remaining <= 0;
+
         UpdateCountdownDisplay();
         UpdateTimerLabelText();
     }
@@ -1188,6 +1209,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         var abs  = Math.Abs(r);
         var sign = r < 0 ? "-" : string.Empty;
         CountdownDisplay = $"{sign}{abs / 60}:{abs % 60:D2}";
+
+        // Overdue = countdown is running and has reached/passed zero.
+        CountdownOverdue = _timer.TimerRunning && r <= 0;
     }
 
     private void UpdateTimerLabelText()

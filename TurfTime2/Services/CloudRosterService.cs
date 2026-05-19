@@ -248,11 +248,13 @@ public sealed class CloudRosterService : ICloudRosterService
             static int    Int(JsonElement e)   => int.Parse(e.GetProperty("integerValue").GetString() ?? "0");
             static bool   Bool(JsonElement e)  => e.GetProperty("booleanValue").GetBoolean();
 
+            const int defaultMatchDuration = 90 * 60;
+
             var snapshot = new RosterSnapshot
             {
                 Version                = Int(fields.GetProperty("version")),
                 LastModifiedUtc        = DateTimeOffset.Parse(Str(fields.GetProperty("lastModifiedUtc"))),
-                MatchDurationSeconds   = Int(fields.GetProperty("matchDurationSeconds")),
+                MatchDurationSeconds   = fields.TryGetProperty("matchDurationSeconds", out var mds) && Int(mds) > 0 ? Int(mds) : defaultMatchDuration,
                 HalfDurationSeconds    = Int(fields.GetProperty("halfDurationSeconds")),
                 MatchRemainingSeconds  = Int(fields.GetProperty("matchRemainingSeconds")),
                 CurrentHalf            = Str(fields.GetProperty("currentHalf")),

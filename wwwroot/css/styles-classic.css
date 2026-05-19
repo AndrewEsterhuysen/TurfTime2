@@ -173,6 +173,22 @@ button:disabled {
     text-align: center;
 }
 
+/* Timer/button overdue state — red text with pulsing opacity */
+@keyframes timerOverduePulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.2; }
+}
+
+.timer-overdue {
+    color: #ff3333 !important;
+    animation: timerOverduePulse 1s ease-in-out infinite;
+}
+
+.btn-overdue {
+    color: #ff3333 !important;
+    animation: timerOverduePulse 1s ease-in-out infinite;
+}
+
 .countdown-timer {
     min-width: 80px;
 }

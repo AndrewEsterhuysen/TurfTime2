@@ -48,9 +48,10 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
 
     public GameTimerService()
     {
-        // Phase is already GamePhase.Setup (default), so the property setter
-        // will have set MatchRemainingSeconds = MatchDurationSeconds.
-        // Initialise countdown here.
+        // Phase is already GamePhase.Setup (default). The backing field is
+        // initialised directly (bypassing the property setter), so we must
+        // manually seed MatchRemainingSeconds here to avoid it starting at 0.
+        MatchRemainingSeconds     = _matchDurationSeconds;
         CountdownRemainingSeconds = CountdownPresetSeconds;
     }
 
