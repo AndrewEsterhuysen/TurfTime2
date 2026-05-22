@@ -24,5 +24,9 @@ public enum GameEventType
     // Rotation events
     RotationExecuted,
     ManualNextSelection,
-    PlayerReordered
+    PlayerReordered,
+
+    // Score events
+    ScoreUs,
+    ScoreThem
 }

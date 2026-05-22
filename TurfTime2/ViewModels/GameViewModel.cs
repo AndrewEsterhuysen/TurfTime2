@@ -264,6 +264,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _userRole      = userRole;
         TeamName       = Preferences.Get("team_name", string.Empty);
 
+        // Always reset to a clean default roster before loading the new team's
+        // snapshot. Without this, switching to a brand-new team (which has no
+        // saved snapshot) leaves the previous team's players visible.
+        ResetToDefaultRoster();
+
         bool isLocal = teamId.StartsWith("local_", StringComparison.Ordinal);
 
         if (!isLocal)
@@ -282,6 +287,28 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(IsMember));
         OnPropertyChanged(nameof(IsAdmin));
         UpdateStartButtonState();
+    }
+
+    private void ResetToDefaultRoster()
+    {
+        Players.Clear();
+        for (int i = 1; i <= 16; i++)
+            Players.Add(new Player { Name = $"Player {i}" });
+
+        TeamAScore = 0;
+        TeamBScore = 0;
+        _timer.MatchDurationSeconds   = 90 * 60;
+        _timer.CountdownPresetSeconds = Preferences.Get("game.countdownPresetSeconds", 0) is int s && s > 0 ? s : _timer.CountdownPresetSeconds;
+        _lastFieldIdx          = -1;
+        _lastBenchIdx          = -1;
+        _initialArrangementDone = false;
+        _manualFieldQueue.Clear();
+        _manualBenchQueue.Clear();
+
+        UpdateTimerDisplays();
+        UpdateRotateButtonText();
+        UpdateStartButtonState();
+        RefreshDisplayItems();
     }
 
     // ── Game control ──────────────────────────────────────────────────────
@@ -385,12 +412,14 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     public void IncrementTeamAScore()
     {
         TeamAScore++;
+        LogScoreEvent(GameEventType.ScoreUs, delta: +1, TeamAScore, TeamBScore);
         _ = AutoSaveAsync();
     }
 
     public void IncrementTeamBScore()
     {
         TeamBScore++;
+        LogScoreEvent(GameEventType.ScoreThem, delta: +1, TeamAScore, TeamBScore);
         _ = AutoSaveAsync();
     }
 
@@ -400,6 +429,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (TeamAScore > 0)
         {
             TeamAScore--;
+            LogScoreEvent(GameEventType.ScoreUs, delta: -1, TeamAScore, TeamBScore);
             _ = AutoSaveAsync();
         }
     }
@@ -410,8 +440,44 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (TeamBScore > 0)
         {
             TeamBScore--;
+            LogScoreEvent(GameEventType.ScoreThem, delta: -1, TeamAScore, TeamBScore);
             _ = AutoSaveAsync();
         }
+    }
+
+    private void LogScoreEvent(GameEventType type, int delta, int usScore, int themScore)
+    {
+        // Only log during an active game; ignore accidental taps in setup/finished state.
+        if (Phase == GamePhase.Setup || Phase == GamePhase.Finished) return;
+
+        var elapsedSeconds = _timer.MatchDurationSeconds - _timer.MatchRemainingSeconds;
+        var half = Phase switch
+        {
+            GamePhase.FirstHalf  => "1st",
+            GamePhase.HalfTime   => "HT",
+            GamePhase.SecondHalf => "2nd",
+            GamePhase.Ended      => "2nd",
+            _                    => ""
+        };
+        var team  = type == GameEventType.ScoreUs ? "Us" : "Them";
+        var arrow = delta > 0 ? "⚽ Goal" : "↩ Corrected";
+        var elapsedMin = elapsedSeconds / 60;
+        var elapsedSec = elapsedSeconds % 60;
+
+        System.Diagnostics.Debug.WriteLine($"[LogScoreEvent] Phase={Phase} team={team} delta={delta} us={usScore} them={themScore} elapsed={elapsedSeconds}s sessionActive={_logger.CurrentSession is not null}");
+
+        _logger.Log(type,
+            $"{arrow} — {team} ({usScore}–{themScore})",
+            details: new Dictionary<string, object?>
+            {
+                ["team"]           = team,
+                ["delta"]          = delta,
+                ["scoreUs"]        = usScore,
+                ["scoreThem"]      = themScore,
+                ["half"]           = half,
+                ["elapsedSeconds"] = elapsedSeconds,
+                ["elapsedDisplay"] = $"{half} {elapsedMin}:{elapsedSec:D2}"
+            });
     }
 
     /// <summary>Set a field player as the next to rotate out.</summary>

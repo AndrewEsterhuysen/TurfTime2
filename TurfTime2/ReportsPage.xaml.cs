@@ -102,9 +102,12 @@ public partial class ReportsPage : ContentPage
                 return Task.CompletedTask;
             }
 
-            var sessions = JsonSerializer.Deserialize<List<TurfTime2.Models.GameSession>>(raw);
+            // Parse the raw JSON array directly so that event Details are never lost through
+            // a typed deserialize→re-serialize round-trip (object? values don't survive that).
+            using var doc = JsonDocument.Parse(raw);
+            var sessionArray = doc.RootElement;
 
-            if (sessions is null || sessions.Count == 0)
+            if (sessionArray.ValueKind != JsonValueKind.Array || sessionArray.GetArrayLength() == 0)
             {
                 System.Diagnostics.Debug.WriteLine("[ReportsPage] No sessions found in Preferences history");
                 ShowNoDataMessage();
@@ -114,17 +117,38 @@ public partial class ReportsPage : ContentPage
             availableReports.Clear();
             sessionJsonCache.Clear();
 
-            foreach (var session in sessions)
+            foreach (var sessionEl in sessionArray.EnumerateArray())
             {
+                // Read summary fields directly from the JSON element
+                var sessionId = "";
+                if (sessionEl.TryGetProperty("SessionId", out var sidProp) || sessionEl.TryGetProperty("sessionId", out sidProp))
+                    sessionId = sidProp.GetString() ?? "";
+
+                DateTime startTime = DateTime.MinValue;
+                if (sessionEl.TryGetProperty("StartTime", out var stProp) || sessionEl.TryGetProperty("startTime", out stProp))
+                    DateTime.TryParse(stProp.GetString(), out startTime);
+
+                DateTime? endTime = null;
+                if (sessionEl.TryGetProperty("EndTime", out var etProp) || sessionEl.TryGetProperty("endTime", out etProp))
+                    if (DateTime.TryParse(etProp.GetString(), out var et)) endTime = et;
+
+                int matchDuration = 0;
+                if (sessionEl.TryGetProperty("MatchDurationSeconds", out var mdProp) || sessionEl.TryGetProperty("matchDurationSeconds", out mdProp))
+                    mdProp.TryGetInt32(out matchDuration);
+
+                if (string.IsNullOrEmpty(sessionId)) continue;
+
                 var summary = new SessionSummary
                 {
-                    SessionId     = session.SessionId,
-                    StartTime     = session.StartTime.LocalDateTime,
-                    EndTime       = session.EndTime?.LocalDateTime,
-                    MatchDuration = session.MatchDurationSeconds
+                    SessionId     = sessionId,
+                    StartTime     = startTime.ToLocalTime(),
+                    EndTime       = endTime?.ToLocalTime(),
+                    MatchDuration = matchDuration
                 };
                 availableReports.Add(summary);
-                sessionJsonCache[session.SessionId] = JsonSerializer.Serialize(session);
+
+                // Cache the raw JSON text — no re-serialization, so no data loss
+                sessionJsonCache[sessionId] = sessionEl.GetRawText();
             }
 
             System.Diagnostics.Debug.WriteLine($"[ReportsPage] Found {availableReports.Count} local sessions");
@@ -292,6 +316,8 @@ public partial class ReportsPage : ContentPage
         sb.AppendLine("        .summary-item { padding: 15px; background-color: #e8f5e9; border-radius: 5px; }");
         sb.AppendLine("        .summary-label { font-weight: bold; color: #1b5e20; font-size: 14px; }");
         sb.AppendLine("        .summary-value { font-size: 24px; color: #2e7d32; margin-top: 5px; }");
+        sb.AppendLine("        tr.score-event { background-color: #fff9c4; font-weight: bold; }");
+        sb.AppendLine("        tr.score-event:hover { background-color: #fff176; }");
         sb.AppendLine("    </style>");
         sb.AppendLine("</head>");
         sb.AppendLine("<body>");
@@ -409,32 +435,64 @@ public partial class ReportsPage : ContentPage
             // Match Timeline Section
             JsonElement logs;
             bool hasLogs = (root.TryGetProperty("Events", out logs) || root.TryGetProperty("logs", out logs)) && logs.GetArrayLength() > 0;
+            System.Diagnostics.Debug.WriteLine($"[GenerateHtmlReport] hasLogs={hasLogs} eventCount={( hasLogs ? logs.GetArrayLength() : 0)}");
             if (hasLogs)
             {
+                // Dump first 5 events for diagnostics
+                int dumpCount = 0;
+                foreach (var ev in logs.EnumerateArray())
+                {
+                    if (dumpCount++ >= 5) break;
+                    var etProp = ev.TryGetProperty("EventType", out var etp) || ev.TryGetProperty("eventType", out etp) ? etp.ToString() : "?";
+                    var descProp = ev.TryGetProperty("Description", out var dp) || ev.TryGetProperty("description", out dp) ? dp.GetString() : "?";
+                    var hasDetails = ev.TryGetProperty("Details", out var detProp) || ev.TryGetProperty("details", out detProp);
+                    System.Diagnostics.Debug.WriteLine($"[GenerateHtmlReport]   event[{dumpCount-1}] eventType={etProp} desc={descProp} hasDetails={hasDetails}");
+                }
+                // Score event EventType values (enum ordinals — ScoreUs=16, ScoreThem=17)
+                const int ScoreUsType   = (int)GameEventType.ScoreUs;
+                const int ScoreThemType = (int)GameEventType.ScoreThem;
+
                 sb.AppendLine("    <div class='section'>");
                 sb.AppendLine("        <div class='section-title'>Match Timeline</div>");
                 sb.AppendLine("        <table>");
-                sb.AppendLine("            <tr><th>Time</th><th>Event</th><th>Details</th></tr>");
+                sb.AppendLine("            <tr><th>Clock</th><th>Game Time</th><th>Event</th><th>Score</th></tr>");
 
                 foreach (var log in logs.EnumerateArray())
                 {
                     // Handle both PascalCase (C# model) and camelCase (JS/localStorage)
-                    var hasTimestamp = log.TryGetProperty("Timestamp", out var timestamp) || log.TryGetProperty("timestamp", out timestamp);
+                    var hasTimestamp   = log.TryGetProperty("Timestamp",   out var timestamp)   || log.TryGetProperty("timestamp",   out timestamp);
                     var hasDescription = log.TryGetProperty("Description", out var description) || log.TryGetProperty("description", out description);
-                    if (hasTimestamp && hasDescription)
-                    {
-                        var time = DateTime.Parse(timestamp.GetString()!);
-                        var desc = description.GetString();
-                        var playerName = "";
-                        if (log.TryGetProperty("PlayerName", out var pn) || log.TryGetProperty("playerName", out pn))
-                            playerName = pn.GetString() ?? "";
+                    if (!hasTimestamp || !hasDescription) continue;
 
-                        sb.AppendLine($"            <tr>");
-                        sb.AppendLine($"                <td>{time:HH:mm:ss}</td>");
-                        sb.AppendLine($"                <td>{desc}</td>");
-                        sb.AppendLine($"                <td>{playerName}</td>");
-                        sb.AppendLine($"            </tr>");
+                    var time = DateTime.Parse(timestamp.GetString()!);
+                    var desc = description.GetString() ?? "";
+
+                    // Detect score events by EventType ordinal
+                    var eventTypeVal = -1;
+                    if (log.TryGetProperty("EventType", out var et) || log.TryGetProperty("eventType", out et))
+                        eventTypeVal = et.ValueKind == JsonValueKind.Number ? et.GetInt32() : -1;
+
+                    bool isScoreEvent = eventTypeVal == ScoreUsType || eventTypeVal == ScoreThemType;
+
+                    // Read Details dictionary for game-time and score fields
+                    var elapsedDisplay = "";
+                    var scoreDisplay   = "";
+                    if (log.TryGetProperty("Details", out var details) || log.TryGetProperty("details", out details))
+                    {
+                        if (details.TryGetProperty("elapsedDisplay", out var ed))
+                            elapsedDisplay = ed.GetString() ?? "";
+                        if (details.TryGetProperty("scoreUs", out var su) && details.TryGetProperty("scoreThem", out var st))
+                            scoreDisplay = $"{su.GetInt32()} – {st.GetInt32()}";
                     }
+
+                    // Score events get a highlighted row; all others are plain
+                    var rowClass = isScoreEvent ? " class='score-event'" : "";
+                    sb.AppendLine($"            <tr{rowClass}>");
+                    sb.AppendLine($"                <td>{time:HH:mm:ss}</td>");
+                    sb.AppendLine($"                <td>{elapsedDisplay}</td>");
+                    sb.AppendLine($"                <td>{desc}</td>");
+                    sb.AppendLine($"                <td>{scoreDisplay}</td>");
+                    sb.AppendLine($"            </tr>");
                 }
 
                 sb.AppendLine("        </table>");
