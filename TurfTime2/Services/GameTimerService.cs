@@ -40,7 +40,13 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
     public event EventHandler?      RegulationTimeEnded;
 
     // How many seconds before zero the RotationWarning event fires.
-    private const int RotationWarningSeconds = 10;
+    // Configurable via Preferences; default is 10 seconds.
+    private int _rotationWarningSeconds = 10;
+    public int RotationWarningSeconds
+    {
+        get => _rotationWarningSeconds;
+        set => _rotationWarningSeconds = value;
+    }
 
     // ── Internals ─────────────────────────────────────────────────────────
     private CancellationTokenSource? _cts;
@@ -51,8 +57,19 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
         // Phase is already GamePhase.Setup (default). The backing field is
         // initialised directly (bypassing the property setter), so we must
         // manually seed MatchRemainingSeconds here to avoid it starting at 0.
+
+        // Load configurable match duration from persistent preferences.
+        var savedMatchMinutes = Preferences.Get("game.matchDurationMinutes", 90);
+        if (savedMatchMinutes > 0)
+            _matchDurationSeconds = savedMatchMinutes * 60;
+
         MatchRemainingSeconds     = _matchDurationSeconds;
         CountdownRemainingSeconds = CountdownPresetSeconds;
+
+        // Load configurable warning threshold from persistent preferences.
+        var savedWarning = Preferences.Get("game.rotationWarningSeconds", 10);
+        if (savedWarning > 0)
+            _rotationWarningSeconds = savedWarning;
     }
 
     // ── Control ───────────────────────────────────────────────────────────

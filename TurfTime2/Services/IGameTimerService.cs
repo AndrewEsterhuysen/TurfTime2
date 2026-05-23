@@ -17,6 +17,9 @@ public interface IGameTimerService
     bool TimerRunning          { get; }
     GamePhase Phase            { get; }
 
+    /// <summary>Seconds before countdown zero at which <see cref="RotationWarning"/> fires.</summary>
+    int RotationWarningSeconds { get; set; }
+
     // ── Events ─────────────────────────────────────────────────────────────
     /// <summary>Fires every second while the match timer is running.</summary>
     event EventHandler<int> MatchTickOccurred;   // arg = matchRemainingSeconds

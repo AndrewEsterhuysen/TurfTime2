@@ -14,6 +14,7 @@
             // Register routes for navigation from Settings page
             Routing.RegisterRoute("settings/teamdetails", typeof(TeamDetailsPage));
             Routing.RegisterRoute("settings/reports", typeof(ReportsPage));
+            Routing.RegisterRoute("settings/timers", typeof(TimersSettingsPage));
 
             // Handle navigation to clear stacks when switching to Settings tab
             this.Navigated += OnShellNavigated;

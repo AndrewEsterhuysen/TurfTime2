@@ -67,7 +67,7 @@
                        Margin="0,0,0,24">
                     <Label.FormattedText>
                         <FormattedString>
-                            <Span Text="We're thrilled to have you on the pitch with us. TurfTimer is built by coaches, for coaches — designed to take the admin off your shoulders so you can focus on the game." />
+                            <Span Text="We're thrilled to have you on the pitch with us. TurfTimer is built for parents, coaches and managers alike — designed to take the stress off your shoulders so you can focus on the game." />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>
@@ -89,7 +89,7 @@
                             <Span Text="&#10;&#10;" />
                             <Span Text="💾  " /><Span Text="Local Data Retention" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — your rosters, game history, and settings are saved on-device so you're never caught without your data." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="🔄  " /><Span Text="Easy Substitution Management" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — a smart rotation queue ensures every player gets fair field time. Tap a player to move them up the queue. Perfect for fast-paced formats like fast fives where rotations happen frequently." />
+                            <Span Text="🔄  " /><Span Text="Easy Substitution Management" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — built for moms, dads, coaches and volunteers supporting youth soccer and fast-five games, where fun and equal field time matter most. Set up your team in the order they'll sub on/off, choose the number of players and the rotation interval, and let the app handle the rest. No more spreadsheets, lists or guesswork — just easy, reliable and fair subbing, with a full end-of-game report." />
                             <Span Text="&#10;&#10;" />
                             <Span Text="📋  " /><Span Text="Game Reports" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — generate a clear post-game summary for each match, ready to share with your team." />
                         </FormattedString>

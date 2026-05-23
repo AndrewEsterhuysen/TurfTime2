@@ -43,6 +43,11 @@ public partial class GamePage : ContentPage
         {
             var style = Preferences.Get("rotation_style", 1);
             _vm.UpdateRotationStyle(style);
+
+            // Re-apply timer settings in case they were changed in Settings → Timers.
+            _vm.UpdateMatchDurationFromPreferences();
+            _vm.UpdateCountdownPresetFromPreferences();
+            _vm.UpdateRotationWarningSeconds(Preferences.Get("game.rotationWarningSeconds", 10));
         }
 
         RotationStylePage.RotationStyleChanged += OnRotationStyleChanged;
@@ -64,6 +69,12 @@ public partial class GamePage : ContentPage
     }
 
     // ── ViewModel factory ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Immediately stops all timers and resets match state. Called by TeamDetailsPage
+    /// before switching teams so no timer state bleeds into the next team's session.
+    /// </summary>
+    public void ResetMatchState() => _vm?.ResetMatchState();
 
     private async Task CreateViewModelAsync(string teamId, string? userRole)
     {
@@ -928,8 +939,9 @@ public partial class GamePage : ContentPage
 
     private async Task TriggerRotationAlertAsync()
     {
-        // 2s vibration at countdown zero.
-        try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(2000)); }
+        // Vibrate for the configured Rotation Duration (default 1 s).
+        var durationMs = Preferences.Get("game.rotationDurationMs", 1000);
+        try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(durationMs)); }
         catch { /* vibration not supported on this device */ }
 
         // Clear the flag first so the VM can continue (e.g. start the next
@@ -942,14 +954,15 @@ public partial class GamePage : ContentPage
         // for the UI thread with six Animate() callbacks.
         await Task.Delay(200);
 
-        // Flash the page background white.
-        await FlashBackgroundAsync();
+        // Flash the page background white for the same duration as the vibration.
+        await FlashBackgroundAsync(durationMs);
     }
 
     private Task TriggerRotationWarningAsync()
     {
-        // 1s vibration 10s before countdown zero.
-        try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(1000)); }
+        // Vibrate for the configured Rotation Warning Duration (default 0.5 s).
+        var durationMs = Preferences.Get("game.rotationWarningDurationMs", 500);
+        try { Vibration.Default.Vibrate(TimeSpan.FromMilliseconds(durationMs)); }
         catch { /* vibration not supported on this device */ }
 
         if (_vm is not null)
@@ -958,12 +971,15 @@ public partial class GamePage : ContentPage
         return Task.CompletedTask;
     }
 
-    private async Task FlashBackgroundAsync()
+    private async Task FlashBackgroundAsync(int durationMs = 240)
     {
         var orig = BackgroundColor ?? Colors.Black;
         float or = (float)orig.Red, og = (float)orig.Green, ob = (float)orig.Blue;
 
-        for (int i = 0; i < 2; i++)
+        // Each flash cycle is 60 ms in + 60 ms out = 120 ms.
+        // Run enough cycles to fill the requested duration (at least 1).
+        int cycles = Math.Max(1, durationMs / 120);
+        for (int i = 0; i < cycles; i++)
         {
             var tcsIn  = new TaskCompletionSource();
             var tcsOut = new TaskCompletionSource();

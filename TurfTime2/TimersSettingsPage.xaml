@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.TimersSettingsPage"
+             Title="Timers"
+             BackgroundColor="#1b5e20">
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+
+            <!-- Header -->
+            <Label Text="⏱ Timers"
+                   FontSize="28"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center"
+                   TextColor="White"
+                   Margin="0,10,0,10" />
+
+            <Label Text="Changes apply the next time a match is started."
+                   FontSize="13"
+                   TextColor="#A5D6A7"
+                   HorizontalOptions="Center"
+                   Margin="0,0,0,10" />
+
+            <!-- ── Match Timer ── -->
+            <Frame BackgroundColor="#2e7d32" CornerRadius="10" Padding="20" HasShadow="True">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="Match Timer (minutes)"
+                           FontSize="16" FontAttributes="Bold" TextColor="White" />
+                    <Label Text="Total match duration split across two halves."
+                           FontSize="13" TextColor="#E0E0E0" />
+                    <Entry x:Name="MatchTimerEntry"
+                           Keyboard="Numeric"
+                           Placeholder="e.g. 90"
+                           PlaceholderColor="#A5D6A7"
+                           TextColor="White"
+                           BackgroundColor="#1b5e20"
+                           ReturnType="Done"
+                           Completed="OnMatchTimerCompleted" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- ── Rotation Timer ── -->
+            <Frame BackgroundColor="#2e7d32" CornerRadius="10" Padding="20" HasShadow="True">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="Rotation Timer (MM:SS)"
+                           FontSize="16" FontAttributes="Bold" TextColor="White" />
+                    <Label Text="Countdown between player rotations."
+                           FontSize="13" TextColor="#E0E0E0" />
+                    <Entry x:Name="RotationTimerEntry"
+                           Keyboard="Default"
+                           Placeholder="e.g. 2:00"
+                           PlaceholderColor="#A5D6A7"
+                           TextColor="White"
+                           BackgroundColor="#1b5e20"
+                           ReturnType="Done"
+                           Completed="OnRotationTimerCompleted" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- ── Rotation Warning Time ── -->
+            <Frame BackgroundColor="#2e7d32" CornerRadius="10" Padding="20" HasShadow="True">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="Rotation Warning Time (seconds)"
+                           FontSize="16" FontAttributes="Bold" TextColor="White" />
+                    <Label Text="Seconds remaining on the Rotation Timer when the warning vibration triggers."
+                           FontSize="13" TextColor="#E0E0E0" />
+                    <Entry x:Name="RotationWarningTimeEntry"
+                           Keyboard="Numeric"
+                           Placeholder="Default: 10"
+                           PlaceholderColor="#A5D6A7"
+                           TextColor="White"
+                           BackgroundColor="#1b5e20"
+                           ReturnType="Done"
+                           Completed="OnRotationWarningTimeCompleted" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- ── Rotation Warning Duration ── -->
+            <Frame BackgroundColor="#2e7d32" CornerRadius="10" Padding="20" HasShadow="True">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="Rotation Warning Vibration Duration (seconds)"
+                           FontSize="16" FontAttributes="Bold" TextColor="White" />
+                    <Label Text="How long the device vibrates at the Rotation Warning Time."
+                           FontSize="13" TextColor="#E0E0E0" />
+                    <Entry x:Name="RotationWarningDurationEntry"
+                           Keyboard="Numeric"
+                           Placeholder="Default: 0.5"
+                           PlaceholderColor="#A5D6A7"
+                           TextColor="White"
+                           BackgroundColor="#1b5e20"
+                           ReturnType="Done"
+                           Completed="OnRotationWarningDurationCompleted" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- ── Rotation Duration ── -->
+            <Frame BackgroundColor="#2e7d32" CornerRadius="10" Padding="20" HasShadow="True">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="Rotation Vibration Duration (seconds)"
+                           FontSize="16" FontAttributes="Bold" TextColor="White" />
+                    <Label Text="How long the device vibrates when the Rotation Timer reaches 0."
+                           FontSize="13" TextColor="#E0E0E0" />
+                    <Entry x:Name="RotationDurationEntry"
+                           Keyboard="Numeric"
+                           Placeholder="Default: 1"
+                           PlaceholderColor="#A5D6A7"
+                           TextColor="White"
+                           BackgroundColor="#1b5e20"
+                           ReturnType="Done"
+                           Completed="OnRotationDurationCompleted" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Save button -->
+            <Button Text="Save"
+                    BackgroundColor="#43a047"
+                    TextColor="White"
+                    FontAttributes="Bold"
+                    FontSize="18"
+                    CornerRadius="10"
+                    Margin="0,10,0,20"
+                    Clicked="OnSaveClicked" />
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -277,85 +277,79 @@ public partial class TeamDetailsPage : ContentPage
 
 	private void OnLocalTeamSelectionChanged(object sender, SelectionChangedEventArgs e)
 	{
-		// DEBUG: Log that event fired
 		System.Diagnostics.Debug.WriteLine($"[TeamDetails] SelectionChanged fired. Selection count: {e.CurrentSelection.Count}");
 
-		if (e.CurrentSelection.FirstOrDefault() is LocalTeamItem selectedTeam)
+		if (e.CurrentSelection.FirstOrDefault() is not LocalTeamItem selectedTeam)
 		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team selected: {selectedTeam.TeamName} (ID: {selectedTeam.TeamId})");
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] No team selected (CurrentSelection is null or not LocalTeamItem)");
+			return;
+		}
 
-			// Check if already the current team
-			var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Current team ID: {currentTeamId}");
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team selected: {selectedTeam.TeamName} (ID: {selectedTeam.TeamId})");
 
-			if (currentTeamId == selectedTeam.TeamId)
+		var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] Current team ID: {currentTeamId}");
+
+		if (currentTeamId == selectedTeam.TeamId)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Already on this team, ignoring selection");
+			LocalTeamsCollection.SelectedItem = null;
+			return;
+		}
+
+		// Clear selection immediately to prevent double-tap issues on Android
+		LocalTeamsCollection.SelectedItem = null;
+
+		MainThread.BeginInvokeOnMainThread(async () =>
+		{
+			if (!await ConfirmTeamChangeAsync())
 			{
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Already on this team, ignoring selection");
-				// Already on this team, just clear selection
-				LocalTeamsCollection.SelectedItem = null;
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team switch cancelled by user");
 				return;
 			}
 
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Switching to team: {selectedTeam.TeamName}");
 
-			// Switch to selected team
+			// Reset match state on the live GamePage ViewModel before updating Preferences
+			// so timers stop immediately and don't bleed into the new team's session.
+			FindGamePage()?.ResetMatchState();
+
 			Preferences.Set(TEAM_MODE_KEY, "local");
 			Preferences.Set(TEAM_ID_KEY, selectedTeam.TeamId);
 			Preferences.Set(TEAM_NAME_KEY, selectedTeam.TeamName);
 			Preferences.Set(USER_ROLE_KEY, "admin"); // Local mode = always admin
 
-			// Sync team ID to localStorage for JavaScript roster manager
 			SyncTeamIdToLocalStorage(selectedTeam.TeamId);
-
-			// Trigger AppShell to update menu item availability
 			RefreshAppShellMenu();
 
-			// Clear selection immediately to prevent double-tap issues on Android
-			LocalTeamsCollection.SelectedItem = null;
+			await DisplayAlert("Team Switched",
+				$"Now managing: {selectedTeam.TeamName}\n\n" +
+				"Your roster, chat, and logs are now for this team.",
+				"OK");
 
-			// Show confirmation
-			MainThread.BeginInvokeOnMainThread(async () =>
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Dialog closed, refreshing UI");
+
+			LoadCurrentTeam();
+			_ = LoadLocalTeamsAsync();
+
+			var gamePage = FindGamePage();
+			if (gamePage != null)
 			{
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Showing dialog for: {selectedTeam.TeamName}");
-
-				await DisplayAlert("Team Switched", 
-					$"Now managing: {selectedTeam.TeamName}\n\n" +
-					"Your roster, chat, and logs are now for this team.", 
-					"OK");
-
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Dialog closed, refreshing UI");
-
-				// Refresh UI AFTER dialog closes to ensure it's visible
-				LoadCurrentTeam();
-				_ = LoadLocalTeamsAsync();
-
-				// Force reload Game page if user is currently on it or will navigate to it
-					var gamePage = FindGamePage();
-				if (gamePage != null)
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Forcing Game page reload after team switch");
+				var currentPage = Application.Current?.MainPage?.Navigation?.NavigationStack?.LastOrDefault();
+				if (currentPage is GamePage)
 				{
-					System.Diagnostics.Debug.WriteLine($"[TeamDetails] Forcing Game page reload after team switch");
-					// GamePage re-initialises via OnAppearing when team changes
-
-					// If currently on Game page, navigate away and back
-					var currentPage = Application.Current?.MainPage?.Navigation?.NavigationStack?.LastOrDefault();
-					if (currentPage is GamePage)
-					{
-						await Shell.Current.GoToAsync("//SettingsPage");
-						await Task.Delay(100);
-						await Shell.Current.GoToAsync("//GamePage");
-					}
+					await Shell.Current.GoToAsync("//SettingsPage");
+					await Task.Delay(100);
+					await Shell.Current.GoToAsync("//GamePage");
 				}
+			}
 
 				System.Diagnostics.Debug.WriteLine($"[TeamDetails] UI refresh complete");
-			});
-		}
-		else
-		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] No team selected (CurrentSelection is null or not LocalTeamItem)");
-		}
-	}
+				});
+			}
 
-	// Alternative handler for TapGestureRecognizer (Android fallback)
+			// Alternative handler for TapGestureRecognizer (Android fallback)
 	private void OnTeamItemTapped(object sender, EventArgs e)
 	{
 		System.Diagnostics.Debug.WriteLine($"[TeamDetails] TapGesture fired on Frame");
@@ -393,6 +387,125 @@ public partial class TeamDetailsPage : ContentPage
 		}
 
 		return null;
+	}
+
+	private const string SuppressTeamSwitchWarningKey = "suppress_team_switch_warning";
+
+	/// <summary>
+	/// Shows a confirmation dialog before switching or creating a team, warning the user
+	/// that scores and timers will be reset. Respects a "don't show this again" preference.
+	/// Returns <c>true</c> if the user confirmed (or the warning is suppressed), <c>false</c> to cancel.
+	/// </summary>
+	private async Task<bool> ConfirmTeamChangeAsync()
+	{
+		if (Preferences.Get(SuppressTeamSwitchWarningKey, false))
+			return true;
+
+		// Custom dialog with three logical options: Cancel | Don't show again | Continue
+		bool confirmed = false;
+		bool dontShowAgain = false;
+
+		var tcs = new TaskCompletionSource<bool>();
+
+		var dontShowCheckbox = new CheckBox { Color = Colors.DodgerBlue, VerticalOptions = LayoutOptions.Center };
+		var dontShowLabel    = new Label
+		{
+			Text              = "Don't show this again",
+			VerticalOptions   = LayoutOptions.Center,
+			TextColor         = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.White : Colors.Black,
+			FontSize          = 14
+		};
+		var dontShowRow = new HorizontalStackLayout
+		{
+			Spacing  = 6,
+			Children = { dontShowCheckbox, dontShowLabel }
+		};
+
+		var continueBtn = new Button
+		{
+			Text            = "Continue",
+			BackgroundColor = Colors.DodgerBlue,
+			TextColor       = Colors.White,
+			CornerRadius    = 8,
+			HeightRequest   = 44
+		};
+		var cancelBtn = new Button
+		{
+			Text            = "Cancel",
+			BackgroundColor = Colors.Gray,
+			TextColor       = Colors.White,
+			CornerRadius    = 8,
+			HeightRequest   = 44
+		};
+
+		continueBtn.Clicked += async (_, _) =>
+		{
+			dontShowAgain = dontShowCheckbox.IsChecked;
+			await Navigation.PopModalAsync(animated: false);
+			confirmed = true;
+			tcs.TrySetResult(true);
+		};
+		cancelBtn.Clicked += async (_, _) =>
+		{
+			await Navigation.PopModalAsync(animated: false);
+			tcs.TrySetResult(false);
+		};
+
+		var popup = new ContentPage
+		{
+			BackgroundColor = Colors.Transparent,
+			Content = new Frame
+			{
+				BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark
+					? Color.FromArgb("#2C2C2E")
+					: Colors.White,
+				CornerRadius    = 14,
+				Padding         = new Thickness(24),
+				VerticalOptions = LayoutOptions.Center,
+				Margin          = new Thickness(28, 0),
+				Content = new VerticalStackLayout
+				{
+					Spacing  = 16,
+					Children =
+					{
+						new Label
+						{
+							Text       = "⚠️ Switch Team?",
+							FontSize   = 18,
+							FontAttributes = FontAttributes.Bold,
+							HorizontalOptions = LayoutOptions.Center
+						},
+						new Label
+						{
+							Text       = "Switching teams will reset all current scores, timers, and counters.\n\nAny unsaved match data will be lost.",
+							FontSize   = 14,
+							HorizontalTextAlignment = TextAlignment.Center
+						},
+						dontShowRow,
+						new Grid
+						{
+							ColumnDefinitions = new ColumnDefinitionCollection
+							{
+								new ColumnDefinition { Width = GridLength.Star },
+								new ColumnDefinition { Width = GridLength.Star }
+							},
+							Children = { cancelBtn, continueBtn }
+						}
+					}
+				}
+			}
+		};
+
+		Grid.SetColumn(cancelBtn,   0);
+		Grid.SetColumn(continueBtn, 1);
+
+		await Navigation.PushModalAsync(popup, animated: false);
+		await tcs.Task;
+
+		if (dontShowAgain)
+			Preferences.Set(SuppressTeamSwitchWarningKey, true);
+
+		return confirmed;
 	}
 
 	private void SyncTeamIdToLocalStorage(string teamId)
@@ -1638,6 +1751,15 @@ private void RegisterTeamId(string teamId)
 				await DisplayAlert("Invalid Name", "Please enter a team name.", "OK");
 				return;
 			}
+
+			if (!await ConfirmTeamChangeAsync())
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] New team creation cancelled by user");
+				return;
+			}
+
+			// Reset match state on the live GamePage ViewModel before switching team context.
+			FindGamePage()?.ResetMatchState();
 
 			var teamId = $"local_{GenerateShortId()}";
 

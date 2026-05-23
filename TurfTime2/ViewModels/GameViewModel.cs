@@ -297,8 +297,17 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         TeamAScore = 0;
         TeamBScore = 0;
+        // Reset timer first so Phase returns to Setup; the MatchDurationSeconds setter
+        // only updates MatchRemainingSeconds when Phase == Setup, so if a previous game
+        // was paused mid-match the displayed timer would keep the stale remaining value.
+        _timer.Reset();
         _timer.MatchDurationSeconds   = 90 * 60;
         _timer.CountdownPresetSeconds = Preferences.Get("game.countdownPresetSeconds", 0) is int s && s > 0 ? s : _timer.CountdownPresetSeconds;
+        MatchTimerOverdue = false;
+        CountdownOverdue  = false;
+        RotationDue       = false;
+        RotationWarning   = false;
+        _rotationCount    = 1;
         _lastFieldIdx          = -1;
         _lastBenchIdx          = -1;
         _initialArrangementDone = false;
@@ -309,6 +318,36 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         UpdateRotateButtonText();
         UpdateStartButtonState();
         RefreshDisplayItems();
+    }
+
+    /// <summary>
+    /// Immediately stops all running timers and resets all match state (scores, timers,
+    /// rotation counters). Called before switching teams so no timer state bleeds across.
+    /// </summary>
+    public void ResetMatchState()
+    {
+        // Stop any running timers before resetting so tick callbacks don't fire during teardown.
+        if (_timer.TimerRunning)
+            _timer.PauseMatch();
+
+        _timer.Reset();
+
+        TeamAScore = 0;
+        TeamBScore = 0;
+        MatchTimerOverdue = false;
+        CountdownOverdue  = false;
+        RotationDue       = false;
+        RotationWarning   = false;
+        _rotationCount    = 1;
+        _lastFieldIdx     = -1;
+        _lastBenchIdx     = -1;
+        _initialArrangementDone = false;
+        _manualFieldQueue.Clear();
+        _manualBenchQueue.Clear();
+
+        UpdateTimerDisplays();
+        UpdateRotateButtonText();
+        UpdateStartButtonState();
     }
 
     // ── Game control ──────────────────────────────────────────────────────
@@ -741,6 +780,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         if (Phase != GamePhase.Setup) return;
         _timer.MatchDurationSeconds = minutes * 60;
+        Preferences.Set("game.matchDurationMinutes", minutes);
         UpdateTimerDisplays();
         _ = AutoSaveAsync();
     }
@@ -802,6 +842,42 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         RotationStyle = style;
         MarkNextPlayers();
+    }
+
+    /// <summary>
+    /// Updates the rotation warning threshold on the underlying timer service.
+    /// Called when the page (re-)appears so Settings changes take effect without a full restart.
+    /// </summary>
+    public void UpdateRotationWarningSeconds(int seconds)
+        => _timer.RotationWarningSeconds = seconds;
+
+    /// <summary>
+    /// Re-applies the match duration from Preferences when returning from Settings.
+    /// Only effective while in Setup phase (no match running).
+    /// </summary>
+    public void UpdateMatchDurationFromPreferences()
+    {
+        if (Phase != GamePhase.Setup) return;
+        var minutes = Preferences.Get("game.matchDurationMinutes", 90);
+        if (minutes > 0 && minutes * 60 != _timer.MatchDurationSeconds)
+        {
+            _timer.MatchDurationSeconds = minutes * 60;
+            UpdateTimerDisplays();
+        }
+    }
+
+    /// <summary>
+    /// Re-applies the countdown preset from Preferences when returning from Settings.
+    /// </summary>
+    public void UpdateCountdownPresetFromPreferences()
+    {
+        var seconds = Preferences.Get("game.countdownPresetSeconds", 120);
+        if (seconds > 0 && seconds != _timer.CountdownPresetSeconds)
+        {
+            _timer.CountdownPresetSeconds = seconds;
+            _timer.ResetCountdown(continueRunning: _timer.TimerRunning);
+            UpdateCountdownDisplay();
+        }
     }
 
     public void UpdateTeamView(TeamViewMode mode)
