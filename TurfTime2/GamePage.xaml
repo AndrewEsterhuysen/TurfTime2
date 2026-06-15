@@ -110,6 +110,83 @@
                 </Grid>
             </local:DragRow>
         </DataTemplate>
+
+        <!-- iOS: swipe on the row body for position changes; pan only on ☰ handle for drag.
+             Avoids a full-row PanGestureRecognizer, which blocks UICollectionView scrolling. -->
+        <DataTemplate x:Key="PlayerRowTemplateIos" x:DataType="models:Player">
+            <local:DragRow Spacing="0">
+                <BoxView HeightRequest="3"
+                         Color="#FFD700"
+                         HorizontalOptions="Fill"
+                         Opacity="{Binding IsDragTarget, Converter={StaticResource BoolToOpacity}}" />
+
+                <Grid ColumnDefinitions="0.15*,0.7*,0.15*">
+                    <Grid.GestureRecognizers>
+                        <SwipeGestureRecognizer Direction="Left"  Swiped="OnPlayerSwiped" />
+                        <SwipeGestureRecognizer Direction="Right" Swiped="OnPlayerSwiped" />
+                        <TapGestureRecognizer Tapped="OnPlayerNameTapped" />
+                    </Grid.GestureRecognizers>
+                    <Border Grid.Column="1"
+                            Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
+                            StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
+                            StrokeShape="RoundRectangle 0"
+                            BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
+                            Margin="0,1,0,0"
+                            InputTransparent="True">
+                        <Border.Triggers>
+                            <DataTrigger TargetType="Border" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </DataTrigger>
+                        </Border.Triggers>
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto"
+                              Padding="4,9">
+                            <Label Grid.Column="0"
+                                   Text="☰"
+                                   TextColor="#88ffffff"
+                                   FontSize="18"
+                                   VerticalOptions="Center"
+                                   Margin="0,0,6,0">
+                                <Label.GestureRecognizers>
+                                    <PanGestureRecognizer PanUpdated="OnPlayerPanUpdated" />
+                                </Label.GestureRecognizers>
+                                <Label.Triggers>
+                                    <DataTrigger TargetType="Label" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                        <Setter Property="TextColor" Value="#FF6B35" />
+                                        <Setter Property="FontSize" Value="22" />
+                                    </DataTrigger>
+                                </Label.Triggers>
+                            </Label>
+                            <Label Grid.Column="1"
+                                   Text="{Binding PositionIcon}"
+                                   FontSize="20"
+                                   VerticalOptions="Center"
+                                   Margin="0,0,8,0" />
+                            <Label Grid.Column="2"
+                                   Text="➤"
+                                   TextColor="{StaticResource CyanHighlight}"
+                                   FontSize="16"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding IsNextToRotate}"
+                                   Margin="0,0,6,0" />
+                             <Label Grid.Column="3"
+                                    Text="{Binding Name}"
+                                    TextColor="White"
+                                    FontSize="16"
+                                    FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrs}}"
+                                    VerticalOptions="Center"
+                                    InputTransparent="True" />
+                            <Label Grid.Column="4"
+                                   Text="{Binding FieldTimeDisplay}"
+                                   TextColor="#ccffcc"
+                                   FontSize="13"
+                                   VerticalOptions="Center"
+                                   HorizontalOptions="End" />
+                        </Grid>
+                    </Border>
+                </Grid>
+            </local:DragRow>
+        </DataTemplate>
+
         <!-- ── Inactive / absent group header template ── -->
         <DataTemplate x:Key="InactiveHeaderTemplate" x:DataType="models:InactiveGroupHeader">
             <Grid ColumnDefinitions="0.15*,0.7*,0.15*">

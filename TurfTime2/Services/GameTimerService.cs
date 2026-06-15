@@ -155,10 +155,26 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
             {
                 // Compute state changes on the background thread so the
                 // countdown arithmetic is not delayed by main-thread load.
-                OnTick();
+                try
+                {
+                    OnTick();
+                }
+                catch (Exception tickEx)
+                {
+                    // Never let a bad tick (arithmetic, event subscriber bug, etc.) kill the timer loop.
+                    // The global handlers will also see this if it would have been unobserved.
+                    System.Diagnostics.Debug.WriteLine($"[GameTimer] ⚠️ OnTick exception (timer continues): {tickEx.GetType().FullName}: {tickEx.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[GameTimer] Stack: {tickEx.StackTrace}");
+                }
             }
         }
         catch (OperationCanceledException) { /* normal stop */ }
+        catch (Exception loopEx)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GameTimer] ❌ TickLoopAsync unexpected error: {loopEx.GetType().FullName}: {loopEx.Message}");
+            System.Diagnostics.Debug.WriteLine($"[GameTimer] Stack: {loopEx.StackTrace}");
+            // Timer will stop; user can restart via UI. This will now be visible in logs instead of silent death.
+        }
     }
 
     private void OnTick()
@@ -220,12 +236,19 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
         var snapCountdown  = CountdownRemainingSeconds;
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            matchTickHandler?.Invoke(this, snapMatch);
-            halfTimeHandler?.Invoke(this, EventArgs.Empty);
-            regulationHandler?.Invoke(this, EventArgs.Empty);
-            countdownTickHandler?.Invoke(this, snapCountdown);
-            rotationWarningHandler?.Invoke(this, EventArgs.Empty);
-            rotationDueHandler?.Invoke(this, EventArgs.Empty);
+            try
+            {
+                matchTickHandler?.Invoke(this, snapMatch);
+                halfTimeHandler?.Invoke(this, EventArgs.Empty);
+                regulationHandler?.Invoke(this, EventArgs.Empty);
+                countdownTickHandler?.Invoke(this, snapCountdown);
+                rotationWarningHandler?.Invoke(this, EventArgs.Empty);
+                rotationDueHandler?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception dispatchEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[GameTimer] ⚠️ Exception dispatching timer events on UI thread: {dispatchEx.GetType().FullName}: {dispatchEx.Message}");
+            }
         });
     }
 

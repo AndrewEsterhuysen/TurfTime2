@@ -12,7 +12,20 @@ public class FirebaseInitializationService
     private static TaskCompletionSource<bool>? _initializationTask;
 
     /// <summary>
-    /// Initialize Firebase at app startup
+    /// Initialize Firebase at app startup.
+    /// 
+    /// NOTE: This WebView + JavaScript Firebase (JS SDK) path is OBSOLETE.
+    /// The working Android app (and the intended cross-platform design) uses:
+    ///   - Plugin.Firebase (native) for Auth + CloudMessaging (FCM)
+    ///   - Direct REST calls to Firestore (authenticated via identitytoolkit anonymous sign-up)
+    ///     See CloudRosterService, FcmService.UpdateTokenViaRestAsync, SessionSaveBridge, TeamDetailsPage, etc.
+    /// 
+    /// On iOS we short-circuit early to avoid:
+    ///   - Creating an unnecessary hidden WebView at launch
+    ///   - The hard-coded "file:///android_asset/..." URL that would fail on iOS/Mac
+    ///   - Any interference with the native Firebase initialization that happens in MauiProgram.
+    /// 
+    /// This keeps behavior identical to the working Android implementation.
     /// </summary>
     public static async Task<bool> InitializeAsync()
     {
@@ -21,6 +34,16 @@ public class FirebaseInitializationService
             System.Diagnostics.Debug.WriteLine("[Firebase] Already initialized");
             return true;
         }
+
+#if IOS
+        // Explicitly disabled on iOS to match "not used by the Android app" and to prevent
+        // the broken android_asset URL + extra WebView from ever running during launch or usage.
+        System.Diagnostics.Debug.WriteLine("[Firebase] FirebaseInitializationService (WebView/JS path) is OBSOLETE and disabled on iOS.");
+        System.Diagnostics.Debug.WriteLine("[Firebase] The app uses native Plugin.Firebase + REST Firestore (same as working Android).");
+        _isInitialized = true;
+        _initializationTask?.TrySetResult(true);
+        return true;
+#endif
 
         if (_initializationTask != null)
         {
@@ -32,7 +55,7 @@ public class FirebaseInitializationService
 
         try
         {
-            System.Diagnostics.Debug.WriteLine("[Firebase] 🔥 Starting Firebase initialization...");
+            System.Diagnostics.Debug.WriteLine("[Firebase] 🔥 Starting Firebase initialization (WebView/JS path — only reached on non-iOS)...");
 
             // Create a minimal WebView for Firebase
             _firebaseWebView = new WebView
@@ -43,7 +66,7 @@ public class FirebaseInitializationService
             };
 
 #if ANDROID
-            // Configure WebView for Android
+            // Configure WebView for Android (the only platform where this legacy path is still compiled in)
             Microsoft.Maui.Handlers.WebViewHandler.Mapper.AppendToMapping("FirebaseWebView", (handler, view) =>
             {
                 if (view == _firebaseWebView)
@@ -61,7 +84,10 @@ public class FirebaseInitializationService
             // This avoids loading roster-manager.js which expects game page DOM elements
 #if WINDOWS
             var source = new UrlWebViewSource { Url = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "firebase-init.html") };
+#elif ANDROID
+            var source = new UrlWebViewSource { Url = "file:///android_asset/wwwroot/firebase-init.html" };
 #else
+            // Fallback (should not be hit after the IOS early return above)
             var source = new UrlWebViewSource { Url = "file:///android_asset/wwwroot/firebase-init.html" };
 #endif
 

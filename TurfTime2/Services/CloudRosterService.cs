@@ -66,7 +66,8 @@ public sealed class CloudRosterService : ICloudRosterService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Load cloud failed: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Load cloud failed: {ex.GetType().FullName}: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Stack: {ex.StackTrace}");
             return local;
         }
     }
@@ -124,16 +125,29 @@ public sealed class CloudRosterService : ICloudRosterService
     {
         if (!string.IsNullOrEmpty(_idToken)) return _idToken;
 
-        var url  = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
-        var body = JsonSerializer.Serialize(new { returnSecureToken = true });
-        var resp = await _http.PostAsync(url,
-            new StringContent(body, Encoding.UTF8, "application/json")).ConfigureAwait(false);
+        try
+        {
+            var url  = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
+            var body = JsonSerializer.Serialize(new { returnSecureToken = true });
+            var resp = await _http.PostAsync(url,
+                new StringContent(body, Encoding.UTF8, "application/json")).ConfigureAwait(false);
 
-        if (!resp.IsSuccessStatusCode) return null;
+            if (!resp.IsSuccessStatusCode)
+            {
+                var err = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Auth token request failed: {resp.StatusCode} {err}");
+                return null;
+            }
 
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
-        _idToken = doc.RootElement.GetProperty("idToken").GetString();
-        return _idToken;
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+            _idToken = doc.RootElement.GetProperty("idToken").GetString();
+            return _idToken;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] GetAuthTokenAsync exception: {ex.GetType().FullName}: {ex.Message}");
+            return null;
+        }
     }
 
     private static async Task UploadToFirestoreAsync(string teamId, RosterSnapshot snapshot)

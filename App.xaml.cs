@@ -52,20 +52,30 @@ namespace TurfTime2
         {
             try
             {
-                // Wait a bit for app to fully initialize
+                System.Diagnostics.Debug.WriteLine("[App] Starting delayed FCM initialization (2s)...");
+
+                // Wait a bit for app to fully initialize (native Firebase + plugin must be ready)
                 await Task.Delay(2000);
 
                 var success = await FcmService.Instance.InitializeAsync();
 
                 if (success)
                 {
-                    // Update token in Firestore
+                    // Update token in Firestore (uses the same REST + anonymous auth pattern that works on Android)
                     await FcmService.Instance.UpdateTokenInFirestoreAsync();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[App] ⚠️ FcmService.InitializeAsync returned false — push notifications may not work.");
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[App] ❌ FCM initialization error: {ex.Message}");
+                // Full details so it appears in crash logs / Console.app even if this is fire-and-forget
+                System.Diagnostics.Debug.WriteLine($"[App] ❌ FCM initialization error: {ex.GetType().FullName}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[App] Stack: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                    System.Diagnostics.Debug.WriteLine($"[App] Inner: {ex.InnerException}");
             }
         }
     }

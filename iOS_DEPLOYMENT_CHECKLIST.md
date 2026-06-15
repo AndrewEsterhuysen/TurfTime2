@@ -205,6 +205,44 @@ dotnet publish -f net10.0-ios -c Release -r ios-arm64
 
 ---
 
-**Last Updated**: Auto-generated during iOS preparation
+## 🔥 Firebase iOS Launch Crash Diagnostics (added 2026)
+
+The most common cause of "deploys to simulator, then immediately or soon crashes" on iOS is:
+
+`+[FIRApp configure]` throwing an NSException because `GoogleService-Info.plist` is not present at the **root** of the final `.app` bundle (with `LogicalName="GoogleService-Info.plist"` and matching `BUNDLE_ID`).
+
+### What we added to make this visible
+- In `MauiProgram.cs` (iOS `FinishedLaunching`): runtime check using `NSBundle.MainBundle.PathForResource("GoogleService-Info", "plist")` + `File.Exists`.
+- Prominent `[iOS Firebase] DIAGNOSTIC` blocks are written to Debug output **before** calling `CrossFirebase.Initialize`.
+- Global `AppDomain.UnhandledException` + `TaskScheduler.UnobservedTaskException` handlers installed at the absolute start of `CreateMauiApp()` so later crashes (timers, cloud REST, token refresh, etc.) produce full managed stacks in the log instead of raw SIGABRT.
+- `FirebaseInitializationService` (the legacy WebView/JS Firebase path) now early-returns on iOS with a clear log (it is obsolete; Android never uses it for DB — we use native + REST).
+- Extra try/catch + full stack logging in `FcmService`, `GameTimerService.TickLoopAsync`/`OnTick`, `CloudRosterService`, `App.InitializeFcmAsync`.
+
+### How to verify after a build/deploy that crashes
+1. In Console.app on the Mac: filter by process "TurfTime2" or the simulator device name while the app is launching or running.
+2. Look for these exact strings:
+   - `[iOS Firebase] DIAGNOSTIC — GoogleService-Info.plist check`
+   - `PathForResource... = ...` and `File.Exists on that path: False`
+   - `[CRASH] AppDomain.UnhandledException` or `UnobservedTaskException`
+   - `[FCM]`, `[CloudRosterService]`, `[GameTimer]`, `[App]`
+3. From a terminal (on this Mac):
+   ```
+   # Find the most recent simulator app bundle for this app and check the plist
+   find ~/Library/Developer/CoreSimulator -path '*TurfTime2.app/GoogleService-Info.plist' -ls 2>/dev/null | tail -5
+   ```
+4. After a crash, the exact bundle that crashed is usually still on disk (see the .ips or the translated crash report for the long path under `data/Containers/Bundle/Application/.../TurfTime2.app`).
+
+### If the plist is missing at runtime
+- Clean everything: delete `bin/`, `obj/`, and the Pair-to-Mac cache under `~/Library/Caches/maui/PairToMac/Builds/TurfTime2`.
+- Delete the app from the simulator (long-press icon → remove, or `xcrun simctl uninstall <device> com.andrewestherhuysen.turftime`).
+- Rebuild from the Windows Rider side (forces fresh transfer of resources).
+- The .csproj now has redundant but resilient `<BundleResource>` entries + a `VerifyFirebasePlist` target that prints during build.
+
+### Android remains the reference
+All the "Firebase database" work (roster, sessions, tokens, team create/join) that works on Android uses the **REST** path to Firestore (after anonymous identitytoolkit sign-up). The same code runs on iOS. Native `Plugin.Firebase` is only used for Auth bootstrap + FCM push tokens. Do not introduce iOS-only native Firestore code unless the REST path is proven broken.
+
+---
+
+**Last Updated**: Firebase iOS crash hardening pass
 **Project**: Turf Time (com.andrewestherhuysen.turftime)
-**Current Version**: 1.0.0 (Build 2)
+**Current Version**: 1.0.3 (Build 11)

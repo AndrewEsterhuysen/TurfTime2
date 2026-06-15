@@ -1,9 +1,10 @@
 namespace TurfTime2;
 
 /// <summary>
-/// Shared drag state flag written by the native Android long-press timer
-/// (<see cref="Platforms.Android.DragLayoutViewGroup"/>) and read by the
-/// managed pan handler in <see cref="GamePage"/>.
+/// Shared drag state flag written by the native long-press timer on Android
+/// (<see cref="Platforms.Android.DragLayoutViewGroup"/>) and iOS
+/// (<see cref="Platforms.iOS.DragLayoutView"/>), read by the managed pan handler
+/// in <see cref="GamePage"/>.
 ///
 /// Using a plain static bool avoids any platform #if in shared code while
 /// keeping the communication path a single, zero-allocation write.

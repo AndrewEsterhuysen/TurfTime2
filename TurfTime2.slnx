@@ -1,5 +1,5 @@
 <Solution>
   <Project Path="TurfTime2.csproj">
-    <Deploy Solution="Debug|*" />
+    <Deploy />
   </Project>
 </Solution>

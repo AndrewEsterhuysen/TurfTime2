@@ -1,10 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>net10.0-android;net10.0-windows10.0.19041</TargetFrameworks>
-		<!-- iOS excluded: net10.0-ios — re-add when Mac build agent is available -->
+		<!-- On Windows: Android + Windows. On Mac: Android + iOS + MacCatalyst. -->
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-android;net10.0-ios;net10.0-windows10.0.19041</TargetFrameworks>
+		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('windows'))">net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
-
 		<!-- Note for MacCatalyst:
 		The default runtime is maccatalyst-x64, except in Release config, in which case the default is maccatalyst-x64;maccatalyst-arm64.
 		When specifying both architectures, use the plural <RuntimeIdentifiers> instead of the singular <RuntimeIdentifier>.
@@ -37,24 +37,39 @@
 		<SelfContained Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041'">true</SelfContained>
 		<RuntimeIdentifier Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041'">win-x64</RuntimeIdentifier>
 
+		<!-- Shorten iOS output path on Windows to avoid MAX_PATH (260 char) limit on deep Firebase xcframework paths.
+				 Only applies for local builds; absolute paths are not supported when building remotely to a Mac host. -->
+		<BaseOutputPath Condition="$([MSBuild]::IsOSPlatform('windows')) and $(TargetFramework.Contains('ios')) and '$(ServerAddress)' == ''">C:\b\</BaseOutputPath>
+		<BaseIntermediateOutputPath Condition="$([MSBuild]::IsOSPlatform('windows')) and $(TargetFramework.Contains('ios')) and '$(ServerAddress)' == ''">C:\b\obj\</BaseIntermediateOutputPath>
+		<!-- When BaseIntermediateOutputPath is redirected (e.g. C:\b\obj\ for iOS on Windows), the SDK's default
+				 glob exclusions no longer cover the local obj\ folder, so generated files from other TFMs bleed in.
+				 Suppress that by also excluding the project-local obj\ and bin\ directories. -->
+		<DefaultItemExcludes Condition="'$(BaseIntermediateOutputPath)' != 'obj\' and '$(BaseIntermediateOutputPath)' != 'obj/'">$(DefaultItemExcludes);$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\bin\**</DefaultItemExcludes>
+
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 
 		<!-- Disable Firebase Crashlytics (we only need Cloud Messaging) -->
 		<FirebaseCrashlyticsEnabled>false</FirebaseCrashlyticsEnabled>
-	</PropertyGroup>
+
+		<!-- Skip Xamarin.Build.Download archive extraction on Windows — iOS compiles on the Mac build host -->
+		<XamarinDownloadSkipRestoreArchives Condition="$([MSBuild]::IsOSPlatform('windows'))">true</XamarinDownloadSkipRestoreArchives>
+		<!-- Point Xamarin.Build.Download to the 7-Zip install on Windows -->
+		<XamarinBuildDownloadUser7ZipPath Condition="$([MSBuild]::IsOSPlatform('windows'))">C:\Program Files\7-Zip\7z.exe</XamarinBuildDownloadUser7ZipPath>	</PropertyGroup>
 
 	<!-- iOS Debug Configuration -->
 	<PropertyGroup Condition="'$(Configuration)' == 'Debug' and $(TargetFramework.Contains('ios'))">
-		<CodesignKey>Apple Development</CodesignKey>
-		<CodesignProvision>Automatic</CodesignProvision>
+		<CodesignKey>Apple Development: Created via API (BZW4P28WC4)</CodesignKey>
+		<CodesignProvision>TurfTime Development Provisioning Profile</CodesignProvision>
 	</PropertyGroup>
 
 	<!-- iOS Release Configuration -->
 	<PropertyGroup Condition="'$(Configuration)' == 'Release' and $(TargetFramework.Contains('ios'))">
-		<CodesignKey>Apple Development</CodesignKey>
-		<CodesignProvision>Automatic</CodesignProvision>
+		<CodesignKey>Apple Development: Created via API (BZW4P28WC4)</CodesignKey>
+		<CodesignProvision>TurfTime Development Provisioning Profile</CodesignProvision>
+		<EnableCodeSigning>true</EnableCodeSigning>
 		<ArchiveOnBuild>true</ArchiveOnBuild>
 		<MtouchLink>SdkOnly</MtouchLink>
 		<EnableSGenConc>true</EnableSGenConc>
@@ -115,6 +130,35 @@
 		<GoogleServicesJson Include="Platforms\Android\google-services.json" />
 	</ItemGroup>
 
+	<!-- Firebase Configuration for iOS / MacCatalyst
+	     Robust inclusion for Pair-to-Mac and remote builds:
+	     - Explicit BundleResource with LogicalName so it lands at root of the .app bundle (required by FIRApp.configure).
+	     - Unconditional + conditioned forms for resilience during MSBuild evaluation on Mac build host.
+	     - Build-time diagnostic message.
+	-->
+	<ItemGroup>
+		<!-- Primary (works for local Mac builds) -->
+		<BundleResource Include="Platforms\iOS\GoogleService-Info.plist"
+		                Condition="'$(TargetFramework)' == 'net10.0-ios' Or '$(TargetFramework)' == 'net10.0-maccatalyst'">
+			<LogicalName>GoogleService-Info.plist</LogicalName>
+		</BundleResource>
+	</ItemGroup>
+	<ItemGroup Condition="$(TargetFramework.Contains('ios')) or $(TargetFramework.Contains('maccatalyst'))">
+		<!-- Keep original form + None Remove for compatibility with older tooling / Rider -->
+		<None Remove="Platforms\iOS\GoogleService-Info.plist" />
+		<BundleResource Include="Platforms\iOS\GoogleService-Info.plist">
+			<LogicalName>GoogleService-Info.plist</LogicalName>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</BundleResource>
+	</ItemGroup>
+
+	<!-- Build-time verification / diagnostic for iOS Firebase config (helps Pair-to-Mac troubleshooting) -->
+	<Target Name="VerifyFirebasePlist" AfterTargets="PrepareForBuild"
+	        Condition="'$(TargetFramework)' == 'net10.0-ios' Or '$(TargetFramework)' == 'net10.0-maccatalyst'">
+		<Message Text="[iOS Firebase] Ensuring GoogleService-Info.plist is configured as BundleResource with LogicalName=GoogleService-Info.plist (must appear at .app root for FIRApp.configure)" Importance="high" />
+		<Message Text="[iOS Firebase] Source plist: $(MSBuildProjectDirectory)\Platforms\iOS\GoogleService-Info.plist" Importance="high" />
+	</Target>
+	
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Maui.Essentials" Version="$(MauiVersion)" />
@@ -167,6 +211,23 @@
 		<GetGitHashCommand>git rev-parse --short HEAD</GetGitHashCommand>
 		<GetGitHashCommand Condition="'$(OS)' == 'Windows_NT'">cmd /c git rev-parse --short HEAD</GetGitHashCommand>
 	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net10.0-ios|AnyCPU'">
+	  <MtouchUseLlvm>True</MtouchUseLlvm>
+	  <EnableSGenConc>True</EnableSGenConc>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(TargetFramework)'=='net10.0-ios'">
+		<CodesignKey>Apple Development: Created via API (BZW4P28WC4)</CodesignKey>
+		<CodesignProvision>TurfTime Development Provisioning Profile</CodesignProvision>
+		<EnableCodeSigning>true</EnableCodeSigning>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(TargetFramework)'=='net10.0-ios'">
+	  <CodesignKey>Apple Development: Created via API (BZW4P28WC4)</CodesignKey>
+	  <CodesignProvision>TurfTime Development Provisioning Profile</CodesignProvision>
+	  <EnableCodeSigning>true</EnableCodeSigning>
+	</PropertyGroup>
 	<!-- Disabled: Having two Windows targets causes Windows App SDK errors with WindowsPackageType=None -->
 	<!--<PropertyGroup>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.26100.1</TargetFrameworks>
@@ -180,6 +241,10 @@
 		<PropertyGroup>
 			<GitCommitHash Condition="'$(GitCommitHash)' == ''">unknown</GitCommitHash>
 			<BuildTimestamp>$([System.DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm"))</BuildTimestamp>
+			<!-- Write to the TFM-level intermediate path (no RID suffix) so all inner RID builds
+					 share the same single file and don't produce duplicate class definitions. -->
+			<_BuildInfoDir Condition="'$(RuntimeIdentifier)' != ''">$([System.IO.Path]::GetDirectoryName($([System.IO.Path]::GetDirectoryName('$(IntermediateOutputPath)'))))\</_BuildInfoDir>
+			<_BuildInfoDir Condition="'$(RuntimeIdentifier)' == ''">$(IntermediateOutputPath)</_BuildInfoDir>
 			<BuildInfoContent>
 // Auto-generated build metadata
 namespace TurfTime2%3B
@@ -192,10 +257,10 @@ public static class BuildInfo
 			</BuildInfoContent>
 		</PropertyGroup>
 
-		<WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.g.cs" Lines="$(BuildInfoContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+		<WriteLinesToFile File="$(_BuildInfoDir)BuildInfo.g.cs" Lines="$(BuildInfoContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
 
 		<ItemGroup>
-			<Compile Include="$(IntermediateOutputPath)BuildInfo.g.cs" />
+			<Compile Include="$(_BuildInfoDir)BuildInfo.g.cs" />
 		</ItemGroup>
 
 		<Message Text="Build Metadata: Commit=$(GitCommitHash), Time=$(BuildTimestamp) UTC" Importance="high" />

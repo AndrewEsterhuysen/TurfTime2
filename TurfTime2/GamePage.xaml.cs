@@ -16,6 +16,17 @@ public partial class GamePage : ContentPage
     public GamePage()
     {
         InitializeComponent();
+
+#if IOS
+        // Full-row pan blocks UICollectionView scrolling on iOS; use swipe + handle-only pan.
+        if (Resources.TryGetValue("RosterSelector", out var selectorObj)
+            && selectorObj is RosterItemTemplateSelector selector
+            && Resources.TryGetValue("PlayerRowTemplateIos", out var iosTemplateObj)
+            && iosTemplateObj is DataTemplate iosTemplate)
+        {
+            selector.PlayerTemplate = iosTemplate;
+        }
+#endif
     }
 
     protected override async void OnAppearing()
@@ -224,10 +235,28 @@ public partial class GamePage : ContentPage
     // Used for index targeting so layout shifts don't corrupt the threshold math.
     private double _dragTotalY;
 
+    private static View ResolvePanRowView(object sender)
+    {
+        if (sender is not View view)
+            throw new InvalidOperationException("Pan sender is not a View.");
+
+        // iOS: pan is attached only to the ☰ handle — translate the whole DragRow.
+        var ancestor = view;
+        while (ancestor is not null)
+        {
+            if (ancestor is DragRow)
+                return ancestor;
+            ancestor = ancestor.Parent as View;
+        }
+
+        return view;
+    }
+
     private void OnPlayerPanUpdated(object sender, PanUpdatedEventArgs e)
     {
         if (_vm is null || _vm.IsMember) return;
-        if (sender is not View row) return;
+        if (sender is not View) return;
+        var row = ResolvePanRowView(sender);
         if (row.BindingContext is not Player player) return;
 
         switch (e.StatusType)
@@ -604,6 +633,26 @@ public partial class GamePage : ContentPage
     }
 
     // ── Player name edit ──────────────────────────────────────────────────
+
+    private void OnPlayerSwiped(object sender, SwipedEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if (sender is not BindableObject { BindingContext: Player player }) return;
+
+        bool swipeLeft = e.Direction == SwipeDirection.Left;
+        var newPosition = swipeLeft
+            ? (player.Position == PlayerPosition.Field
+                ? PlayerPosition.Goalie
+                : PlayerPosition.Field)
+            : (player.Position == PlayerPosition.Bench
+                ? PlayerPosition.Inactive
+                : PlayerPosition.Bench);
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[SWIPE] iOS SwipeGesture — swipeLeft={swipeLeft} '{player.Position}' → '{newPosition}'");
+
+        _vm.SetPlayerPosition(player, newPosition);
+    }
 
     private async void OnPlayerNameTapped(object sender, TappedEventArgs e)
     {

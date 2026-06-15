@@ -64,7 +64,7 @@ public class FcmService
 
         try
         {
-            Debug.WriteLine("[FCM] 🔔 Initializing Firebase Cloud Messaging...");
+            Debug.WriteLine("[FCM] 🔔 Initializing Firebase Cloud Messaging... (cross-platform path — same as working Android)");
 
             // Check notification permission using MAUI Permissions
             var status = await Permissions.CheckStatusAsync<Permissions.PostNotifications>();
@@ -82,11 +82,13 @@ public class FcmService
 
             Debug.WriteLine("[FCM] ✅ Notification permission granted");
 
-            // Get FCM token
+            // Get FCM token (this requires the native Firebase to have been configured successfully
+            // in MauiProgram via CrossFirebase / the GoogleService-Info.plist on iOS).
             _currentToken = await CrossFirebaseCloudMessaging.Current.GetTokenAsync();
-            Debug.WriteLine($"[FCM] ✅ Token received: {_currentToken?.Substring(0, Math.Min(20, _currentToken.Length))}...");
+            Debug.WriteLine($"[FCM] ✅ Token received: {_currentToken?.Substring(0, Math.Min(20, _currentToken?.Length ?? 0))}...");
 
             // Save token to Firestore immediately (if team/user are already known)
+            // Uses the REST + anonymous auth path (identical to the working Android implementation).
             await UpdateTokenInFirestoreAsync(_currentToken);
 
             // Subscribe to token refresh events
@@ -103,14 +105,19 @@ public class FcmService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[FCM] ❌ Initialization error: {ex.Message}");
+            Debug.WriteLine($"[FCM] ❌ Initialization error: {ex.GetType().FullName}: {ex.Message}");
+            Debug.WriteLine($"[FCM] Stack: {ex.StackTrace}");
+            if (ex.InnerException != null)
+                Debug.WriteLine($"[FCM] Inner: {ex.InnerException}");
             return false;
         }
     }
 
     private void OnTokenChanged(object? sender, EventArgs e)
     {
-        // Token changed - get new token
+        // Token changed - get new token.
+        // Fire-and-forget is intentional (event handler); the inner Task.Run has its own try/catch
+        // so an error here cannot become an unobserved exception that the new global handlers will report.
         Task.Run(async () =>
         {
             try
@@ -118,12 +125,13 @@ public class FcmService
                 _currentToken = await CrossFirebaseCloudMessaging.Current.GetTokenAsync();
                 Debug.WriteLine($"[FCM] 🔄 Token refreshed: {_currentToken?.Substring(0, Math.Min(20, _currentToken?.Length ?? 0))}...");
 
-                // Update token in Firestore
+                // Update token in Firestore (REST path, same as Android)
                 await UpdateTokenInFirestoreAsync(_currentToken);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[FCM] ❌ Token refresh error: {ex.Message}");
+                Debug.WriteLine($"[FCM] ❌ Token refresh error: {ex.GetType().FullName}: {ex.Message}");
+                Debug.WriteLine($"[FCM] Stack: {ex.StackTrace}");
             }
         });
     }
@@ -209,14 +217,15 @@ public class FcmService
 
             Debug.WriteLine($"[FCM] 💾 Updating FCM token in Firestore for user: {userId}");
 
-            // Use REST API to update token in Firestore (consistent with existing pattern)
+            // Use REST API to update token in Firestore (consistent with existing pattern that works on Android)
             await UpdateTokenViaRestAsync(teamId, userId, token);
 
             Debug.WriteLine("[FCM] ✅ Token updated in Firestore");
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[FCM] ❌ Error updating token: {ex.Message}");
+            Debug.WriteLine($"[FCM] ❌ Error updating token: {ex.GetType().FullName}: {ex.Message}");
+            Debug.WriteLine($"[FCM] Stack: {ex.StackTrace}");
         }
     }
 
@@ -338,7 +347,7 @@ public class FcmService
             if (teamId.StartsWith("local_"))
                 return;
 
-            Debug.WriteLine($"[FCM] 🗑️ Removing FCM token from Firestore");
+            Debug.WriteLine($"[FCM] 🗑️ Removing FCM token from Firestore (REST, same path as Android)");
 
             var projectId = "turf-timer";
 
@@ -429,7 +438,8 @@ public class FcmService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[FCM] ❌ Error removing token: {ex.Message}");
+            Debug.WriteLine($"[FCM] ❌ Error removing token: {ex.GetType().FullName}: {ex.Message}");
+            Debug.WriteLine($"[FCM] Stack: {ex.StackTrace}");
         }
     }
 }
