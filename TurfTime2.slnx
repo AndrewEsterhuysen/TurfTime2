@@ -1,5 +1,11 @@
 <Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <BuildType Name="Release Copy" />
+  </Configurations>
   <Project Path="TurfTime2.csproj">
-    <Deploy />
+    <Deploy Solution="Debug|*" />
+    <Deploy Solution="Release|*" />
   </Project>
 </Solution>

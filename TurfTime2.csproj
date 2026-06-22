@@ -57,7 +57,9 @@
 		<!-- Skip Xamarin.Build.Download archive extraction on Windows — iOS compiles on the Mac build host -->
 		<XamarinDownloadSkipRestoreArchives Condition="$([MSBuild]::IsOSPlatform('windows'))">true</XamarinDownloadSkipRestoreArchives>
 		<!-- Point Xamarin.Build.Download to the 7-Zip install on Windows -->
-		<XamarinBuildDownloadUser7ZipPath Condition="$([MSBuild]::IsOSPlatform('windows'))">C:\Program Files\7-Zip\7z.exe</XamarinBuildDownloadUser7ZipPath>	</PropertyGroup>
+		<XamarinBuildDownloadUser7ZipPath Condition="$([MSBuild]::IsOSPlatform('windows'))">C:\Program Files\7-Zip\7z.exe</XamarinBuildDownloadUser7ZipPath>	
+		<Configurations>Debug;Release;Release Copy</Configurations>
+		<Platforms>AnyCPU</Platforms></PropertyGroup>
 
 	<!-- iOS Debug Configuration -->
 	<PropertyGroup Condition="'$(Configuration)' == 'Debug' and $(TargetFramework.Contains('ios'))">
@@ -67,8 +69,8 @@
 
 	<!-- iOS Release Configuration -->
 	<PropertyGroup Condition="'$(Configuration)' == 'Release' and $(TargetFramework.Contains('ios'))">
-		<CodesignKey>Apple Development: Created via API (BZW4P28WC4)</CodesignKey>
-		<CodesignProvision>TurfTime Development Provisioning Profile</CodesignProvision>
+		<CodesignKey>Apple Distribution: Andrew Esterhuysen (YT6V9JS4F9)</CodesignKey>
+		<CodesignProvision>TurfTimer_Distribution_Provisioning_Profile</CodesignProvision>
 		<EnableCodeSigning>true</EnableCodeSigning>
 		<ArchiveOnBuild>true</ArchiveOnBuild>
 		<MtouchLink>SdkOnly</MtouchLink>
@@ -138,8 +140,7 @@
 	-->
 	<ItemGroup>
 		<!-- Primary (works for local Mac builds) -->
-		<BundleResource Include="Platforms\iOS\GoogleService-Info.plist"
-		                Condition="'$(TargetFramework)' == 'net10.0-ios' Or '$(TargetFramework)' == 'net10.0-maccatalyst'">
+		<BundleResource Include="Platforms\iOS\GoogleService-Info.plist" Condition="'$(TargetFramework)' == 'net10.0-ios' Or '$(TargetFramework)' == 'net10.0-maccatalyst'">
 			<LogicalName>GoogleService-Info.plist</LogicalName>
 		</BundleResource>
 	</ItemGroup>
@@ -153,8 +154,7 @@
 	</ItemGroup>
 
 	<!-- Build-time verification / diagnostic for iOS Firebase config (helps Pair-to-Mac troubleshooting) -->
-	<Target Name="VerifyFirebasePlist" AfterTargets="PrepareForBuild"
-	        Condition="'$(TargetFramework)' == 'net10.0-ios' Or '$(TargetFramework)' == 'net10.0-maccatalyst'">
+	<Target Name="VerifyFirebasePlist" AfterTargets="PrepareForBuild" Condition="'$(TargetFramework)' == 'net10.0-ios' Or '$(TargetFramework)' == 'net10.0-maccatalyst'">
 		<Message Text="[iOS Firebase] Ensuring GoogleService-Info.plist is configured as BundleResource with LogicalName=GoogleService-Info.plist (must appear at .app root for FIRApp.configure)" Importance="high" />
 		<Message Text="[iOS Firebase] Source plist: $(MSBuildProjectDirectory)\Platforms\iOS\GoogleService-Info.plist" Importance="high" />
 	</Target>
@@ -218,15 +218,37 @@
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(TargetFramework)'=='net10.0-ios'">
-		<CodesignKey>Apple Development: Created via API (BZW4P28WC4)</CodesignKey>
-		<CodesignProvision>TurfTime Development Provisioning Profile</CodesignProvision>
+		<CodesignKey>Apple Distribution: Andrew Esterhuysen (YT6V9JS4F9)</CodesignKey>
+		<CodesignProvision>TurfTimer_Distribution_Provisioning_Profile</CodesignProvision>
 		<EnableCodeSigning>true</EnableCodeSigning>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="'$(TargetFramework)'=='net10.0-ios'">
+	<PropertyGroup Condition="'$(TargetFramework)'=='net10.0-ios' and '$(Configuration)' == 'Debug'">
 	  <CodesignKey>Apple Development: Created via API (BZW4P28WC4)</CodesignKey>
 	  <CodesignProvision>TurfTime Development Provisioning Profile</CodesignProvision>
 	  <EnableCodeSigning>true</EnableCodeSigning>
+	</PropertyGroup>
+
+	<PropertyGroup Condition=" '$(Configuration)' == 'Release Copy' ">
+	  <CodesignKey>Apple Distribution: Andrew Esterhuysen (YT6V9JS4F9)</CodesignKey>
+	  <CodesignProvision>TurfTimer_Distribution_Provisioning_Profile</CodesignProvision>
+	  <EnableCodeSigning>true</EnableCodeSigning>
+	  <ArchiveOnBuild>true</ArchiveOnBuild>
+	  <MtouchLink>SdkOnly</MtouchLink>
+	  <EnableSGenConc>true</EnableSGenConc>
+	  <AndroidPackageFormat>aab</AndroidPackageFormat>
+	  <AndroidKeyStore>true</AndroidKeyStore>
+	  <AndroidSigningKeyStore>turftime.keystore</AndroidSigningKeyStore>
+	  <AndroidSigningKeyAlias>turftime</AndroidSigningKeyAlias>
+	  <AndroidSigningStorePass>$(AndroidSigningStorePassword)</AndroidSigningStorePass>
+	  <AndroidSigningKeyPass>$(AndroidSigningKeyPassword)</AndroidSigningKeyPass>
+	  <AndroidLinkTool>r8</AndroidLinkTool>
+	  <RunAOTCompilation>true</RunAOTCompilation>
+	  <PublishTrimmed>true</PublishTrimmed>
+	  <CodesignKey>Apple Distribution: Andrew Esterhuysen (YT6V9JS4F9)</CodesignKey>
+	  <CodesignProvision>TurfTimer_Distribution_Provisioning_Profile</CodesignProvision>
+	  <EnableCodeSigning>true</EnableCodeSigning>
+	  <Optimize Condition=" '$(Optimize)' == '' ">true</Optimize>
 	</PropertyGroup>
 	<!-- Disabled: Having two Windows targets causes Windows App SDK errors with WindowsPackageType=None -->
 	<!--<PropertyGroup>
