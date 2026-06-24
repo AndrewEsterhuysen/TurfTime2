@@ -218,6 +218,9 @@ public partial class GamePage : ContentPage
 
     private const double IntentThreshold  = 6;   // dp before we commit to swipe or drag
     private const double SwipeThreshold   = 90;  // dp horizontal to commit a swipe
+    private const double IosSwipeBump     = 34;  // visual travel before applying iOS swipe action
+    private const uint   IosSwipeBumpMs   = 100;
+    private const uint   IosSwipeReturnMs = 140;
     // Require a clearly horizontal movement to call it a swipe; anything more vertical
     // is treated as a drag so reordering feels immediate without a long-press.
     private const double SwipeDragBias    = 1.5; // |dx| must exceed |dy| * bias to be a swipe
@@ -234,6 +237,7 @@ public partial class GamePage : ContentPage
     // Cumulative Y displacement since drag intent was committed (dp).
     // Used for index targeting so layout shifts don't corrupt the threshold math.
     private double _dragTotalY;
+    private readonly HashSet<Player> _iosSwipeInFlight = new();
 
     private static View ResolvePanRowView(object sender)
     {
@@ -634,24 +638,39 @@ public partial class GamePage : ContentPage
 
     // ── Player name edit ──────────────────────────────────────────────────
 
-    private void OnPlayerSwiped(object sender, SwipedEventArgs e)
+    private async void OnPlayerSwiped(object sender, SwipedEventArgs e)
     {
         if (_vm is null || _vm.IsMember) return;
         if (sender is not BindableObject { BindingContext: Player player }) return;
+        if (sender is not View row) return;
+        if (!_iosSwipeInFlight.Add(player)) return;
 
-        bool swipeLeft = e.Direction == SwipeDirection.Left;
-        var newPosition = swipeLeft
-            ? (player.Position == PlayerPosition.Field
-                ? PlayerPosition.Goalie
-                : PlayerPosition.Field)
-            : (player.Position == PlayerPosition.Bench
-                ? PlayerPosition.Inactive
-                : PlayerPosition.Bench);
+        try
+        {
+            bool swipeLeft = e.Direction == SwipeDirection.Left;
+            var newPosition = swipeLeft
+                ? (player.Position == PlayerPosition.Field
+                    ? PlayerPosition.Goalie
+                    : PlayerPosition.Field)
+                : (player.Position == PlayerPosition.Bench
+                    ? PlayerPosition.Inactive
+                    : PlayerPosition.Bench);
 
-        System.Diagnostics.Debug.WriteLine(
-            $"[SWIPE] iOS SwipeGesture — swipeLeft={swipeLeft} '{player.Position}' → '{newPosition}'");
+            System.Diagnostics.Debug.WriteLine(
+                $"[SWIPE] iOS SwipeGesture — swipeLeft={swipeLeft} '{player.Position}' → '{newPosition}'");
 
-        _vm.SetPlayerPosition(player, newPosition);
+            // iOS uses SwipeGestureRecognizer (no live pan translation), so animate a
+            // short directional bump first to match Android's visible swipe affordance.
+            double bump = swipeLeft ? -IosSwipeBump : IosSwipeBump;
+            await row.TranslateTo(bump, 0, IosSwipeBumpMs, Easing.CubicOut);
+            await row.TranslateTo(0, 0, IosSwipeReturnMs, Easing.SpringOut);
+            _vm.SetPlayerPosition(player, newPosition);
+        }
+        finally
+        {
+            row.TranslationX = 0;
+            _iosSwipeInFlight.Remove(player);
+        }
     }
 
     private async void OnPlayerNameTapped(object sender, TappedEventArgs e)

@@ -77,6 +77,12 @@
 		<EnableSGenConc>true</EnableSGenConc>
 	</PropertyGroup>
 
+	<!-- Android Debug Configuration -->
+	<PropertyGroup Condition="'$(Configuration)' == 'Debug' and $(TargetFramework.Contains('android'))">
+		<AndroidFastDeploymentType>false</AndroidFastDeploymentType>
+		<EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+	</PropertyGroup>
+
 	<!-- Android Release Configuration -->
 	<PropertyGroup Condition="'$(Configuration)' == 'Release' and $(TargetFramework.Contains('android'))">
 		<AndroidPackageFormat>aab</AndroidPackageFormat>

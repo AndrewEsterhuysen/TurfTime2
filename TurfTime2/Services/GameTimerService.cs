@@ -194,7 +194,8 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
             if (Phase == GamePhase.FirstHalf)
             {
                 Phase = GamePhase.HalfTime;
-                CountdownRemainingSeconds = CountdownPresetSeconds;
+                // Preserve the live countdown value at the half-time boundary so it can
+                // continue into negative (overtime) instead of being reset to preset.
                 _countdownRunning = true;
                 halfTimeHandler = HalfTimeReached;
             }
