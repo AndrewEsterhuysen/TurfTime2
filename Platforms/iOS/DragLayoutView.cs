@@ -1,4 +1,3 @@
-#if IOS
 using Foundation;
 using Microsoft.Maui.Platform;
 using UIKit;
@@ -42,4 +41,3 @@ internal sealed class DragLayoutView : LayoutView
         System.Diagnostics.Debug.WriteLine("[DragLayoutView] ✋ Long-press confirmed — drag active (iOS)");
     }
 }
-#endif

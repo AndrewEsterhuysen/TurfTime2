@@ -1,4 +1,3 @@
-#if IOS
 using Microsoft.Maui.Handlers;
 using Microsoft.Maui.Platform;
 
@@ -24,4 +23,3 @@ internal sealed class DragRowHandler : LayoutHandler
         return layout;
     }
 }
-#endif

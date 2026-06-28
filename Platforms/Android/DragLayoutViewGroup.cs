@@ -1,4 +1,3 @@
-#if ANDROID
 using Android.Content;
 using Android.Views;
 using Microsoft.Maui.Platform;
@@ -152,4 +151,3 @@ internal sealed class DragLayoutViewGroup : LayoutViewGroup
         _longPressCts = null;
     }
 }
-#endif
