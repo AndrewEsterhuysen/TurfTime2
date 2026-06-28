@@ -63,19 +63,26 @@
                         <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto"
                               Padding="4,9">
                             <!-- Drag handle (visual only — gesture is on the outer Grid) -->
-                            <Label Grid.Column="0"
-                                   Text="☰"
-                                   TextColor="#88ffffff"
-                                   FontSize="18"
-                                   VerticalOptions="Center"
-                                   Margin="0,0,6,0">
-                                <Label.Triggers>
-                                    <DataTrigger TargetType="Label" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
-                                        <Setter Property="TextColor" Value="#FF6B35" />
-                                        <Setter Property="FontSize" Value="22" />
-                                    </DataTrigger>
-                                </Label.Triggers>
-                            </Label>
+                            <Border Grid.Column="0"
+                                    Stroke="#66FFFFFF"
+                                    StrokeThickness="1"
+                                    StrokeShape="RoundRectangle 4"
+                                    BackgroundColor="#22000000"
+                                    Padding="4,0"
+                                    Margin="0,0,6,0"
+                                    VerticalOptions="Center">
+                                <Label Text="☰"
+                                       TextColor="#88ffffff"
+                                       FontSize="18"
+                                       VerticalOptions="Center">
+                                    <Label.Triggers>
+                                        <DataTrigger TargetType="Label" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                            <Setter Property="TextColor" Value="#FF6B35" />
+                                            <Setter Property="FontSize" Value="22" />
+                                        </DataTrigger>
+                                    </Label.Triggers>
+                                </Label>
+                            </Border>
                             <!-- Position icon: ⚽ 💺 🥅 ❌ -->
                             <Label Grid.Column="1"
                                    Text="{Binding PositionIcon}"
@@ -126,6 +133,31 @@
                         <SwipeGestureRecognizer Direction="Right" Swiped="OnPlayerSwiped" />
                         <TapGestureRecognizer Tapped="OnPlayerNameTapped" />
                     </Grid.GestureRecognizers>
+                    <Border Grid.Column="0"
+                            Stroke="#66FFFFFF"
+                            StrokeThickness="1"
+                            StrokeShape="RoundRectangle 4"
+                            BackgroundColor="#22000000"
+                            Padding="4,0"
+                            Margin="0,1,0,0"
+                            VerticalOptions="Center"
+                            HorizontalOptions="Center">
+                        <Border.GestureRecognizers>
+                            <PanGestureRecognizer PanUpdated="OnPlayerPanUpdated" />
+                        </Border.GestureRecognizers>
+                        <Label Text="☰"
+                               TextColor="#88ffffff"
+                               FontSize="18"
+                               VerticalOptions="Center"
+                               HorizontalOptions="Center">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                    <Setter Property="TextColor" Value="#FF6B35" />
+                                    <Setter Property="FontSize" Value="22" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
+                    </Border>
                     <Border Grid.Column="1"
                             Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
                             StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
@@ -138,44 +170,28 @@
                                 <Setter Property="Opacity" Value="0.45" />
                             </DataTrigger>
                         </Border.Triggers>
-                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto"
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto"
                               Padding="4,9">
                             <Label Grid.Column="0"
-                                   Text="☰"
-                                   TextColor="#88ffffff"
-                                   FontSize="18"
-                                   VerticalOptions="Center"
-                                   Margin="0,0,6,0">
-                                <Label.GestureRecognizers>
-                                    <PanGestureRecognizer PanUpdated="OnPlayerPanUpdated" />
-                                </Label.GestureRecognizers>
-                                <Label.Triggers>
-                                    <DataTrigger TargetType="Label" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
-                                        <Setter Property="TextColor" Value="#FF6B35" />
-                                        <Setter Property="FontSize" Value="22" />
-                                    </DataTrigger>
-                                </Label.Triggers>
-                            </Label>
-                            <Label Grid.Column="1"
                                    Text="{Binding PositionIcon}"
                                    FontSize="20"
                                    VerticalOptions="Center"
                                    Margin="0,0,8,0" />
-                            <Label Grid.Column="2"
+                            <Label Grid.Column="1"
                                    Text="➤"
                                    TextColor="{StaticResource CyanHighlight}"
                                    FontSize="16"
                                    VerticalOptions="Center"
                                    IsVisible="{Binding IsNextToRotate}"
                                    Margin="0,0,6,0" />
-                             <Label Grid.Column="3"
+                             <Label Grid.Column="2"
                                     Text="{Binding Name}"
                                     TextColor="White"
                                     FontSize="16"
                                     FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrs}}"
                                     VerticalOptions="Center"
                                     InputTransparent="True" />
-                            <Label Grid.Column="4"
+                            <Label Grid.Column="3"
                                    Text="{Binding FieldTimeDisplay}"
                                    TextColor="#ccffcc"
                                    FontSize="13"

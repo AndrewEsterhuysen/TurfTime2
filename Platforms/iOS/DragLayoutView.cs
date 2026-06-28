@@ -1,4 +1,5 @@
 using Foundation;
+using Microsoft.Maui.Controls;
 using Microsoft.Maui.Platform;
 using UIKit;
 
@@ -15,6 +16,7 @@ internal sealed class DragLayoutView : LayoutView
 {
     private const float SlipThresholdPt = 10f;
     private readonly UILongPressGestureRecognizer _longPress;
+    private readonly UIGestureRecognizerDelegate _longPressDelegate = new LongPressDelegate();
 
     public DragLayoutView()
     {
@@ -23,21 +25,41 @@ internal sealed class DragLayoutView : LayoutView
             MinimumPressDuration = 0.3,
             AllowableMovement    = SlipThresholdPt,
             CancelsTouchesInView = false,
+            Delegate             = _longPressDelegate,
         };
         AddGestureRecognizer(_longPress);
     }
 
     private void OnLongPress(UILongPressGestureRecognizer recognizer)
     {
-        if (recognizer.State != UIGestureRecognizerState.Began)
-            return;
+        var bindingContext = (CrossPlatformLayout as BindableObject)?.BindingContext;
 
-        DragState.LongPressConfirmed = true;
+        switch (recognizer.State)
+        {
+            case UIGestureRecognizerState.Began:
+                DragState.LongPressConfirmed = true;
+                DragState.NativeLongPressBegan?.Invoke(bindingContext);
 
-        var feedback = new UIImpactFeedbackGenerator(UIImpactFeedbackStyle.Medium);
-        feedback.Prepare();
-        feedback.ImpactOccurred();
+                var feedback = new UIImpactFeedbackGenerator(UIImpactFeedbackStyle.Medium);
+                feedback.Prepare();
+                feedback.ImpactOccurred();
 
-        System.Diagnostics.Debug.WriteLine("[DragLayoutView] ✋ Long-press confirmed — drag active (iOS)");
+                System.Diagnostics.Debug.WriteLine("[DragLayoutView] ✋ Long-press confirmed — drag active (iOS)");
+                break;
+
+            case UIGestureRecognizerState.Ended:
+            case UIGestureRecognizerState.Cancelled:
+            case UIGestureRecognizerState.Failed:
+                DragState.LongPressConfirmed = false;
+                DragState.NativeLongPressEnded?.Invoke(bindingContext);
+                break;
+        }
+    }
+
+    private sealed class LongPressDelegate : UIGestureRecognizerDelegate
+    {
+        public override bool ShouldRecognizeSimultaneously(
+            UIGestureRecognizer gestureRecognizer,
+            UIGestureRecognizer otherGestureRecognizer) => true;
     }
 }

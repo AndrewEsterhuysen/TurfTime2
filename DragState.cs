@@ -25,4 +25,16 @@ internal static class DragState
     /// letting GamePage snap the row back as a reliable fallback.
     /// </summary>
     public static Action? NativeSwipeReleased;
+
+    /// <summary>
+    /// Invoked by native views when long-press is confirmed for a row.
+    /// Payload is the row BindingContext (expected: <see cref="Models.Player"/>).
+    /// </summary>
+    public static Action<object?>? NativeLongPressBegan;
+
+    /// <summary>
+    /// Invoked by native views when long-press ends/cancels/fails for a row.
+    /// Payload is the row BindingContext (expected: <see cref="Models.Player"/>).
+    /// </summary>
+    public static Action<object?>? NativeLongPressEnded;
 }

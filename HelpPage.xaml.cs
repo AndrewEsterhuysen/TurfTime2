@@ -123,21 +123,13 @@ public partial class HelpPage : ContentPage
     <h1>⚽ Turf Timer Help 🥅</h1>
 
     <!-- ═══════════════════════════════════════════════════ -->
-    <h3>🗺️ Screen Layout</h3>
-    <ul>
-        <li><strong>Header (top):</strong> Shows team name, match timer, rotation countdown, and scores (Us / Them) once the game starts.</li>
-        <li><strong>Content area (middle):</strong> The player roster — swipe cards by default, or the Rotation view when toggled.</li>
-        <li><strong>Bottom bar:</strong> Three buttons — <span class='key'>Start</span>, <span class='key'>Rotate</span>, <span class='key'>View: Rotation / View: Team</span>.</li>
-    </ul>
-
-    <!-- ═══════════════════════════════════════════════════ -->
     <h3>👥 Player Roster</h3>
     <p>Each row shows:</p>
     <ul>
         <li><strong>☰</strong> drag handle (left edge)</li>
         <li><strong>Position icon</strong> — ⚽ Field &nbsp;|&nbsp; 🪑 Bench &nbsp;|&nbsp; 🥅 Goalie &nbsp;|&nbsp; ❌ Inactive</li>
         <li><strong>➤</strong> cyan arrow — this player is <em>next to rotate</em></li>
-        <li><strong>Player name</strong> — bold when next to rotate</li>
+        <li><strong>Player name</strong></li>
         <li><strong>Field time</strong> (MM:SS) — cumulative time on field / as goalie (right edge)</li>
     </ul>
     <p>The row background colour matches the player's position:
@@ -161,31 +153,6 @@ public partial class HelpPage : ContentPage
         <li><strong>Long-press + drag</strong> (☰ handle): reorders the player in the rotation list. Works at any time, including during a live match.</li>
     </ul>
 
-    <!-- ═══════════════════════════════════════════════════ -->
-    <h3>📋 Inactive / Absent Section</h3>
-    <ul>
-        <li>Players marked <span class='badge badge-inactive'>Inactive</span> are grouped under a collapsible <em>Inactive / Absent</em> header at the bottom of the list.</li>
-        <li><strong>Tap the header</strong> to expand or collapse the inactive section.</li>
-        <li>Once the game starts, inactive players are hidden by default to reduce clutter.</li>
-    </ul>
-
-    <!-- ═══════════════════════════════════════════════════ -->
-    <h3>⏱️ Header Timers</h3>
-    <ul>
-        <li><strong>Match timer</strong> (large, centre-left):
-            <ul>
-                <li><em>Tap</em> to set total game duration (enter as MM:SS, e.g. <em>90:00</em>).</li>
-                <li>Counts down for the first half. At half-time the button changes to <em>½ Time</em> — tap it to pause for the break. The button then shows <em>Resume</em> — tap it to start the second half.</li>
-            </ul>
-        </li>
-        <li><strong>Rotation countdown</strong> (large, centre-right):
-            <ul>
-                <li><em>Tap</em> to set the rotation interval (e.g. <em>2:00</em>), or type <em>Auto</em> to calculate the optimal time automatically.</li>
-                <li><em>Auto</em> uses the larger of two formulas: equal-time (match ÷ bench players) and fast-fives (ensures ≥ 5 rotations per half).</li>
-                <li>Counts down; vibrates at 10 s remaining, flashes yellow and vibrates continuously at zero.</li>
-            </ul>
-        </li>
-    </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
     <h3>🏆 Scores (Us / Them)</h3>
@@ -239,7 +206,7 @@ public partial class HelpPage : ContentPage
         <li><strong>Manual override:</strong> Tap a bench player during a match to move them to the front of the rotation-in queue. Tap a field player to move them to the front of the rotation-out queue. The cyan ➤ arrow shows the queued selection.</li>
         <li><strong>Reorder by dragging:</strong> Long-press and drag any row to permanently reposition the player in the rotation sequence.</li>
         <li>Manual queue selections are cleared after each rotation executes, returning to automatic FIFO.</li>
-        <li><strong>Rotation alert:</strong> A short vibration fires at 10 s remaining on the countdown — giving you a heads-up before the rotation is due.</li>
+        <li><strong>Rotation alert:</strong> Before a rotation is due, a short vibration fires, giving you a heads-up before the rotation is due.</li>
     </ul>
 
 

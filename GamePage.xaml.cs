@@ -6,6 +6,7 @@ namespace TurfTime2;
 
 public partial class GamePage : ContentPage
 {
+    private const string DemoTeamId = "local_demo_team";
     private GameViewModel? _vm;
 
     private CancellationTokenSource? _startLongPressCts;
@@ -36,6 +37,7 @@ public partial class GamePage : ContentPage
 
         var teamId   = Preferences.Get("team_id",   string.Empty);
         var userRole = Preferences.Get("user_role", (string?)null);
+        var isDemoTeam = string.Equals(teamId, DemoTeamId, StringComparison.Ordinal);
 
         if (_vm is null)
         {
@@ -56,13 +58,19 @@ public partial class GamePage : ContentPage
             _vm.UpdateRotationStyle(style);
 
             // Re-apply timer settings in case they were changed in Settings → Timers.
-            _vm.UpdateMatchDurationFromPreferences();
-            _vm.UpdateCountdownPresetFromPreferences();
+            // Keep the seeded demo team values intact on first-run experience.
+            if (!isDemoTeam)
+            {
+                _vm.UpdateMatchDurationFromPreferences();
+                _vm.UpdateCountdownPresetFromPreferences();
+            }
             _vm.UpdateRotationWarningSeconds(Preferences.Get("game.rotationWarningSeconds", 10));
         }
 
         RotationStylePage.RotationStyleChanged += OnRotationStyleChanged;
         DragState.NativeSwipeReleased += OnNativeSwipeReleased;
+        DragState.NativeLongPressBegan += OnNativeLongPressBegan;
+        DragState.NativeLongPressEnded += OnNativeLongPressEnded;
 
         // Re-subscribe every time the page appears (OnDisappearing unsubscribes).
         if (_vm is not null)
@@ -77,6 +85,8 @@ public partial class GamePage : ContentPage
             _vm.PropertyChanged -= OnViewModelPropertyChanged;
         RotationStylePage.RotationStyleChanged -= OnRotationStyleChanged;
         DragState.NativeSwipeReleased -= OnNativeSwipeReleased;
+        DragState.NativeLongPressBegan -= OnNativeLongPressBegan;
+        DragState.NativeLongPressEnded -= OnNativeLongPressEnded;
     }
 
     // ── ViewModel factory ─────────────────────────────────────────────────
@@ -183,6 +193,31 @@ public partial class GamePage : ContentPage
             _panPlayer = null;
             _panIntent = PanIntent.Unknown;
             DragState.LongPressConfirmed = false;
+        });
+    }
+
+    private void OnNativeLongPressBegan(object? bindingContext)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if (bindingContext is not Player player) return;
+
+        Dispatcher.Dispatch(() =>
+        {
+            player.IsDragging = true;
+            System.Diagnostics.Debug.WriteLine($"[DRAG] 🎨 Long-press visual armed for '{player.Name}'");
+        });
+    }
+
+    private void OnNativeLongPressEnded(object? bindingContext)
+    {
+        if (bindingContext is not Player player) return;
+
+        Dispatcher.Dispatch(() =>
+        {
+            // Keep active drag visuals until pan completion owns cleanup.
+            if (ReferenceEquals(_panPlayer, player) && _panIntent == PanIntent.Drag)
+                return;
+            player.IsDragging = false;
         });
     }
 
@@ -301,12 +336,23 @@ public partial class GamePage : ContentPage
                     if (ReferenceEquals(_vm.DisplayItems[vi], player)) { visualFrom = vi; break; }
                 _dragFromIndex   = visualFrom;
                 _dragTargetIndex = _dragFromIndex;
-                _prevTotalX = 0;
-                _prevTotalY = 0;
+                _prevTotalX = e.TotalX;
+                _prevTotalY = e.TotalY;
+                _dragTotalY = 0;
+
+                // If native long-press already fired before this pan stream started,
+                // switch to drag visuals immediately (before the first movement frame).
+                if (DragState.LongPressConfirmed)
+                {
+                    _panIntent = PanIntent.Drag;
+                    player.IsDragging = true;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[DRAG] ✋ Long-press already confirmed at Started — pre-arming drag visuals for '{player.Name}'.");
+                }
                 System.Diagnostics.Debug.WriteLine(
                     $"[DRAG] ✅ Started — player='{player.Name}' visualFromIndex={_dragFromIndex} " +
                     $"playersIndex={_vm.Players.IndexOf(player)} displayCount={_vm.DisplayItems.Count} " +
-                    $"rowHeight={_rowHeight:F1} DragOnlyMode={DragOnlyMode}");
+                    $"rowHeight={_rowHeight:F1} DragOnlyMode={DragOnlyMode} intent={_panIntent}");
                 break;
 
             case GestureStatus.Running:
@@ -524,9 +570,10 @@ public partial class GamePage : ContentPage
 
     private void UpdateDragIndicator(Player dragging, double totalY)
     {
-        // Snap at half a row height so dragging 50 % of the way into the next slot registers.
-        double snapUnit = Math.Max(_rowHeight / 2.0, 10);
-        int delta     = (int)(totalY / snapUnit);
+        // Move insertion target by whole rows (rounded to nearest slot) so the
+        // yellow line stays visually anchored to the dragged row/handle position.
+        double snapUnit = Math.Max(_rowHeight, 10);
+        int delta = (int)Math.Round(totalY / snapUnit, MidpointRounding.AwayFromZero);
         // Clamp against DisplayItems (visual list) so we never address a slot that
         // doesn't exist on screen — Players may be a different size/order.
         int maxVisual = (_vm?.DisplayItems.Count ?? 1) - 1;

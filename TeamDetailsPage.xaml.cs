@@ -985,7 +985,8 @@ public partial class TeamDetailsPage : ContentPage
 							$"Invite Code (members): {inviteCode}\n\n" +
 							$"⚠️ ADMIN RECOVERY CODE:\n{adminCode}\n\n" +
 							"Save this admin code in a secure location outside this device (e.g. a password manager). " +
-							"You will need it to regain admin access if you reinstall the app or change devices." +
+							"You will need it to regain admin access if you reinstall the app or change devices.\n\n" +
+							"Next: Open the Game screen to name players, assign positions (field = swipe left, bench = swipe right, goalie = swipe left twice), and set timers." +
 							emailNote,
 							"OK");
 
@@ -1785,7 +1786,8 @@ private void RegisterTeamId(string teamId)
 			await DisplayAlert("Local Team Created",
 				$"Team: {teamName}\n\n" +
 				"This team is stored on your device only.\n" +
-				"No cloud sync or collaboration.", 
+				"No cloud sync or collaboration.\n\n" +
+				"Next: Open the Game screen to name players, assign positions (field = swipe left, bench = swipe right, goalie = swipe left twice), and set timers.",
 				"OK");
 
 			LoadCurrentTeam();

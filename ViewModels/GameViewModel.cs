@@ -13,6 +13,8 @@ namespace TurfTime2.ViewModels;
 /// </summary>
 public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 {
+    private const string DemoTeamId = "local_demo_team";
+    private const int DemoCountdownSeconds = 20;
     // ── Dependencies ──────────────────────────────────────────────────────
     private readonly IGameTimerService    _timer;
     private readonly IGameLoggerService   _logger;
@@ -63,7 +65,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     // ── Timer display properties (formatted strings for binding) ──────────
     private string _matchTimeDisplay    = "90 min";
-    private string _countdownDisplay    = "2:00";
+    private string _countdownDisplay    = "15:00";
     private string _matchTimeLabelText  = "Match Time";
     private string _startButtonText     = "Start";
     private string _rotateButtonText    = "Rotate 1";
@@ -302,7 +304,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // was paused mid-match the displayed timer would keep the stale remaining value.
         _timer.Reset();
         _timer.MatchDurationSeconds   = 90 * 60;
-        _timer.CountdownPresetSeconds = Preferences.Get("game.countdownPresetSeconds", 0) is int s && s > 0 ? s : _timer.CountdownPresetSeconds;
+        _timer.CountdownPresetSeconds = string.Equals(_currentTeamId, DemoTeamId, StringComparison.Ordinal)
+            ? DemoCountdownSeconds
+            : (Preferences.Get("game.countdownPresetSeconds", 0) is int s && s > 0 ? s : _timer.CountdownPresetSeconds);
         MatchTimerOverdue = false;
         CountdownOverdue  = false;
         RotationDue       = false;
