@@ -373,3 +373,9 @@ google-services.json
 
 # User documentation
 copilot prompts.docx
+
+# macOS
+.DS_Store
+
+# JetBrains Rider/IDEA
+.idea/
