@@ -15,6 +15,7 @@
 
     <TabBar>
         <ShellContent
+            x:Name="GameTab"
             Title="Game"
             ContentTemplate="{DataTemplate local:GamePage}"
             Route="GamePage" />
@@ -33,6 +34,7 @@
             Route="ChatPage" />
 
         <ShellContent
+            x:Name="SettingsTab"
             Title="Settings"
             ContentTemplate="{DataTemplate local:SettingsPage}"
             Route="SettingsPage" />

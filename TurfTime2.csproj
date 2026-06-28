@@ -219,7 +219,10 @@
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net10.0-ios|AnyCPU'">
-	  <MtouchUseLlvm>True</MtouchUseLlvm>
+	  <!-- Keep simulator/device Debug on interpreter + non-LLVM to avoid startup AOT/LLVM runtime crashes. -->
+	  <MtouchUseLlvm>False</MtouchUseLlvm>
+	  <UseInterpreter>True</UseInterpreter>
+	  <MtouchLink>None</MtouchLink>
 	  <EnableSGenConc>True</EnableSGenConc>
 	</PropertyGroup>
 

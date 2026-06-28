@@ -25,13 +25,21 @@
                            Text="Mode: Not configured"
                            FontSize="12"
                            TextColor="{AppThemeBinding Light=#999, Dark=#888}"/>
-                    <Button x:Name="LeaveTeamButton"
-                            Text="Leave Current Team"
-                            IsVisible="False"
-                            Clicked="OnLeaveTeamClicked"
-                            BackgroundColor="#F44336"
-                            TextColor="White"
-                            Margin="0,10,0,0"/>
+                    <HorizontalStackLayout Spacing="10" Margin="0,10,0,0">
+                        <Button x:Name="ShareTeamButton"
+                                Text="Share Team (QR)"
+                                Clicked="OnShareTeamClicked"
+                                BackgroundColor="#2196F3"
+                                TextColor="White"
+                                HorizontalOptions="FillAndExpand" />
+                        <Button x:Name="LeaveTeamButton"
+                                Text="Leave Current Team"
+                                IsVisible="False"
+                                Clicked="OnLeaveTeamClicked"
+                                BackgroundColor="#F44336"
+                                TextColor="White"
+                                HorizontalOptions="FillAndExpand" />
+                    </HorizontalStackLayout>
                 </VerticalStackLayout>
             </Frame>
 
@@ -302,10 +310,16 @@
                                TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
                     </Grid>
 
-                    <Label x:Name="CreateTeamHint"
-                           Text="Tap to expand"
-                           FontSize="11"
-                           TextColor="{AppThemeBinding Light=#999, Dark=#888}"/>
+                    <Grid>
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnCreateTeamHeaderTapped"/>
+                        </Grid.GestureRecognizers>
+                        <Label x:Name="CreateTeamHint"
+                               Text="Tap to expand"
+                               FontSize="11"
+                               HorizontalOptions="FillAndExpand"
+                               TextColor="{AppThemeBinding Light=#999, Dark=#888}"/>
+                    </Grid>
 
                     <!-- Expanded content (hidden by default) -->
                     <StackLayout x:Name="CreateTeamContent" IsVisible="False" Spacing="10">

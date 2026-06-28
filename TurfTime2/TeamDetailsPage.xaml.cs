@@ -1,5 +1,6 @@
-﻿using System.Text;
+using System.Text;
 using System.Collections.ObjectModel;
+using TurfTime2.Models;
 using TurfTime2.Services;
 
 namespace TurfTime2;
@@ -1913,6 +1914,53 @@ private void RegisterTeamId(string teamId)
 			"OK");
 	}
 
+	private async void OnShareTeamClicked(object sender, EventArgs e)
+	{
+		try
+		{
+			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+			var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
+
+			if (string.IsNullOrEmpty(teamId) || string.IsNullOrEmpty(teamMode))
+			{
+				await DisplayAlert("No Team", "Please select a team first.", "OK");
+				return;
+			}
+
+			var players = new List<Player>();
+			var playersJson = Preferences.Get($"{teamId}_players", string.Empty);
+			if (!string.IsNullOrEmpty(playersJson))
+			{
+				try
+				{
+					players = System.Text.Json.JsonSerializer.Deserialize<List<Player>>(playersJson) ?? [];
+				}
+				catch (Exception ex)
+				{
+					System.Diagnostics.Debug.WriteLine($"[TeamDetails] Failed to parse player list for QR: {ex.Message}");
+				}
+			}
+
+			if (players.Count == 0)
+			{
+				for (var i = 1; i <= 16; i++)
+				{
+					players.Add(new Player { Name = $"Player {i}", Position = PlayerPosition.None });
+				}
+			}
+
+			var teamData = QrCodeService.CreateFromCurrentTeam(teamName, teamId, players);
+			var modal = new QrShareModal(teamData);
+			await Navigation.PushModalAsync(modal);
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] OnShareTeamClicked error: {ex.Message}");
+			await DisplayAlert("Error", $"Failed to share team: {ex.Message}", "OK");
+		}
+	}
+
 	private async void OnLeaveTeamClicked(object sender, EventArgs e)
 	{
 		var teamName = Preferences.Get(TEAM_NAME_KEY, "this team");
@@ -1930,6 +1978,7 @@ private void RegisterTeamId(string teamId)
 
 			await DisplayAlert("Left Team", "You have left the team.", "OK");
 			LoadCurrentTeam();
+			RefreshAppShellMenu();
 		}
 	}
 
@@ -2073,4 +2122,3 @@ public class BoolToCheckConverter : IValueConverter
 		throw new NotImplementedException();
 	}
 }
-
