@@ -220,6 +220,7 @@ public sealed class CloudRosterService : ICloudRosterService
             {
                 fields = new Dictionary<string, object>
                 {
+                    ["slotId"]         = new { integerValue = p.SlotId.ToString() },
                     ["name"]           = new { stringValue  = p.Name },
                     ["field"]          = new { booleanValue = p.Field },
                     ["bench"]          = new { booleanValue = p.Bench },
@@ -285,6 +286,7 @@ public sealed class CloudRosterService : ICloudRosterService
                 var pf = pElem.GetProperty("mapValue").GetProperty("fields");
                 snapshot.Players.Add(new PlayerSnapshot
                 {
+                    SlotId         = pf.TryGetProperty("slotId", out var slotIdEl) ? Int(slotIdEl) : 0,
                     Name           = Str(pf.GetProperty("name")),
                     Field          = Bool(pf.GetProperty("field")),
                     Bench          = Bool(pf.GetProperty("bench")),

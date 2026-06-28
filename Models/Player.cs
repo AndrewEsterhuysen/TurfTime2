@@ -9,6 +9,8 @@ namespace TurfTime2.Models;
 /// </summary>
 public sealed class Player : INotifyPropertyChanged
 {
+    public int SlotId { get; set; }
+
     private string _name = string.Empty;
     private PlayerPosition _position = PlayerPosition.None;
     private int _fieldSeconds;

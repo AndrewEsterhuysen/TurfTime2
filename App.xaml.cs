@@ -138,6 +138,7 @@ namespace TurfTime2
             var players = Enumerable.Range(1, 16)
                 .Select(i => new PlayerSnapshot
                 {
+                    SlotId = i,
                     Name = $"Player {i}",
                     Field = i is >= 1 and <= 5,
                     Goalie = i == 6,

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using TurfTime2.Models;
 using TurfTime2.Services;
 
@@ -15,6 +16,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 {
     private const string DemoTeamId = "local_demo_team";
     private const int DemoCountdownSeconds = 20;
+    private const string StartConfigurationKeyPrefix = "team_start_configuration_v1_";
     // ── Dependencies ──────────────────────────────────────────────────────
     private readonly IGameTimerService    _timer;
     private readonly IGameLoggerService   _logger;
@@ -95,7 +97,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         // Build default 16-player roster
         for (int i = 1; i <= 16; i++)
-            Players.Add(new Player { Name = $"Player {i}" });
+            Players.Add(new Player { SlotId = i, Name = $"Player {i}" });
 
         // Wire timer events
         _timer.MatchTickOccurred      += OnMatchTick;
@@ -286,6 +288,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (snapshot is not null)
             ApplySnapshot(snapshot);
 
+        RestoreStartConfigurationIfAvailable();
+
         OnPropertyChanged(nameof(IsMember));
         OnPropertyChanged(nameof(IsAdmin));
         UpdateStartButtonState();
@@ -295,7 +299,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         Players.Clear();
         for (int i = 1; i <= 16; i++)
-            Players.Add(new Player { Name = $"Player {i}" });
+            Players.Add(new Player { SlotId = i, Name = $"Player {i}" });
 
         TeamAScore = 0;
         TeamBScore = 0;
@@ -916,6 +920,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             TeamBScore             = TeamBScore,
             Players                = Players.Select(p => new PlayerSnapshot
             {
+                SlotId         = p.SlotId,
                 Name           = p.Name,
                 Field          = p.Position == PlayerPosition.Field,
                 Bench          = p.Position == PlayerPosition.Bench,
@@ -944,6 +949,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         {
             var ps = s.Players[i];
             var p  = Players[i];
+            p.SlotId       = ps.SlotId > 0 ? ps.SlotId : i + 1;
             p.Name         = ps.Name;
             p.FieldSeconds = ps.CounterSeconds;
             p.Position = ps.Field    ? PlayerPosition.Field
@@ -960,6 +966,87 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         UpdateStartButtonState();
     }
 
+    private void SaveStartConfiguration()
+    {
+        if (string.IsNullOrWhiteSpace(_currentTeamId)) return;
+
+        try
+        {
+            var config = new StartConfiguration
+            {
+                Rows = Players.Select(p => new StartConfigurationRow
+                {
+                    SlotId = p.SlotId,
+                    Position = (int)p.Position
+                }).ToList()
+            };
+
+            Preferences.Set(StartConfigurationKey(_currentTeamId), JsonSerializer.Serialize(config));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GameViewModel] SaveStartConfiguration failed: {ex.Message}");
+        }
+    }
+
+    private void RestoreStartConfigurationIfAvailable()
+    {
+        if (string.IsNullOrWhiteSpace(_currentTeamId)) return;
+
+        try
+        {
+            var raw = Preferences.Get(StartConfigurationKey(_currentTeamId), string.Empty);
+            if (string.IsNullOrWhiteSpace(raw)) return;
+
+            var config = JsonSerializer.Deserialize<StartConfiguration>(raw);
+            if (config?.Rows is null || config.Rows.Count == 0) return;
+
+            var bySlotId = Players.ToDictionary(p => p.SlotId, p => p);
+            var restoredOrder = new List<Player>(config.Rows.Count);
+            var usedSlots = new HashSet<int>();
+
+            foreach (var row in config.Rows)
+            {
+                if (row.SlotId <= 0) continue;
+                if (!bySlotId.TryGetValue(row.SlotId, out var player)) continue;
+                if (!usedSlots.Add(row.SlotId)) continue;
+
+                player.Position = Enum.IsDefined(typeof(PlayerPosition), row.Position)
+                    ? (PlayerPosition)row.Position
+                    : PlayerPosition.None;
+                restoredOrder.Add(player);
+            }
+
+            if (restoredOrder.Count == 0) return;
+
+            foreach (var player in Players)
+            {
+                if (!usedSlots.Contains(player.SlotId))
+                    restoredOrder.Add(player);
+            }
+
+            Players.Clear();
+            foreach (var player in restoredOrder)
+                Players.Add(player);
+
+            _lastFieldIdx = -1;
+            _lastBenchIdx = -1;
+            _manualFieldQueue.Clear();
+            _manualBenchQueue.Clear();
+
+            MarkNextPlayers();
+            RefreshRotationPairs();
+            RefreshDisplayItems();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GameViewModel] RestoreStartConfiguration failed: {ex.Message}");
+        }
+    }
+
+    private static string StartConfigurationKey(string teamId)
+        => $"{StartConfigurationKeyPrefix}{teamId}";
+
     // ── Private game control ──────────────────────────────────────────────
 
     private void StartOrResumeGame()
@@ -967,6 +1054,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (Phase == GamePhase.Setup && !_initialArrangementDone)
         {
             ApplyInitialArrangement();
+            SaveStartConfiguration();
             _initialArrangementDone = true;
             SeedRotationQueues();
             _logger.StartSession(
@@ -1031,6 +1119,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         foreach (var p in Players)
             p.FieldSeconds = 0;
+
+        RestoreStartConfigurationIfAvailable();
 
         UpdateTimerDisplays();
         StartButtonText = "Start";
@@ -1517,6 +1607,17 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"[GameViewModel] AutoSave failed: {ex.Message}");
         }
+    }
+
+    private sealed class StartConfiguration
+    {
+        public List<StartConfigurationRow> Rows { get; set; } = [];
+    }
+
+    private sealed class StartConfigurationRow
+    {
+        public int SlotId { get; set; }
+        public int Position { get; set; }
     }
 
     // ── IDisposable ───────────────────────────────────────────────────────

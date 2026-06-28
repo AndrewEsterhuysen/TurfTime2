@@ -22,6 +22,7 @@ public sealed class RosterSnapshot
 
 public sealed class PlayerSnapshot
 {
+    public int SlotId { get; set; }
     public string Name { get; set; } = string.Empty;
     public bool Field { get; set; }
     public bool Bench { get; set; }
