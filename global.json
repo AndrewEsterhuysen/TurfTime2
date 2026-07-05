@@ -1,7 +1,9 @@
 {
   "sdk": {
-    "version": "10.0.300",
+    "version": "10.0.100",
     "rollForward": "latestFeature",
-    "allowPrerelease": false
+    "allowPrerelease": false,
+    "errorMessage": "Install a newer .NET 10 SDK/workload set that supports your Xcode version (for Xcode 26.6, use the latest available .NET 10 SDK and run `dotnet workload install maui --version <matching-workload-set>`). See https://aka.ms/xcode-requirement."
   }
+
 }

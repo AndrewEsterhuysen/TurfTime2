@@ -26,8 +26,8 @@
 		<ApplicationId>com.andrewestherhuysen.turftime</ApplicationId>
 
 		<!-- Versions -->
-		<ApplicationDisplayVersion>1.0.3</ApplicationDisplayVersion>
-		<ApplicationVersion>11</ApplicationVersion>
+		<ApplicationDisplayVersion>1.1.1</ApplicationDisplayVersion>
+		<ApplicationVersion>13</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
@@ -225,7 +225,11 @@
 	  <MtouchLink>None</MtouchLink>
 	  <EnableSGenConc>True</EnableSGenConc>
 	</PropertyGroup>
-
+	
+	<PropertyGroup Condition="'$(TargetFramework.Contains(`-ios`))'">
+		<ValidateXcodeVersion>false</ValidateXcodeVersion>
+	</PropertyGroup>
+	
 	<PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(TargetFramework)'=='net10.0-ios'">
 		<CodesignKey>Apple Distribution: Andrew Esterhuysen (YT6V9JS4F9)</CodesignKey>
 		<CodesignProvision>TurfTimer_Distribution_Provisioning_Profile</CodesignProvision>
