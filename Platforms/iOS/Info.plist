@@ -32,6 +32,8 @@
 	<string>Turf Time needs your location to automatically set match coordinates</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Turf Time needs your location to automatically set match coordinates</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Turf Time needs camera access to scan team QR codes for import.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -46,5 +48,16 @@
 		<key>UIColorName</key>
 		<string>LaunchScreenBackground</string>
 	</dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.andrewestherhuysen.turftime</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>turf</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

@@ -3,6 +3,8 @@ using Microsoft.Maui.LifecycleEvents;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Bundled.Shared;
 using Plugin.Firebase.CloudMessaging;
+using ZXing.Net.Maui;
+using ZXing.Net.Maui.Controls;
 #if ANDROID
 using Plugin.Firebase.Bundled.Platforms.Android;
 #elif IOS
@@ -59,6 +61,7 @@ namespace TurfTime2
             var builder = MauiApp.CreateBuilder();
             builder
                 .UseMauiApp<App>()
+                .UseBarcodeReader()
                 .ConfigureFonts(fonts =>
                 {
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
