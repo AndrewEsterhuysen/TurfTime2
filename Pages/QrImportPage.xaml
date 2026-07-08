@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:zxing="clr-namespace:ZXing.Net.Maui.Controls;assembly=ZXing.Net.MAUI.Controls"
+             x:Class="TurfTime2.QrImportPage"
+             Title="Import Team"
+             Shell.PresentationMode="Modal">
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Close" Clicked="OnCloseToolbarClicked" />
+    </ContentPage.ToolbarItems>
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="12">
+            <Label
+                Text="Import Team from QR"
+                FontSize="24"
+                FontAttributes="Bold"
+                HorizontalOptions="Center" />
+
+            <Label
+                Text="Scan the QR code from another device, or import a QR image from your photo library."
+                FontSize="13"
+                TextColor="#666"
+                HorizontalTextAlignment="Center" />
+
+            <Frame BorderColor="#000000" CornerRadius="10" Padding="6" HasShadow="True">
+                <Grid RowDefinitions="*, Auto">
+                    <zxing:CameraBarcodeReaderView
+                        x:Name="CameraView"
+                        HeightRequest="300"
+                        BarcodesDetected="OnBarcodesDetected"
+                        IsDetecting="False">
+                    </zxing:CameraBarcodeReaderView>
+                    
+                    <Label
+                        Grid.Row="1"
+                        x:Name="FocusStatusLabel"
+                        Text="Point the camera at the QR code"
+                        FontSize="11"
+                        TextColor="#555"
+                        HorizontalTextAlignment="Center"
+                        Padding="5,4"
+                        BackgroundColor="#F5F5F5" />
+                </Grid>
+            </Frame>
+
+            <Button
+                Text="Import from Photo"
+                Clicked="OnImportFromPhotoClicked"
+                BackgroundColor="#FF9800"
+                TextColor="White"
+                CornerRadius="8"
+                Padding="15,12" />
+
+            <Button
+                Text="Close"
+                Clicked="OnCloseClicked"
+                BackgroundColor="#F44336"
+                TextColor="White"
+                CornerRadius="8"
+                Padding="15,12" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.GoalDetailModal"
+             Title="Record Goal Details"
+             Shell.PresentationMode="Modal">
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Cancel" Clicked="OnCancelToolbarClicked" />
+    </ContentPage.ToolbarItems>
+
+    <VerticalStackLayout Padding="20" Spacing="20">
+        <Label
+            Text="Record Goal Details"
+            FontSize="24"
+            FontAttributes="Bold"
+            HorizontalOptions="Center" />
+
+        <Frame BorderColor="#E0E0E0" CornerRadius="10" Padding="15" HasShadow="True">
+            <VerticalStackLayout Spacing="15">
+                <!-- Scorer Selection -->
+                <VerticalStackLayout Spacing="8">
+                    <Label 
+                        Text="Scorer *" 
+                        FontSize="16" 
+                        FontAttributes="Bold" />
+                    <Picker 
+                        x:Name="ScorerPicker"
+                        Title="Select player who scored..."
+                        ItemsSource="{Binding FieldPlayers}"
+                        ItemDisplayBinding="{Binding Name}"
+                        SelectedItem="{Binding SelectedScorer}"
+                        FontSize="14" />
+                </VerticalStackLayout>
+
+                <!-- Assist Selection -->
+                <VerticalStackLayout Spacing="8">
+                    <Label 
+                        Text="Assist" 
+                        FontSize="16" 
+                        FontAttributes="Bold" />
+                    <Picker 
+                        x:Name="AssistPicker"
+                        Title="Select assisting player (optional)..."
+                        ItemsSource="{Binding FieldPlayersWithNone}"
+                        ItemDisplayBinding="{Binding Name}"
+                        SelectedItem="{Binding SelectedAssist}"
+                        FontSize="14" />
+                </VerticalStackLayout>
+            </VerticalStackLayout>
+        </Frame>
+
+        <!-- Action Buttons -->
+        <VerticalStackLayout Spacing="10">
+            <Button
+                Text="Record Goal"
+                Command="{Binding RecordGoalCommand}"
+                BackgroundColor="#4CAF50"
+                TextColor="White"
+                CornerRadius="8"
+                Padding="15,12"
+                FontAttributes="Bold" />
+
+            <Button
+                Text="Cancel"
+                Command="{Binding CancelCommand}"
+                BackgroundColor="#F44336"
+                TextColor="White"
+                CornerRadius="8"
+                Padding="15,12" />
+        </VerticalStackLayout>
+    </VerticalStackLayout>
+
+</ContentPage>

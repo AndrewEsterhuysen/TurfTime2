@@ -456,17 +456,17 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             $"bench-q=[{QueueString(_manualBenchQueue)}]");
     }
 
-    public void IncrementTeamAScore()
+    public void IncrementTeamAScore(string? scorer = null, string? assist = null)
     {
         TeamAScore++;
-        LogScoreEvent(GameEventType.ScoreUs, delta: +1, TeamAScore, TeamBScore);
+        LogScoreEvent(GameEventType.ScoreUs, delta: +1, TeamAScore, TeamBScore, scorer, assist);
         _ = AutoSaveAsync();
     }
 
-    public void IncrementTeamBScore()
+    public void IncrementTeamBScore(string? scorer = null, string? assist = null)
     {
         TeamBScore++;
-        LogScoreEvent(GameEventType.ScoreThem, delta: +1, TeamAScore, TeamBScore);
+        LogScoreEvent(GameEventType.ScoreThem, delta: +1, TeamAScore, TeamBScore, scorer, assist);
         _ = AutoSaveAsync();
     }
 
@@ -492,7 +492,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private void LogScoreEvent(GameEventType type, int delta, int usScore, int themScore)
+    private void LogScoreEvent(GameEventType type, int delta, int usScore, int themScore, string? scorer = null, string? assist = null)
     {
         // Only log during an active game; ignore accidental taps in setup/finished state.
         if (Phase == GamePhase.Setup || Phase == GamePhase.Finished) return;
@@ -507,24 +507,62 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             _                    => ""
         };
         var team  = type == GameEventType.ScoreUs ? "Us" : "Them";
-        var arrow = delta > 0 ? "⚽ Goal" : "↩ Corrected";
         var elapsedMin = elapsedSeconds / 60;
         var elapsedSec = elapsedSeconds % 60;
 
-        System.Diagnostics.Debug.WriteLine($"[LogScoreEvent] Phase={Phase} team={team} delta={delta} us={usScore} them={themScore} elapsed={elapsedSeconds}s sessionActive={_logger.CurrentSession is not null}");
-
-        _logger.Log(type,
-            $"{arrow} — {team} ({usScore}–{themScore})",
-            details: new Dictionary<string, object?>
+        // Build simplified description (score shown in separate column)
+        string description;
+        if (delta > 0)
+        {
+            // Goal scored
+            description = $"Goal: {team}";
+            if (!string.IsNullOrEmpty(scorer))
             {
-                ["team"]           = team,
-                ["delta"]          = delta,
-                ["scoreUs"]        = usScore,
-                ["scoreThem"]      = themScore,
-                ["half"]           = half,
-                ["elapsedSeconds"] = elapsedSeconds,
-                ["elapsedDisplay"] = $"{half} {elapsedMin}:{elapsedSec:D2}"
-            });
+                description += $"\n{scorer}";
+                if (!string.IsNullOrEmpty(assist))
+                {
+                    description += $", assisted-{assist}";
+                }
+            }
+        }
+        else
+        {
+            // Score corrected
+            description = $"Corrected: {team}";
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[LogScoreEvent] Phase={Phase} team={team} delta={delta} us={usScore} them={themScore} scorer={scorer} assist={assist} elapsed={elapsedSeconds}s sessionActive={_logger.CurrentSession is not null}");
+
+        var details = new Dictionary<string, object?>
+        {
+            ["team"]           = team,
+            ["delta"]          = delta,
+            ["scoreUs"]        = usScore,
+            ["scoreThem"]      = themScore,
+            ["half"]           = half,
+            ["elapsedSeconds"] = elapsedSeconds,
+            ["elapsedDisplay"] = $"{half} {elapsedMin}:{elapsedSec:D2}"
+        };
+
+        if (!string.IsNullOrEmpty(scorer))
+        {
+            details["scorer"] = scorer;
+        }
+        if (!string.IsNullOrEmpty(assist))
+        {
+            details["assist"] = assist;
+        }
+
+        _logger.Log(type, description, details: details);
+    }
+
+    /// <summary>Get all players currently on field or as goalie for selection in goal details modal.</summary>
+    public IReadOnlyList<Player> GetFieldPlayers()
+    {
+        return Players
+            .Where(p => p.Position == PlayerPosition.Field || p.Position == PlayerPosition.Goalie)
+            .ToList()
+            .AsReadOnly();
     }
 
     /// <summary>Set a field player as the next to rotate out.</summary>

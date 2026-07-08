@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.RotationStylePage"
+             Title="Rotation Style"
+             BackgroundColor="#1b5e20">
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+            <!-- Header -->
+            <Label Text="🎯 Rotation Highlight Style" 
+                   FontSize="24"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center"
+                   TextColor="White"
+                   Margin="0,10,0,10" />
+
+            <Label Text="Choose how players to be rotated are highlighted:" 
+                   FontSize="14"
+                   TextColor="#E0E0E0"
+                   HorizontalOptions="Center"
+                   Margin="0,0,0,20" />
+
+            <!-- Option 1: Glowing Left Border -->
+            <Frame BackgroundColor="#2e7d32"
+                   CornerRadius="10"
+                   Padding="0"
+                   HasShadow="True"
+                   x:Name="Option1Frame">
+                <Grid>
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnOption1Tapped" />
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Padding="20" Spacing="15">
+                        <Label x:Name="Option1Check" Text="✓" FontSize="28" VerticalOptions="Center" TextColor="#00d9ff" IsVisible="True" />
+                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
+                            <Label Text="Glowing Border" 
+                                   FontSize="18"
+                                   FontAttributes="Bold"
+                                   TextColor="White" />
+                            <Label Text="Thick cyan border with pulsing glow on the left" 
+                                   FontSize="13"
+                                   TextColor="#E0E0E0" />
+                        </VerticalStackLayout>
+                    </HorizontalStackLayout>
+                </Grid>
+            </Frame>
+
+            <!-- Option 5: Arrow Indicator (renumbered to Option 2) -->
+            <Frame BackgroundColor="#2e7d32"
+                   CornerRadius="10"
+                   Padding="0"
+                   HasShadow="True"
+                   x:Name="Option5Frame">
+                <Grid>
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnOption5Tapped" />
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Padding="20" Spacing="15">
+                        <Label x:Name="Option5Check" Text="✓" FontSize="28" VerticalOptions="Center" TextColor="#00d9ff" IsVisible="False" />
+                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
+                            <Label Text="Bouncing Arrow" 
+                                   FontSize="18"
+                                   FontAttributes="Bold"
+                                   TextColor="White" />
+                            <Label Text="Animated arrow indicator with gradient background" 
+                                   FontSize="13"
+                                   TextColor="#E0E0E0" />
+                        </VerticalStackLayout>
+                    </HorizontalStackLayout>
+                </Grid>
+            </Frame>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

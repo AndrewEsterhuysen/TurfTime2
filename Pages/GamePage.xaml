@@ -1,0 +1,543 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage x:Class="TurfTime2.GamePage"
+             xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:models="clr-namespace:TurfTime2.Models"
+             xmlns:conv="clr-namespace:TurfTime2.Converters"
+             xmlns:local="clr-namespace:TurfTime2"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="Black">
+
+    <ContentPage.Resources>
+        <Color x:Key="FieldColor">#388e3c</Color>
+        <Color x:Key="BenchColor">#1565c0</Color>
+        <Color x:Key="GoalieColor">#f57f17</Color>
+        <Color x:Key="InactiveColor">#424242</Color>
+        <Color x:Key="AccentColor">#FF6B35</Color>
+        <Color x:Key="CardBg">#2e7d32</Color>
+        <Color x:Key="CyanHighlight">#00d9ff</Color>
+
+        <conv:BoolToFontAttrsConverter    x:Key="BoolToFontAttrs" />
+        <conv:PositionToColorConverter    x:Key="PositionToColor" />
+        <conv:NextToBorderColorConverter  x:Key="NextToBorderColor" />
+        <conv:NextToBorderThicknessConverter x:Key="NextToBorderThickness" />
+        <conv:NextToArrowConverter        x:Key="NextToArrow" />
+        <conv:BoolToOpacityConverter      x:Key="BoolToOpacity" />
+
+        <!-- ── Player row template for VIEW_A ── -->
+        <DataTemplate x:Key="PlayerRowTemplate" x:DataType="models:Player">
+            <!--
+                DragRow root: calls RequestDisallowInterceptTouchEvent(true) at
+                ACTION_DOWN on Android, preventing the CollectionView/RecyclerView
+                from intercepting vertical gestures before PanGestureRecognizer fires.
+                ONE PanGestureRecognizer on the outer Grid handles both intents.
+                After ~12 dp the handler commits to swipe (horizontal) or drag
+                (vertical) so the two actions never conflict.
+                The ☰ label is a visual cue only — no child gesture recognizer.
+            -->
+            <local:DragRow Spacing="0">
+                <!-- Gold insertion-point indicator — always 3dp tall; opacity avoids layout reflow -->
+                <BoxView HeightRequest="3"
+                         Color="#FFD700"
+                         HorizontalOptions="Fill"
+                         Opacity="{Binding IsDragTarget, Converter={StaticResource BoolToOpacity}}" />
+
+                <Grid ColumnDefinitions="0.15*,0.7*,0.15*">
+                    <Grid.GestureRecognizers>
+                        <PanGestureRecognizer PanUpdated="OnPlayerPanUpdated" />
+                        <TapGestureRecognizer Tapped="OnPlayerNameTapped" />
+                    </Grid.GestureRecognizers>
+                    <Border Grid.Column="1"
+                            Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
+                            StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
+                            StrokeShape="RoundRectangle 0"
+                            BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
+                            Margin="0,1,0,0"
+                            InputTransparent="True">
+                        <Border.Triggers>
+                            <!-- Dim the row while it is being dragged so it stands out as the grabbed item -->
+                            <DataTrigger TargetType="Border" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </DataTrigger>
+                        </Border.Triggers>
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto"
+                              Padding="4,9">
+                            <!-- Drag handle (visual only — gesture is on the outer Grid) -->
+                            <Border Grid.Column="0"
+                                    Stroke="#66FFFFFF"
+                                    StrokeThickness="1"
+                                    StrokeShape="RoundRectangle 4"
+                                    BackgroundColor="#22000000"
+                                    Padding="4,0"
+                                    Margin="0,0,6,0"
+                                    VerticalOptions="Center">
+                                <Label Text="☰"
+                                       TextColor="#88ffffff"
+                                       FontSize="18"
+                                       VerticalOptions="Center">
+                                    <Label.Triggers>
+                                        <DataTrigger TargetType="Label" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                            <Setter Property="TextColor" Value="#FF6B35" />
+                                            <Setter Property="FontSize" Value="22" />
+                                        </DataTrigger>
+                                    </Label.Triggers>
+                                </Label>
+                            </Border>
+                            <!-- Position icon: ⚽ 💺 🥅 ❌ -->
+                            <Label Grid.Column="1"
+                                   Text="{Binding PositionIcon}"
+                                   FontSize="20"
+                                   VerticalOptions="Center"
+                                   Margin="0,0,8,0" />
+                            <!-- Next-to-rotate arrow -->
+                            <Label Grid.Column="2"
+                                   Text="➤"
+                                   TextColor="{StaticResource CyanHighlight}"
+                                   FontSize="16"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding IsNextToRotate}"
+                                   Margin="0,0,6,0" />
+                            <!-- Player name (tap to rename — gesture is on the outer Grid) -->
+                             <Label Grid.Column="3"
+                                    Text="{Binding Name}"
+                                    TextColor="White"
+                                    FontSize="16"
+                                    FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrs}}"
+                                    VerticalOptions="Center"
+                                    InputTransparent="True" />
+                            <!-- Field time -->
+                            <Label Grid.Column="4"
+                                   Text="{Binding FieldTimeDisplay}"
+                                   TextColor="#ccffcc"
+                                   FontSize="13"
+                                   VerticalOptions="Center"
+                                   HorizontalOptions="End" />
+                        </Grid>
+                    </Border>
+                </Grid>
+            </local:DragRow>
+        </DataTemplate>
+
+        <!-- iOS: swipe on the row body for position changes; pan only on ☰ handle for drag.
+             Avoids a full-row PanGestureRecognizer, which blocks UICollectionView scrolling. -->
+        <DataTemplate x:Key="PlayerRowTemplateIos" x:DataType="models:Player">
+            <local:DragRow Spacing="0">
+                <BoxView HeightRequest="3"
+                         Color="#FFD700"
+                         HorizontalOptions="Fill"
+                         Opacity="{Binding IsDragTarget, Converter={StaticResource BoolToOpacity}}" />
+
+                <Grid ColumnDefinitions="0.15*,0.7*,0.15*">
+                    <Grid.GestureRecognizers>
+                        <SwipeGestureRecognizer Direction="Left"  Swiped="OnPlayerSwiped" />
+                        <SwipeGestureRecognizer Direction="Right" Swiped="OnPlayerSwiped" />
+                        <TapGestureRecognizer Tapped="OnPlayerNameTapped" />
+                    </Grid.GestureRecognizers>
+                    <Border Grid.Column="0"
+                            Stroke="#66FFFFFF"
+                            StrokeThickness="1"
+                            StrokeShape="RoundRectangle 4"
+                            BackgroundColor="#22000000"
+                            Padding="4,0"
+                            Margin="0,1,0,0"
+                            VerticalOptions="Center"
+                            HorizontalOptions="Center">
+                        <Border.GestureRecognizers>
+                            <PanGestureRecognizer PanUpdated="OnPlayerPanUpdated" />
+                        </Border.GestureRecognizers>
+                        <Label Text="☰"
+                               TextColor="#88ffffff"
+                               FontSize="18"
+                               VerticalOptions="Center"
+                               HorizontalOptions="Center">
+                            <Label.Triggers>
+                                <DataTrigger TargetType="Label" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                    <Setter Property="TextColor" Value="#FF6B35" />
+                                    <Setter Property="FontSize" Value="22" />
+                                </DataTrigger>
+                            </Label.Triggers>
+                        </Label>
+                    </Border>
+                    <Border Grid.Column="1"
+                            Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
+                            StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
+                            StrokeShape="RoundRectangle 0"
+                            BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
+                            Margin="0,1,0,0"
+                            InputTransparent="True">
+                        <Border.Triggers>
+                            <DataTrigger TargetType="Border" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </DataTrigger>
+                        </Border.Triggers>
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto"
+                              Padding="4,9">
+                            <Label Grid.Column="0"
+                                   Text="{Binding PositionIcon}"
+                                   FontSize="20"
+                                   VerticalOptions="Center"
+                                   Margin="0,0,8,0" />
+                            <Label Grid.Column="1"
+                                   Text="➤"
+                                   TextColor="{StaticResource CyanHighlight}"
+                                   FontSize="16"
+                                   VerticalOptions="Center"
+                                   IsVisible="{Binding IsNextToRotate}"
+                                   Margin="0,0,6,0" />
+                             <Label Grid.Column="2"
+                                    Text="{Binding Name}"
+                                    TextColor="White"
+                                    FontSize="16"
+                                    FontAttributes="{Binding IsNextToRotate, Converter={StaticResource BoolToFontAttrs}}"
+                                    VerticalOptions="Center"
+                                    InputTransparent="True" />
+                            <Label Grid.Column="3"
+                                   Text="{Binding FieldTimeDisplay}"
+                                   TextColor="#ccffcc"
+                                   FontSize="13"
+                                   VerticalOptions="Center"
+                                   HorizontalOptions="End" />
+                        </Grid>
+                    </Border>
+                </Grid>
+            </local:DragRow>
+        </DataTemplate>
+
+        <!-- ── Inactive / absent group header template ── -->
+        <DataTemplate x:Key="InactiveHeaderTemplate" x:DataType="models:InactiveGroupHeader">
+            <Grid ColumnDefinitions="0.15*,0.7*,0.15*">
+                <Border Grid.Column="1"
+                        BackgroundColor="#424242"
+                        StrokeShape="RoundRectangle 0"
+                        Stroke="#666"
+                        StrokeThickness="1"
+                        Margin="0,4,0,0">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnInactiveHeaderTapped" />
+                    </Border.GestureRecognizers>
+                    <Label Text="{Binding Label}"
+                           TextColor="#cccccc"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center"
+                           Padding="10,10" />
+                </Border>
+            </Grid>
+        </DataTemplate>
+
+        <!-- Template selector -->
+        <local:RosterItemTemplateSelector x:Key="RosterSelector"
+            PlayerTemplate="{StaticResource PlayerRowTemplate}"
+            InactiveHeaderTemplate="{StaticResource InactiveHeaderTemplate}" />
+
+    </ContentPage.Resources>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="0">
+
+        <!-- ══ HEADER ══ -->
+        <Grid Grid.Row="0"
+              RowDefinitions="Auto,Auto,Auto,Auto"
+              BackgroundColor="#0a0a0a"
+              Padding="8,6,8,6">
+
+            <!-- Row 0: ⚽  Turf Timer  🥅 -->
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto">
+                <Label Grid.Column="0"
+                       Text="⚽"
+                       FontSize="22"
+                       VerticalOptions="Center"
+                       HorizontalOptions="Start" />
+                <Label Grid.Column="1"
+                       Text="Turf Timer"
+                       TextColor="White"
+                       FontSize="20"
+                       FontAttributes="Bold"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center" />
+                <Label Grid.Column="2"
+                       Text="🥅"
+                       FontSize="22"
+                       VerticalOptions="Center"
+                       HorizontalOptions="End" />
+            </Grid>
+
+            <!-- Row 1: Team name -->
+            <Label Grid.Row="1"
+                   Text="{Binding TeamName}"
+                   TextColor="#ffe082"
+                   FontSize="13"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center"
+                   LineBreakMode="TailTruncation"
+                   Margin="0,2,0,0" />
+
+            <!-- Row 2: Column header labels -->
+            <Grid Grid.Row="2"
+                  ColumnDefinitions="*,*,*,*"
+                  Margin="0,6,0,1">
+                <Label Grid.Column="0"
+                       Text="Us"
+                       TextColor="#ccffcc"
+                       FontSize="11"
+                       HorizontalOptions="Center"
+                       IsVisible="{Binding ScoresVisible}" />
+                <Label Grid.Column="1"
+                       Text="{Binding MatchTimeLabelText}"
+                       TextColor="#99cc99"
+                       FontSize="11"
+                       HorizontalOptions="Center" />
+                <Label Grid.Column="2"
+                       Text="Rotate"
+                       TextColor="#99cc99"
+                       FontSize="11"
+                       HorizontalOptions="Center" />
+                <Label Grid.Column="3"
+                       Text="Them"
+                       TextColor="#ccffcc"
+                       FontSize="11"
+                       HorizontalOptions="Center"
+                       IsVisible="{Binding ScoresVisible}" />
+            </Grid>
+
+            <!-- Row 3: Values — scores, match timer, rotation timer -->
+            <Grid Grid.Row="3"
+                  ColumnDefinitions="*,*,*,*"
+                  Margin="0,0,0,2">
+                <!-- Us score — full cell is the tap target -->
+                <Grid Grid.Column="0"
+                      IsVisible="{Binding ScoresVisible}">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnTeamAScoreTapped" />
+                    </Grid.GestureRecognizers>
+                    <Label Text="{Binding TeamAScore}"
+                           TextColor="{StaticResource AccentColor}"
+                           FontSize="24"
+                           FontAttributes="Bold"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+                </Grid>
+                <!-- Match timer -->
+                <Label Grid.Column="1"
+                       x:Name="MatchTimerLabel"
+                       Text="{Binding MatchTimeDisplay}"
+                       TextColor="White"
+                       FontSize="24"
+                       FontAttributes="Bold"
+                       HorizontalOptions="Center">
+                    <Label.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnMatchTimerTapped" />
+                    </Label.GestureRecognizers>
+                </Label>
+                <!-- Rotation countdown -->
+                <Label Grid.Column="2"
+                       x:Name="CountdownLabel"
+                       Text="{Binding CountdownDisplay}"
+                       TextColor="White"
+                       FontSize="20"
+                       FontAttributes="Bold"
+                       HorizontalOptions="Center">
+                    <Label.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnCountdownTimerTapped" />
+                    </Label.GestureRecognizers>
+                </Label>
+                <!-- Them score — full cell is the tap target -->
+                <Grid Grid.Column="3"
+                      IsVisible="{Binding ScoresVisible}">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnTeamBScoreTapped" />
+                    </Grid.GestureRecognizers>
+                    <Label Text="{Binding TeamBScore}"
+                           TextColor="{StaticResource AccentColor}"
+                           FontSize="24"
+                           FontAttributes="Bold"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+                </Grid>
+            </Grid>
+
+        </Grid>
+
+        <!-- ══ Member read-only banner ══ -->
+        <Border Grid.Row="1"
+                BackgroundColor="#ffc107"
+                Padding="8,4"
+                StrokeShape="RoundRectangle 4"
+                IsVisible="{Binding IsMember}"
+                Margin="4,2,4,2">
+            <Label Text="📖 VIEW-ONLY MODE — Team Admin controls the game"
+                   TextColor="Black"
+                   FontAttributes="Bold"
+                   FontSize="12"
+                   HorizontalOptions="Center" />
+        </Border>
+
+        <!-- ══ CONTENT AREA ══ -->
+        <Grid Grid.Row="2">
+
+            <!-- VIEW_A: Swipeable list -->
+            <CollectionView x:Name="SwipeableRoster"
+                            ItemsSource="{Binding DisplayItems}"
+                            ItemTemplate="{StaticResource RosterSelector}"
+                            ItemsLayout="VerticalList"
+                            SelectionMode="None">
+                <CollectionView.EmptyView>
+                    <Label Text="No players – tap Setup to add players"
+                           TextColor="White"
+                           HorizontalOptions="Center"
+                           Margin="0,40,0,0" />
+                </CollectionView.EmptyView>
+            </CollectionView>
+
+            <!-- VIEW_C: Rotation display with score buttons -->
+            <Grid x:Name="RotationView"
+                  IsVisible="False"
+                  RowDefinitions="Auto,*"
+                  ColumnDefinitions="80,*,80">
+
+                <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
+                      x:Name="TeamAScoreBtn"
+                      BackgroundColor="{StaticResource FieldColor}"
+                      IsVisible="{Binding ScoresVisible}">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnTeamAScoreTapped" />
+                    </Grid.GestureRecognizers>
+                    <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="4">
+                        <Label Text=" Us "
+                               TextColor="White"
+                               FontSize="14"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center"
+                               Rotation="-90" />
+                        <Label Text="{Binding TeamAScore}"
+                               TextColor="White"
+                               FontSize="22"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Grid>
+
+                <StackLayout Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
+                             VerticalOptions="Center"
+                             Spacing="4"
+                             Padding="8,0">
+                    <Label Text="Next Rotation"
+                           TextColor="White"
+                           FontAttributes="Bold"
+                           FontSize="22"
+                           HorizontalOptions="Center"
+                           Margin="0,0,0,8" />
+                    <CollectionView x:Name="RotationPairsView"
+                                    ItemsSource="{Binding RotationPairs}"
+                                    SelectionMode="None">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="models:RotationPair">
+                                <VerticalStackLayout Spacing="0" Margin="4,4,4,8">
+                                    <!-- Bench player coming ON — left aligned -->
+                                    <Label TextColor="#bbdefb"
+                                           FontSize="20"
+                                           FontAttributes="Bold"
+                                           HorizontalOptions="Start">
+                                        <Label.FormattedText>
+                                            <FormattedString>
+                                                <Span Text="&#x1FA91; " />
+                                                <Span Text="{Binding BenchPlayerName}" />
+                                                <Span Text="  on" />
+                                            </FormattedString>
+                                        </Label.FormattedText>
+                                    </Label>
+                                    <!-- Field player coming OFF — right aligned -->
+                                    <Label TextColor="#ffccbc"
+                                           FontSize="20"
+                                           HorizontalOptions="End">
+                                        <Label.FormattedText>
+                                            <FormattedString>
+                                                <Span Text="off  " />
+                                                <Span Text="&#x26BD; " />
+                                                <Span Text="{Binding FieldPlayerName}" />
+                                            </FormattedString>
+                                        </Label.FormattedText>
+                                    </Label>
+                                </VerticalStackLayout>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                        <CollectionView.EmptyView>
+                            <Label Text="Assign field and bench players first"
+                                   TextColor="#aaa"
+                                   HorizontalOptions="Center" />
+                        </CollectionView.EmptyView>
+                    </CollectionView>
+                </StackLayout>
+
+                <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
+                      x:Name="TeamBScoreBtn"
+                      BackgroundColor="#c62828"
+                      IsVisible="{Binding ScoresVisible}">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnTeamBScoreTapped" />
+                    </Grid.GestureRecognizers>
+                    <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="4">
+                        <Label Text="   Them "
+                               TextColor="White"
+                               FontSize="14"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center"
+                               Rotation="-90" />
+                        <Label Text="{Binding TeamBScore}"
+                               TextColor="White"
+                               FontSize="22"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center" />
+                    </VerticalStackLayout>
+                </Grid>
+            </Grid>
+
+        </Grid>
+
+        <!-- ══ BOTTOM CONTROLS ══ -->
+        <Grid Grid.Row="3"
+              ColumnDefinitions="*,*,*"
+              Padding="4,6,4,6"
+              ColumnSpacing="6"
+              BackgroundColor="Black">
+
+            <Button Grid.Column="0"
+                    x:Name="StartBtn"
+                    Text="{Binding StartButtonText}"
+                    BackgroundColor="Black"
+                    TextColor="White"
+                    FontAttributes="Bold"
+                    FontSize="15"
+                    IsEnabled="{Binding CanStart}"
+                    Clicked="OnStartClicked"
+                    Pressed="OnStartPressed"
+                    Released="OnStartReleased" />
+
+            <Button Grid.Column="1"
+                    x:Name="RotateBtn"
+                    Text="{Binding RotateButtonText}"
+                    BackgroundColor="Black"
+                    TextColor="White"
+                    FontAttributes="Bold"
+                    FontSize="15"
+                    Clicked="OnRotateClicked"
+                    Pressed="OnRotatePressed"
+                    Released="OnRotateReleased" />
+
+            <Button Grid.Column="2"
+                    x:Name="ViewBtn"
+                    Text="View: Rotation"
+                    BackgroundColor="Black"
+                    TextColor="White"
+                    FontSize="13"
+                    Margin="0"
+                    Padding="0"
+                    LineBreakMode="WordWrap"
+                    HorizontalOptions="FillAndExpand"
+                    Clicked="OnViewButtonClicked" />
+
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Turf Time Team Import</title>
+  <style>
+    body { font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif; margin: 24px; line-height: 1.4; }
+    a { word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>Turf Time Team Import</h1>
+  <p>If Turf Time is installed, opening the link below will import the shared team.</p>
+  <p><a id="openLink" href="#">Open in Turf Time</a></p>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const payload = params.get("import") || params.get("team");
+    if (payload) {
+      const deepLink = `turf://v1/import?team=${encodeURIComponent(payload)}`;
+      const open = document.getElementById("openLink");
+      open.href = deepLink;
+      window.location.replace(deepLink);
+    }
+  </script>
+</body>
+</html>
