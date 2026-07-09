@@ -1,30 +1,28 @@
-# Build Release IPA/Archive for Apple App Store Connect
-# To run this script (PowerShell 7+): pwsh -File ./build-release-ios.ps1
+# Build signed iOS Release IPA for App Store Connect
+# Usage: pwsh -File ./scripts/build/build-release-ios.ps1
 
-Write-Host "Building Turf Time Release iOS archive..." -ForegroundColor Green
+Write-Host "Building Turf Time signed iOS release..." -ForegroundColor Green
 
-# Ensure we run from the repository root even if invoked elsewhere.
-Set-Location $PSScriptRoot
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Resolve-Path (Join-Path $scriptDir "../..")
+$projectFile = Join-Path $repoRoot "TurfTime2.csproj"
 
-# Clean previous builds
-Write-Host "Cleaning previous builds..." -ForegroundColor Yellow
-dotnet clean
+Write-Host "Repo: $repoRoot" -ForegroundColor Cyan
+Write-Host "Project: $projectFile" -ForegroundColor Cyan
 
-# Build iOS archive + IPA
-Write-Host "Publishing iOS Release (Archive + IPA)..." -ForegroundColor Yellow
-dotnet publish -f net10.0-ios -c Release -r ios-arm64 -p:ArchiveOnBuild=true -p:BuildIpa=true
+dotnet clean $projectFile -f net10.0-ios -r ios-arm64 -c Release
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "Build successful!" -ForegroundColor Green
-    Write-Host "Expected output folder:" -ForegroundColor Cyan
-    Write-Host "bin/Release/net10.0-ios/ios-arm64/publish" -ForegroundColor Cyan
+dotnet publish $projectFile -f net10.0-ios -c Release -r ios-arm64 -p:ArchiveOnBuild=true -p:BuildIpa=true -p:EnableCodeSigning=true
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    # Open output folder (works on macOS and Windows)
-    $outputDir = Join-Path $PSScriptRoot "bin/Release/net10.0-ios/ios-arm64/publish"
-    if (Test-Path $outputDir) {
-        Start-Process $outputDir
-    }
-} else {
-    Write-Host "Build failed! Check errors above." -ForegroundColor Red
+$outputDir = Join-Path $repoRoot "bin/Release/net10.0-ios/ios-arm64/publish"
+$ipaFile = Join-Path $outputDir "TurfTime2.ipa"
+
+if (-not (Test-Path $ipaFile)) {
+    Write-Error "Signed IPA not found: $ipaFile"
+    exit 1
 }
 
+Write-Host "Build successful." -ForegroundColor Green
+Write-Host "IPA: $ipaFile" -ForegroundColor Cyan
