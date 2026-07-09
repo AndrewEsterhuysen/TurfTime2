@@ -779,15 +779,7 @@ public partial class GamePage : ContentPage
 
     private void OnRotateClicked(object sender, EventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine("[GamePage] 👆 Rotate button pressed by user");
-        _vm?.ExecuteRotations();
-        if (_vm is not null) _vm.RotationDue = false;
-        AnimateRotateBtn();
-
-        // Resync: scroll the roster back to the first row so the user can
-        // immediately see who has just rotated onto the field.
-        if (SwipeableRoster.IsVisible && _vm?.DisplayItems.Count > 0)
-            SwipeableRoster.ScrollTo(0, position: ScrollToPosition.Start, animate: false);
+        ExecuteRotationTrigger("button");
     }
 
     private void OnRotatePressed(object sender, EventArgs e)
@@ -799,6 +791,22 @@ public partial class GamePage : ContentPage
 
     private void OnRotateReleased(object sender, EventArgs e)
         => _rotateLongPressCts?.Cancel();
+
+    private void OnRotationLowerHalfTapped(object sender, TappedEventArgs e)
+        => ExecuteRotationTrigger("lower-half tap zone");
+
+    private void ExecuteRotationTrigger(string source)
+    {
+        System.Diagnostics.Debug.WriteLine($"[GamePage] 👆 Rotate triggered from {source}");
+        _vm?.ExecuteRotations();
+        if (_vm is not null) _vm.RotationDue = false;
+        AnimateRotateBtn();
+
+        // Resync: scroll the roster back to the first row so the user can
+        // immediately see who has just rotated onto the field.
+        if (SwipeableRoster.IsVisible && _vm?.DisplayItems.Count > 0)
+            SwipeableRoster.ScrollTo(0, position: ScrollToPosition.Start, animate: false);
+    }
 
     private async Task ShowRotationCountDialog()
     {
@@ -871,17 +879,23 @@ public partial class GamePage : ContentPage
         try
         {
             await Task.Delay(DoubleTapWindowMs, cts.Token);
-            
-            // Show goal detail modal to collect scorer/assist info
+
+            // Show goal detail modal only when scorer/assist reporting is enabled.
             if (_vm is not null)
             {
+                if (!GoalScoringOptions.IsScorerAssistEnabled())
+                {
+                    _vm.IncrementTeamAScore();
+                    return;
+                }
+
                 var fieldPlayers = _vm.GetFieldPlayers();
                 var modal = new GoalDetailModal(fieldPlayers, async (scorer, assist) =>
                 {
                     _vm.IncrementTeamAScore(scorer, assist);
                     await Task.CompletedTask;
                 });
-                
+
                 await Navigation.PushModalAsync(modal);
             }
         }

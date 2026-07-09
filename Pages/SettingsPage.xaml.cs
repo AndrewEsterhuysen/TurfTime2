@@ -46,5 +46,16 @@ public partial class SettingsPage : ContentPage
         }
     }
 
+    private async void OnOptionsTapped(object sender, EventArgs e)
+    {
+        try
+        {
+            await Shell.Current.GoToAsync("settings/options");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
+            await DisplayAlert("Error", "Could not navigate to Options page.", "OK");
+        }
     }
-
+}

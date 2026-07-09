@@ -98,6 +98,34 @@
                 </Grid>
             </Frame>
 
+            <!-- Options -->
+            <Frame BackgroundColor="#2e7d32"
+                   CornerRadius="10"
+                   Padding="0"
+                   HasShadow="True">
+                <Grid>
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnOptionsTapped" />
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Padding="20" Spacing="15">
+                        <Label Text="🛠️" FontSize="32" VerticalOptions="Center" />
+                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
+                            <Label Text="Options"
+                                   FontSize="20"
+                                   FontAttributes="Bold"
+                                   TextColor="White" />
+                            <Label Text="Configure goal scorer and assist reporting"
+                                   FontSize="14"
+                                   TextColor="#E0E0E0" />
+                        </VerticalStackLayout>
+                        <Label Text="›"
+                               FontSize="32"
+                               TextColor="White"
+                               VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                </Grid>
+            </Frame>
+
 
         </VerticalStackLayout>
     </ScrollView>
