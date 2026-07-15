@@ -52,6 +52,10 @@
                         <Span Text="🎬  " />
                         <Span Text="Demo Team quick start" FontAttributes="Bold" TextColor="#FFFFFF" />
                         <Span Text=" — first launch now includes a ready-to-play demo team so you can press Start and experience the app immediately." />
+                        <Span Text="&#10;&#10;" />
+                        <Span Text="⚽  " />
+                        <Span Text="Select goal scoring and assisting players for inclusion in report" FontAttributes="Bold" TextColor="#FFFFFF" />
+                        <Span Text=" — choose who scored and assisted when logging goals so they appear in your match reports." />
                     </FormattedString>
                 </Label.FormattedText>
             </Label>
