@@ -209,6 +209,14 @@ public partial class HelpPage : ContentPage
         <li><strong>Rotation alert:</strong> Before a rotation is due, a short vibration fires, giving you a heads-up before the rotation is due.</li>
     </ul>
 
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>☁️ Shared (Cloud) Teams</h3>
+    <ul>
+        <li>Choose <strong>Shared</strong> on Team Details to create a cloud team, join with an invite code, or recover admin access on a new device.</li>
+        <li>Choose <strong>Local</strong> for device-only teams (no cloud sync). Chat and Location tabs appear only for shared teams.</li>
+        <li>👁️ <strong>View-only mode:</strong> If you joined as a team member (not admin), the amber banner shows and controls are disabled — the team admin runs the game.</li>
+        <li>Roster and scores sync for shared teams so members can follow the match on their devices.</li>
+    </ul>
 
     </body>
 </html>";

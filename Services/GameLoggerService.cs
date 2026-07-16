@@ -155,6 +155,18 @@ public sealed class GameLoggerService : IGameLoggerService
             if (string.IsNullOrEmpty(teamId) || teamId.StartsWith("local_", StringComparison.Ordinal))
                 return;
 
+            // Only push full sessions (events, scores, scorer/assist) for shared teams.
+            var teamMode = Preferences.Get("team_mode", string.Empty);
+            if (!string.Equals(teamMode, "shared", StringComparison.Ordinal))
+            {
+                System.Diagnostics.Debug.WriteLine($"[GameLogger] Skipping cloud session save (team_mode={teamMode})");
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameLogger] Saving session {session.SessionId} to cloud " +
+                $"(events={session.Events.Count}, score={session.ScoreUs}-{session.ScoreThem})");
+
             await _storage.SaveSessionAsync(teamId, session).ConfigureAwait(false);
         }
         catch (Exception ex)

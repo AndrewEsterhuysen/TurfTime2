@@ -23,7 +23,6 @@
         <ShellContent
             x:Name="LocationTab"
             Title="Location"
-            IsVisible="False"
             ContentTemplate="{DataTemplate local:SetupPage}"
             Route="SetupPage" />
 

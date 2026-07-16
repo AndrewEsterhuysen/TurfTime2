@@ -53,8 +53,9 @@
             System.Diagnostics.Debug.WriteLine($"[AppShell] Is Local: {isLocal}");
             System.Diagnostics.Debug.WriteLine($"[AppShell] Items.Count: {Items.Count}");
 
-            // Hide Chat tab for local teams — chat requires cloud/Firestore.
+            // Chat and Location require a shared (cloud) team.
             ChatTab.IsVisible = !isLocal;
+            LocationTab.IsVisible = !isLocal;
 
             GameTab.IsEnabled = hasTeam;
 

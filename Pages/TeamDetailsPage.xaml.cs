@@ -28,12 +28,14 @@ public partial class TeamDetailsPage : ContentPage
 		base.OnAppearing();
 		LoadCurrentTeam();
 
-		// This release is local-only. Always ensure Local is selected.
-		// SharedCheckbox path is preserved for the future cloud release.
-		if (!LocalCheckbox.IsChecked)
-			LocalCheckbox.IsChecked = true;  // triggers OnLocalCheckboxChanged -> LoadLocalTeamsAsync
-		else
-			_ = LoadLocalTeamsAsync();       // already checked — load teams manually
+		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+		if (!string.IsNullOrEmpty(teamMode))
+		{
+			if (teamMode == "local")
+				LocalCheckbox.IsChecked = true;   // triggers LoadLocalTeamsAsync
+			else if (teamMode == "shared")
+				SharedCheckbox.IsChecked = true;  // triggers LoadSharedTeamsAsync
+		}
 	}
 
 	private void LoadCurrentTeam()
@@ -123,12 +125,11 @@ public partial class TeamDetailsPage : ContentPage
 	private void UpdateCreateTeamSubSections()
 	{
 		if (!_createTeamExpanded) return;
-		// Local-only release: always show local creation, hide shared and no-mode hint.
-		// SharedCheckbox / CreateSharedSection are preserved for the future cloud release.
 		bool isShared = SharedCheckbox.IsChecked;
-		CreateTeamNoModeLabel.IsVisible = false;
-		CreateSharedSection.IsVisible = isShared;   // stays false in this release
-		CreateLocalSection.IsVisible = true;
+		bool isLocal  = LocalCheckbox.IsChecked;
+		CreateTeamNoModeLabel.IsVisible = !isShared && !isLocal;
+		CreateSharedSection.IsVisible   = isShared;
+		CreateLocalSection.IsVisible    = isLocal;
 	}
 
 	private async Task LoadLocalTeamsAsync()

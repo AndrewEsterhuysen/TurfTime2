@@ -7,21 +7,33 @@ namespace TurfTime2.Services;
 
 /// <summary>
 /// Persists the roster snapshot to local <see cref="Preferences"/> and to
-/// Firestore via the REST API.  Authentication uses Firebase anonymous sign-in
-/// (same approach as the existing <see cref="FirebaseSaveBridge"/>).
+/// Firestore via the REST API. Authentication uses Firebase anonymous sign-in.
 /// </summary>
 public sealed class CloudRosterService : ICloudRosterService
 {
-    private const string FirebaseApiKey   = "AIzaSyDAKivCFX5kYYZ6SkAQluBNdR92I320glk";
+    private const string FirebaseApiKey    = "AIzaSyDAKivCFX5kYYZ6SkAQluBNdR92I320glk";
     private const string FirebaseProjectId = "turf-timer";
-    private const string FirestoreBase    =
+    private const string FirestoreBase     =
         $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
 
     private static readonly HttpClient _http = new();
     private static string? _idToken;
+    private static string? _userId;
 
     // Debounce: cloud save fires at most once per 2 s of silence
     private CancellationTokenSource? _debounceCts;
+
+    /// <summary>
+    /// Shares an already-authenticated token (e.g. from TeamDetailsPage) so roster
+    /// writes use the same Firebase identity as team create/join.
+    /// </summary>
+    public static void SetAuthToken(string idToken, string userId)
+    {
+        if (string.IsNullOrWhiteSpace(idToken)) return;
+        _idToken = idToken;
+        _userId  = userId;
+        System.Diagnostics.Debug.WriteLine("[CloudRosterService] Auth token received from host");
+    }
 
     // ── ICloudRosterService ───────────────────────────────────────────────
 
@@ -33,7 +45,7 @@ public sealed class CloudRosterService : ICloudRosterService
         _ = Task.Run(() => SaveLocal(teamId, snapshot));
 
         if (!isAdmin) return;                          // members never write to cloud
-        if (teamId.StartsWith("local_", StringComparison.Ordinal)) return;
+        if (IsLocalOnlyTeam(teamId)) return;
 
         // Debounce the cloud write (2 s)
         _debounceCts?.Cancel();
@@ -51,7 +63,7 @@ public sealed class CloudRosterService : ICloudRosterService
     {
         var local = LoadLocal(teamId);
 
-        if (teamId.StartsWith("local_", StringComparison.Ordinal))
+        if (IsLocalOnlyTeam(teamId))
             return local;
 
         try
@@ -77,7 +89,7 @@ public sealed class CloudRosterService : ICloudRosterService
         _debounceCts?.Cancel();
         SaveLocal(teamId, snapshot);
 
-        if (teamId.StartsWith("local_", StringComparison.Ordinal)) return Task.CompletedTask;
+        if (IsLocalOnlyTeam(teamId)) return Task.CompletedTask;
 
         return UploadToFirestoreAsync(teamId, snapshot);
     }
@@ -90,6 +102,15 @@ public sealed class CloudRosterService : ICloudRosterService
     }
 
     // ── Local storage ─────────────────────────────────────────────────────
+
+    private static bool IsLocalOnlyTeam(string teamId)
+    {
+        if (string.IsNullOrWhiteSpace(teamId)) return true;
+        if (teamId.StartsWith("local_", StringComparison.Ordinal)) return true;
+        // Prefer explicit team_mode when set; local_ prefix is authoritative for device teams.
+        var mode = Preferences.Get("team_mode", string.Empty);
+        return string.Equals(mode, "local", StringComparison.Ordinal);
+    }
 
     private static string LocalKey(string teamId) => $"roster_snapshot_{teamId}";
 
@@ -141,6 +162,7 @@ public sealed class CloudRosterService : ICloudRosterService
 
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
             _idToken = doc.RootElement.GetProperty("idToken").GetString();
+            _userId  = doc.RootElement.TryGetProperty("localId", out var lid) ? lid.GetString() : null;
             return _idToken;
         }
         catch (Exception ex)
@@ -231,18 +253,23 @@ public sealed class CloudRosterService : ICloudRosterService
             }
         }).ToArray();
 
+        var utc = s.LastModifiedUtc.ToString("o");
+
+        // Canonical field names match RosterSnapshot. Dual keys for older bridge/JS writers.
         return new
         {
             fields = new Dictionary<string, object>
             {
                 ["version"]                = new { integerValue = s.Version.ToString() },
-                ["lastModifiedUtc"]        = new { timestampValue = s.LastModifiedUtc.ToString("o") },
+                ["lastModifiedUtc"]        = new { timestampValue = utc },
+                ["lastModified"]           = new { timestampValue = utc },
                 ["matchDurationSeconds"]   = new { integerValue = s.MatchDurationSeconds.ToString() },
                 ["halfDurationSeconds"]    = new { integerValue = s.HalfDurationSeconds.ToString() },
                 ["matchRemainingSeconds"]  = new { integerValue = s.MatchRemainingSeconds.ToString() },
                 ["currentHalf"]            = new { stringValue  = s.CurrentHalf },
                 ["timerRunning"]           = new { booleanValue = s.TimerRunning },
                 ["countdownPresetSeconds"] = new { integerValue = s.CountdownPresetSeconds.ToString() },
+                ["countdownPreset"]        = new { integerValue = s.CountdownPresetSeconds.ToString() },
                 ["viewMode"]               = new { integerValue = s.ViewMode.ToString() },
                 ["teamAScore"]             = new { integerValue = s.TeamAScore.ToString() },
                 ["teamBScore"]             = new { integerValue = s.TeamBScore.ToString() },
@@ -256,44 +283,49 @@ public sealed class CloudRosterService : ICloudRosterService
     {
         try
         {
-            using var doc   = JsonDocument.Parse(json);
-            var fields = doc.RootElement.GetProperty("fields");
-
-            static string Str(JsonElement e)   => e.GetProperty("stringValue").GetString() ?? string.Empty;
-            static int    Int(JsonElement e)   => int.Parse(e.GetProperty("integerValue").GetString() ?? "0");
-            static bool   Bool(JsonElement e)  => e.GetProperty("booleanValue").GetBoolean();
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("fields", out var fields))
+                return null;
 
             const int defaultMatchDuration = 90 * 60;
 
             var snapshot = new RosterSnapshot
             {
-                Version                = Int(fields.GetProperty("version")),
-                LastModifiedUtc        = DateTimeOffset.Parse(Str(fields.GetProperty("lastModifiedUtc"))),
-                MatchDurationSeconds   = fields.TryGetProperty("matchDurationSeconds", out var mds) && Int(mds) > 0 ? Int(mds) : defaultMatchDuration,
-                HalfDurationSeconds    = Int(fields.GetProperty("halfDurationSeconds")),
-                MatchRemainingSeconds  = Int(fields.GetProperty("matchRemainingSeconds")),
-                CurrentHalf            = Str(fields.GetProperty("currentHalf")),
-                TimerRunning           = Bool(fields.GetProperty("timerRunning")),
-                CountdownPresetSeconds = Int(fields.GetProperty("countdownPresetSeconds")),
-                ViewMode               = Int(fields.GetProperty("viewMode")),
-                TeamAScore             = Int(fields.GetProperty("teamAScore")),
-                TeamBScore             = Int(fields.GetProperty("teamBScore"))
+                Version                = ReadInt(fields, "version", 2),
+                LastModifiedUtc        = ReadTimestamp(fields, "lastModifiedUtc", "lastModified"),
+                MatchDurationSeconds   = Math.Max(1, ReadInt(fields, "matchDurationSeconds", defaultMatchDuration)),
+                HalfDurationSeconds    = ReadInt(fields, "halfDurationSeconds", 0),
+                MatchRemainingSeconds  = ReadInt(fields, "matchRemainingSeconds", defaultMatchDuration),
+                CurrentHalf            = ReadString(fields, "currentHalf", "setup"),
+                TimerRunning           = ReadBool(fields, "timerRunning", false),
+                CountdownPresetSeconds = ReadInt(fields, "countdownPresetSeconds",
+                                            ReadInt(fields, "countdownPreset", 120)),
+                ViewMode               = ReadInt(fields, "viewMode", 0),
+                TeamAScore             = ReadInt(fields, "teamAScore", 0),
+                TeamBScore             = ReadInt(fields, "teamBScore", 0)
             };
 
-            foreach (var pElem in fields.GetProperty("players").GetProperty("arrayValue")
-                                        .GetProperty("values").EnumerateArray())
+            if (fields.TryGetProperty("players", out var playersEl)
+                && playersEl.TryGetProperty("arrayValue", out var arr)
+                && arr.TryGetProperty("values", out var values))
             {
-                var pf = pElem.GetProperty("mapValue").GetProperty("fields");
-                snapshot.Players.Add(new PlayerSnapshot
+                foreach (var pElem in values.EnumerateArray())
                 {
-                    SlotId         = pf.TryGetProperty("slotId", out var slotIdEl) ? Int(slotIdEl) : 0,
-                    Name           = Str(pf.GetProperty("name")),
-                    Field          = Bool(pf.GetProperty("field")),
-                    Bench          = Bool(pf.GetProperty("bench")),
-                    Goalie         = Bool(pf.GetProperty("goalie")),
-                    Inactive       = Bool(pf.GetProperty("inactive")),
-                    CounterSeconds = Int(pf.GetProperty("counterSeconds"))
-                });
+                    if (!pElem.TryGetProperty("mapValue", out var map)
+                        || !map.TryGetProperty("fields", out var pf))
+                        continue;
+
+                    snapshot.Players.Add(new PlayerSnapshot
+                    {
+                        SlotId         = ReadInt(pf, "slotId", 0),
+                        Name           = ReadString(pf, "name", string.Empty),
+                        Field          = ReadBool(pf, "field", false),
+                        Bench          = ReadBool(pf, "bench", false),
+                        Goalie         = ReadBool(pf, "goalie", false),
+                        Inactive       = ReadBool(pf, "inactive", false),
+                        CounterSeconds = ReadInt(pf, "counterSeconds", 0)
+                    });
+                }
             }
 
             return snapshot;
@@ -303,5 +335,49 @@ public sealed class CloudRosterService : ICloudRosterService
             System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Parse failed: {ex.Message}");
             return null;
         }
+    }
+
+    private static string ReadString(JsonElement fields, string name, string fallback)
+    {
+        if (!fields.TryGetProperty(name, out var el)) return fallback;
+        if (el.TryGetProperty("stringValue", out var s)) return s.GetString() ?? fallback;
+        return fallback;
+    }
+
+    private static int ReadInt(JsonElement fields, string name, int fallback)
+    {
+        if (!fields.TryGetProperty(name, out var el)) return fallback;
+        if (el.TryGetProperty("integerValue", out var i)
+            && int.TryParse(i.GetString(), out var n))
+            return n;
+        if (el.TryGetProperty("doubleValue", out var d))
+            return (int)d.GetDouble();
+        return fallback;
+    }
+
+    private static bool ReadBool(JsonElement fields, string name, bool fallback)
+    {
+        if (!fields.TryGetProperty(name, out var el)) return fallback;
+        if (el.TryGetProperty("booleanValue", out var b)) return b.GetBoolean();
+        return fallback;
+    }
+
+    private static DateTimeOffset ReadTimestamp(JsonElement fields, string primary, string alternate)
+    {
+        foreach (var name in new[] { primary, alternate })
+        {
+            if (!fields.TryGetProperty(name, out var el)) continue;
+
+            string? raw = null;
+            if (el.TryGetProperty("timestampValue", out var ts))
+                raw = ts.GetString();
+            else if (el.TryGetProperty("stringValue", out var s))
+                raw = s.GetString();
+
+            if (!string.IsNullOrEmpty(raw) && DateTimeOffset.TryParse(raw, out var dto))
+                return dto;
+        }
+
+        return DateTimeOffset.UtcNow;
     }
 }
