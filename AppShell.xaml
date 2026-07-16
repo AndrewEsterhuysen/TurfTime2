@@ -21,10 +21,10 @@
             Route="GamePage" />
 
         <ShellContent
-            x:Name="LocationTab"
-            Title="Location"
-            ContentTemplate="{DataTemplate local:SetupPage}"
-            Route="SetupPage" />
+            x:Name="DetailsTab"
+            Title="Details"
+            ContentTemplate="{DataTemplate local:DetailsPage}"
+            Route="DetailsPage" />
 
         <ShellContent
             x:Name="ChatTab"

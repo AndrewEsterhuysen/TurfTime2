@@ -15,8 +15,8 @@ expanded local data (including goal scorer/assist in session events). Everything
 |------|--------|
 | `Pages/TeamDetailsPage.xaml` | Shared/Local checkboxes + labels visible; shared list, join, rejoin, create-shared restored; local sections default hidden until mode selected |
 | `Pages/TeamDetailsPage.xaml.cs` | Mode-aware `OnAppearing`; `UpdateCreateTeamSubSections` branches on Shared vs Local |
-| `AppShell.xaml` | Location tab no longer hard-hidden |
-| `AppShell.xaml.cs` | `ChatTab` and `LocationTab` visible only when `team_mode != local` |
+| `AppShell.xaml` | Details tab (was Location) no longer hard-hidden |
+| `AppShell.xaml.cs` | `ChatTab` and `DetailsTab` visible only when `team_mode != local` |
 | `Pages/HelpPage.xaml.cs` | Shared teams + view-only mode section |
 
 ### Phase 2 — Data path hardening
@@ -43,7 +43,7 @@ expanded local data (including goal scorer/assist in session events). Everything
 - [ ] Join as **member** on second device → view-only banner; no cloud roster writes
 - [ ] Shared admin play → second device sees roster/scores
 - [ ] Shared game end → session appears in cloud Reports with goals/assists
-- [ ] Chat + Location tabs only for shared mode
+- [ ] Chat + Details tabs only for shared mode
 - [ ] Airplane mode: local play still works; cloud fails soft
 
 ---

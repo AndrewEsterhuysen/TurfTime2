@@ -4,7 +4,7 @@
     {
         private const string TEAM_MODE_KEY = "team_mode";
         private const string TEAM_ID_KEY = "team_id";
-        private bool _forcingSettingsRoot;
+        private bool _forcingTabRoot;
 
         public static readonly string TeamDetailsRoute = "//SettingsPage/settings/teamdetails";
 
@@ -18,7 +18,11 @@
             Routing.RegisterRoute("settings/timers", typeof(TimersSettingsPage));
             Routing.RegisterRoute("settings/options", typeof(OptionsPage));
 
-            // Handle navigation to clear stacks when switching to Settings tab
+            // Register routes for navigation from Details page
+            Routing.RegisterRoute("details/location", typeof(SetupPage));
+            Routing.RegisterRoute("details/comingsoon", typeof(ComingSoonPage));
+
+            // Handle navigation to clear stacks when switching to Settings / Details tabs
             this.Navigated += OnShellNavigated;
         }
 
@@ -53,9 +57,9 @@
             System.Diagnostics.Debug.WriteLine($"[AppShell] Is Local: {isLocal}");
             System.Diagnostics.Debug.WriteLine($"[AppShell] Items.Count: {Items.Count}");
 
-            // Chat and Location require a shared (cloud) team.
+            // Chat and Details (Location / Kit / Duties / Nominations) require a shared (cloud) team.
             ChatTab.IsVisible = !isLocal;
-            LocationTab.IsVisible = !isLocal;
+            DetailsTab.IsVisible = !isLocal;
 
             GameTab.IsEnabled = hasTeam;
 
@@ -82,7 +86,7 @@
 
         private async void OnShellNavigated(object sender, ShellNavigatedEventArgs e)
         {
-            if (_forcingSettingsRoot)
+            if (_forcingTabRoot)
             {
                 return;
             }
@@ -92,21 +96,37 @@
                 e.Source == ShellNavigationSource.ShellItemChanged ||
                 e.Source == ShellNavigationSource.ShellSectionChanged ||
                 e.Source == ShellNavigationSource.ShellContentChanged;
-            bool settingsSelected = currentRoute.Contains("SettingsPage", StringComparison.OrdinalIgnoreCase);
-            bool isSettingsSubpage = currentRoute.Contains("settings/", StringComparison.OrdinalIgnoreCase);
 
-            // Always land on root Settings page when the Settings tab is selected.
-            if (switchedTabs && settingsSelected && isSettingsSubpage)
+            // Always land on root when switching back to a hub tab that has subpages.
+            if (switchedTabs)
             {
-                try
+                bool settingsSelected = currentRoute.Contains("SettingsPage", StringComparison.OrdinalIgnoreCase);
+                bool isSettingsSubpage = currentRoute.Contains("settings/", StringComparison.OrdinalIgnoreCase);
+                if (settingsSelected && isSettingsSubpage)
                 {
-                    _forcingSettingsRoot = true;
-                    await Shell.Current.GoToAsync("//SettingsPage");
+                    await ForceTabRootAsync("//SettingsPage");
+                    return;
                 }
-                finally
+
+                bool detailsSelected = currentRoute.Contains("DetailsPage", StringComparison.OrdinalIgnoreCase);
+                bool isDetailsSubpage = currentRoute.Contains("details/", StringComparison.OrdinalIgnoreCase);
+                if (detailsSelected && isDetailsSubpage)
                 {
-                    _forcingSettingsRoot = false;
+                    await ForceTabRootAsync("//DetailsPage");
                 }
+            }
+        }
+
+        private async Task ForceTabRootAsync(string absoluteRoute)
+        {
+            try
+            {
+                _forcingTabRoot = true;
+                await Shell.Current.GoToAsync(absoluteRoute);
+            }
+            finally
+            {
+                _forcingTabRoot = false;
             }
         }
     }

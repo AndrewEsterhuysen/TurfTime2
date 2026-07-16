@@ -205,6 +205,12 @@
 		<MauiXaml Update="TeamDetailsPage.xaml">
 		  <Generator>MSBuild:Compile</Generator>
 		</MauiXaml>
+		<MauiXaml Update="DetailsPage.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
+		<MauiXaml Update="ComingSoonPage.xaml">
+		  <Generator>MSBuild:Compile</Generator>
+		</MauiXaml>
 		<MauiXaml Update="TimersSettingsPage.xaml">
 		  <Generator>MSBuild:Compile</Generator>
 		</MauiXaml>

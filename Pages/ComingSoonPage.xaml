@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.ComingSoonPage"
+             Title="Coming soon">
+    <VerticalStackLayout VerticalOptions="Center"
+                         HorizontalOptions="Center"
+                         Padding="40"
+                         Spacing="12">
+        <Label Text="Coming soon…"
+               FontSize="22"
+               FontAttributes="Bold"
+               HorizontalOptions="Center"
+               HorizontalTextAlignment="Center"
+               TextColor="{AppThemeBinding Light=#333, Dark=#EEE}" />
+    </VerticalStackLayout>
+</ContentPage>

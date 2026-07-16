@@ -73,6 +73,7 @@ public partial class TeamDetailsPage : ContentPage
 	}
 
 	private bool _createTeamExpanded = false;
+	private bool _recoverAdminExpanded = false;
 
 	private void OnSharedCheckboxChanged(object sender, CheckedChangedEventArgs e)
 	{
@@ -83,6 +84,8 @@ public partial class TeamDetailsPage : ContentPage
 			JoinTeamSection.IsVisible = true;
 			RejoinAdminSection.IsVisible = true;
 			LocalTeamSection.IsVisible = false;
+			// Keep recovery form collapsed when Shared is (re)selected.
+			SetRecoverAdminExpanded(false);
 			_ = LoadSharedTeamsAsync();
 		}
 		else
@@ -101,6 +104,7 @@ public partial class TeamDetailsPage : ContentPage
 			SharedCheckbox.IsChecked = false;
 			LocalTeamSection.IsVisible = true;
 			JoinTeamSection.IsVisible = false;
+			RejoinAdminSection.IsVisible = false;
 			_ = LoadLocalTeamsAsync();
 		}
 		else
@@ -120,6 +124,19 @@ public partial class TeamDetailsPage : ContentPage
 		CreateTeamHint.IsVisible = !_createTeamExpanded;
 		if (_createTeamExpanded)
 			UpdateCreateTeamSubSections();
+	}
+
+	private void OnRecoverAdminHeaderTapped(object sender, EventArgs e)
+	{
+		SetRecoverAdminExpanded(!_recoverAdminExpanded);
+	}
+
+	private void SetRecoverAdminExpanded(bool expanded)
+	{
+		_recoverAdminExpanded = expanded;
+		RecoverAdminContent.IsVisible = expanded;
+		RecoverAdminToggleIcon.Text = expanded ? "▲" : "▼";
+		RecoverAdminHint.IsVisible = !expanded;
 	}
 
 	private void UpdateCreateTeamSubSections()

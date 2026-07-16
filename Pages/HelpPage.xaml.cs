@@ -213,7 +213,7 @@ public partial class HelpPage : ContentPage
     <h3>☁️ Shared (Cloud) Teams</h3>
     <ul>
         <li>Choose <strong>Shared</strong> on Team Details to create a cloud team, join with an invite code, or recover admin access on a new device.</li>
-        <li>Choose <strong>Local</strong> for device-only teams (no cloud sync). Chat and Location tabs appear only for shared teams.</li>
+        <li>Choose <strong>Local</strong> for device-only teams (no cloud sync). Chat and Details tabs appear only for shared teams.</li>
         <li>👁️ <strong>View-only mode:</strong> If you joined as a team member (not admin), the amber banner shows and controls are disabled — the team admin runs the game.</li>
         <li>Roster and scores sync for shared teams so members can follow the match on their devices.</li>
     </ul>
