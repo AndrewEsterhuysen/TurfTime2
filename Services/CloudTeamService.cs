@@ -63,37 +63,23 @@ public sealed class CloudTeamService : ICloudTeamService
                     ["players"] = new List<object>()
                 }, SetOptions.Merge()).ConfigureAwait(false);
 
-            // Primary join index lives UNDER teams/ so it uses the same security rules as
-            // other team docs (root invite_codes/ is often missing from rules → silent join breaks).
-            await UpsertInviteCodeLookupAsync(code, teamId, teamName, uid).ConfigureAwait(false);
-
-            try { await _db.WaitForPendingWritesAsync().ConfigureAwait(false); }
-            catch (Exception wex)
+            // Join indexes (invite_codes + optional public/invite). Never fail create if these fail —
+            // metadata.inviteCode is already written and join has multiple lookup strategies.
+            try
             {
-                System.Diagnostics.Debug.WriteLine($"[CloudTeam] WaitForPendingWrites: {wex.Message}");
+                await UpsertInviteCodeLookupAsync(code, teamId, teamName, uid).ConfigureAwait(false);
             }
-
-            // Verify: team metadata must be readable with the invite code we stored.
-            // Do NOT require root invite_codes/ to succeed — that collection is often denied by rules.
-            var metaSnap = await _db.GetDocument($"teams/{teamId}/metadata/info")
-                .GetDocumentSnapshotAsync<Dictionary<object, object>>(Source.Server)
-                .ConfigureAwait(false);
-            var metaCode = metaSnap?.Data != null ? ReadString(metaSnap.Data, "inviteCode") : "";
-            if (!string.Equals(metaCode, code, StringComparison.Ordinal))
+            catch (Exception invEx)
             {
                 System.Diagnostics.Debug.WriteLine(
-                    $"[CloudTeam] CreateTeam verify: metadata inviteCode='{metaCode}' expected='{code}'");
-                return "error: Team metadata could not be verified after create. Check network / Firestore rules for teams.";
+                    $"[CloudTeam] Invite index write non-fatal: {invEx.Message}");
             }
 
-            // Best-effort confirm reverse lookup works (non-fatal — join has multiple strategies).
-            var verified = await LookupInviteCodeAsync(code).ConfigureAwait(false);
-            if (verified is null || !string.Equals(verified.TeamId, teamId, StringComparison.Ordinal))
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CloudTeam] CreateTeam: reverse lookup not ready yet for {code} (team still created)");
-            }
-
+            // No post-create server re-read. Plugin.Firebase GetDocumentSnapshotAsync(Source.Server)
+            // often returns Data=null even after a successful SetDataAsync, which incorrectly failed
+            // create after the first SDK pass (that pass returned success after writes only).
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudTeam] CreateTeam OK team={teamId} invite={code} uid={uid[..Math.Min(8, uid.Length)]}…");
             return "success";
         }
         catch (Exception ex)
