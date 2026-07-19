@@ -65,6 +65,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     private string       _teamName      = string.Empty;
     private bool         _initialArrangementDone;
 
+    /// <summary>Live cloud roster listener (members) or poll backup.</summary>
+    private IDisposable? _rosterWatch;
+    private CancellationTokenSource? _memberPollCts;
+    private DateTimeOffset _lastAppliedCloudUtc = DateTimeOffset.MinValue;
+
     // ── Timer display properties (formatted strings for binding) ──────────
     private string _matchTimeDisplay    = "90 min";
     private string _countdownDisplay    = "15:00";
@@ -264,9 +269,12 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Load saved roster + timer state for the current team.</summary>
     public async Task InitialiseAsync(string teamId, string? userRole)
     {
+        StopCloudMirror();
+
         _currentTeamId = teamId;
         _userRole      = userRole;
         TeamName       = Preferences.Get("team_name", string.Empty);
+        _lastAppliedCloudUtc = DateTimeOffset.MinValue;
 
         // Always reset to a clean default roster before loading the new team's
         // snapshot. Without this, switching to a brand-new team (which has no
@@ -284,15 +292,87 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             _ = _logger.WarmUpAsync();
         }
 
-        var snapshot = await _cloud.LoadAsync(teamId).ConfigureAwait(false);
+        // Members always take cloud as source of truth (admin writes the shared roster).
+        var snapshot = await _cloud.LoadAsync(teamId, preferCloud: IsMember).ConfigureAwait(false);
         if (snapshot is not null)
             ApplySnapshot(snapshot);
 
-        RestoreStartConfigurationIfAvailable();
+        // Start-configuration is admin-local only (field/bench layout remembered on this device).
+        // Members must not re-apply empty local layout over the admin's cloud roster.
+        if (!IsMember)
+            RestoreStartConfigurationIfAvailable();
 
         OnPropertyChanged(nameof(IsMember));
         OnPropertyChanged(nameof(IsAdmin));
         UpdateStartButtonState();
+
+        // View-only devices follow the admin's cloud roster in near-real-time.
+        if (IsMember && !isLocal)
+            StartCloudMirror(teamId);
+    }
+
+    /// <summary>
+    /// Members: listen + poll <c>teams/{id}/roster/data</c> so Game mirrors admin config.
+    /// </summary>
+    private void StartCloudMirror(string teamId)
+    {
+        _rosterWatch = _cloud.WatchRoster(teamId, snap =>
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                if (!IsMember) return;
+                if (snap.LastModifiedUtc <= _lastAppliedCloudUtc) return;
+                ApplySnapshot(snap);
+            });
+        });
+
+        // Polling backup if snapshot listener is flaky or Data cast is empty.
+        _memberPollCts = new CancellationTokenSource();
+        var token = _memberPollCts.Token;
+        _ = Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+                    var snap = await _cloud.LoadAsync(teamId, preferCloud: true).ConfigureAwait(false);
+                    if (snap is null) continue;
+                    if (snap.LastModifiedUtc <= _lastAppliedCloudUtc
+                        && snap.Players.Count == 0) continue;
+
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        if (!IsMember) return;
+                        // Always apply when cloud has positioned players and we still don't.
+                        var havePositions = Players.Any(p =>
+                            p.Position is PlayerPosition.Field or PlayerPosition.Bench
+                                or PlayerPosition.Goalie or PlayerPosition.Inactive);
+                        if (snap.LastModifiedUtc > _lastAppliedCloudUtc
+                            || (!havePositions && snap.Players.Any(p =>
+                                    p.Field || p.Bench || p.Goalie || p.Inactive)))
+                        {
+                            ApplySnapshot(snap);
+                        }
+                    });
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[GameViewModel] Member poll: {ex.Message}");
+                }
+            }
+        }, token);
+    }
+
+    private void StopCloudMirror()
+    {
+        try { _rosterWatch?.Dispose(); } catch { /* ignore */ }
+        _rosterWatch = null;
+        try { _memberPollCts?.Cancel(); } catch { /* ignore */ }
+        try { _memberPollCts?.Dispose(); } catch { /* ignore */ }
+        _memberPollCts = null;
     }
 
     private void ResetToDefaultRoster()
@@ -971,6 +1051,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     private void ApplySnapshot(RosterSnapshot s)
     {
+        if (s.Players.Count == 0 && s.LastModifiedUtc <= _lastAppliedCloudUtc)
+            return;
+
         _timer.MatchDurationSeconds   = s.MatchDurationSeconds > 0 ? s.MatchDurationSeconds : 90 * 60;
         _timer.CountdownPresetSeconds = s.CountdownPresetSeconds;
         // Keep the explicit Preferences key in sync so the constructor's
@@ -983,25 +1066,83 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                          ? TeamViewMode.Rotation
                          : TeamViewMode.Swipeable;
 
-        for (int i = 0; i < Math.Min(s.Players.Count, Players.Count); i++)
+        if (s.Players.Count > 0)
         {
-            var ps = s.Players[i];
-            var p  = Players[i];
-            p.SlotId       = ps.SlotId > 0 ? ps.SlotId : i + 1;
-            p.Name         = ps.Name;
-            p.FieldSeconds = ps.CounterSeconds;
-            p.Position = ps.Field    ? PlayerPosition.Field
-                       : ps.Bench   ? PlayerPosition.Bench
-                       : ps.Goalie  ? PlayerPosition.Goalie
-                       : ps.Inactive ? PlayerPosition.Inactive
-                       : PlayerPosition.None;
+            // Prefer match by SlotId so reordering on admin is mirrored correctly.
+            var bySlot = s.Players
+                .Where(p => p.SlotId > 0)
+                .GroupBy(p => p.SlotId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            if (bySlot.Count > 0)
+            {
+                // Rebuild player list in cloud order when member is following admin.
+                if (IsMember || s.Players.Count != Players.Count)
+                {
+                    Players.Clear();
+                    foreach (var ps in s.Players)
+                    {
+                        Players.Add(new Player
+                        {
+                            SlotId = ps.SlotId > 0 ? ps.SlotId : Players.Count + 1,
+                            Name = string.IsNullOrWhiteSpace(ps.Name) ? $"Player {Players.Count + 1}" : ps.Name,
+                            FieldSeconds = ps.CounterSeconds,
+                            Position = ps.Field ? PlayerPosition.Field
+                                     : ps.Bench ? PlayerPosition.Bench
+                                     : ps.Goalie ? PlayerPosition.Goalie
+                                     : ps.Inactive ? PlayerPosition.Inactive
+                                     : PlayerPosition.None
+                        });
+                    }
+                }
+                else
+                {
+                    for (int i = 0; i < Players.Count; i++)
+                    {
+                        var p = Players[i];
+                        if (!bySlot.TryGetValue(p.SlotId, out var ps)
+                            && i < s.Players.Count)
+                            ps = s.Players[i];
+                        if (ps is null) continue;
+                        p.SlotId = ps.SlotId > 0 ? ps.SlotId : p.SlotId;
+                        p.Name = string.IsNullOrWhiteSpace(ps.Name) ? p.Name : ps.Name;
+                        p.FieldSeconds = ps.CounterSeconds;
+                        p.Position = ps.Field ? PlayerPosition.Field
+                                   : ps.Bench ? PlayerPosition.Bench
+                                   : ps.Goalie ? PlayerPosition.Goalie
+                                   : ps.Inactive ? PlayerPosition.Inactive
+                                   : PlayerPosition.None;
+                    }
+                }
+            }
+            else
+            {
+                for (int i = 0; i < Math.Min(s.Players.Count, Players.Count); i++)
+                {
+                    var ps = s.Players[i];
+                    var p  = Players[i];
+                    p.SlotId       = ps.SlotId > 0 ? ps.SlotId : i + 1;
+                    p.Name         = ps.Name;
+                    p.FieldSeconds = ps.CounterSeconds;
+                    p.Position = ps.Field    ? PlayerPosition.Field
+                               : ps.Bench   ? PlayerPosition.Bench
+                               : ps.Goalie  ? PlayerPosition.Goalie
+                               : ps.Inactive ? PlayerPosition.Inactive
+                               : PlayerPosition.None;
+                }
+            }
         }
+
+        if (s.LastModifiedUtc > _lastAppliedCloudUtc)
+            _lastAppliedCloudUtc = s.LastModifiedUtc;
 
         UpdateTimerDisplays();
         MarkNextPlayers();
         RefreshRotationPairs();
         RefreshDisplayItems();
         UpdateStartButtonState();
+        OnPropertyChanged(nameof(ActivePlayerCount));
+        OnPropertyChanged(nameof(InactivePlayerCount));
     }
 
     private void SaveStartConfiguration()
@@ -1109,7 +1250,22 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         StartButtonText = "Pause";
         UpdateTimerLabelText();
         OnPropertyChanged(nameof(ScoresVisible));
-        _ = AutoSaveAsync();
+        // Immediate cloud push so view-only members see field/bench layout without waiting for debounce.
+        _ = ForceCloudSaveAsync();
+    }
+
+    private async Task ForceCloudSaveAsync()
+    {
+        try
+        {
+            if (!IsAdmin || string.IsNullOrWhiteSpace(_currentTeamId)) return;
+            var snapshot = ToSnapshot();
+            await _cloud.ForceSyncAsync(_currentTeamId, snapshot).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GameViewModel] ForceCloudSave failed: {ex.Message}");
+        }
     }
 
     private void PauseGame()
@@ -1662,6 +1818,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        StopCloudMirror();
         _timer.MatchTickOccurred     -= OnMatchTick;
         _timer.CountdownTickOccurred -= OnCountdownTick;
         _timer.RotationDue           -= OnRotationDue;

@@ -1295,9 +1295,17 @@ private void RegisterTeamId(string teamId)
 				var teamId = parts[1];
 				try
 				{
-					var rosterData = await DownloadRosterFromFirestore(teamId);
-					if (rosterData != null)
-						Preferences.Set($"roster_{teamId}_json", rosterData);
+					// Seed the canonical local key used by ICloudRosterService / GameViewModel.
+					var services = Application.Current?.Handler?.MauiContext?.Services;
+					var rosterSvc = services?.GetService<Services.ICloudRosterService>();
+					if (rosterSvc is not null)
+					{
+						var snap = await rosterSvc.LoadAsync(teamId, preferCloud: true);
+						System.Diagnostics.Debug.WriteLine(
+							snap is null
+								? $"[TeamDetails] No cloud roster yet for {teamId} (admin may not have configured)"
+								: $"[TeamDetails] Seeded local roster for {teamId}: {snap.Players.Count} players");
+					}
 				}
 				catch (Exception ex)
 				{
