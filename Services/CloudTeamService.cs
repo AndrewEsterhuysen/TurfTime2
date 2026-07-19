@@ -34,7 +34,10 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            var code = inviteCode.Trim().ToUpperInvariant();
+            var code = NormalizeInviteCode(inviteCode);
+            if (string.IsNullOrEmpty(code))
+                return "error: Invalid invite code.";
+
             await _db.GetDocument($"teams/{teamId}/metadata/info")
                 .SetDataAsync(new Dictionary<object, object>
                 {
@@ -60,19 +63,16 @@ public sealed class CloudTeamService : ICloudTeamService
                     ["players"] = new List<object>()
                 }, SetOptions.Merge()).ConfigureAwait(false);
 
-            try
+            // Required for join-by-code. Previously non-fatal, which left teams unjoinable.
+            await UpsertInviteCodeLookupAsync(code, teamId, teamName, uid).ConfigureAwait(false);
+
+            // Verify the lookup is readable before reporting success.
+            var verified = await LookupInviteCodeAsync(code).ConfigureAwait(false);
+            if (verified is null || !string.Equals(verified.TeamId, teamId, StringComparison.Ordinal))
             {
-                await _db.GetDocument($"invite_codes/{code}")
-                    .SetDataAsync(new Dictionary<object, object>
-                    {
-                        ["teamId"] = teamId,
-                        ["teamName"] = teamName,
-                        ["createdBy"] = uid
-                    }, SetOptions.Merge()).ConfigureAwait(false);
-            }
-            catch (Exception invEx)
-            {
-                System.Diagnostics.Debug.WriteLine($"[CloudTeam] invite lookup non-fatal: {invEx.Message}");
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudTeam] CreateTeam: invite lookup verify failed for code={code} team={teamId}");
+                return "error: Team was created but invite code could not be registered for joining. Check Firestore rules for invite_codes.";
             }
 
             return "success";
@@ -89,29 +89,139 @@ public sealed class CloudTeamService : ICloudTeamService
         if (string.IsNullOrWhiteSpace(inviteCode)) return null;
         if (await _auth.EnsureSignedInAsync().ConfigureAwait(false) is null) return null;
 
+        var code = NormalizeInviteCode(inviteCode);
+        if (string.IsNullOrEmpty(code)) return null;
+
+        // 1) Fast path: invite_codes/{CODE} lookup document
         try
         {
-            var code = inviteCode.Trim().ToUpperInvariant();
-            var snap = await _db.GetDocument($"invite_codes/{code}")
-                .GetDocumentSnapshotAsync<Dictionary<object, object>>()
-                .ConfigureAwait(false);
-            var data = snap?.Data;
-            if (data is null) return null;
-
-            var teamId = ReadString(data, "teamId");
-            if (string.IsNullOrEmpty(teamId)) return null;
-
-            return new CloudTeamLookup
+            foreach (var docId in InviteCodeDocumentIds(code))
             {
-                TeamId = teamId,
-                TeamName = ReadString(data, "teamName")
-            };
+                var snap = await _db.GetDocument($"invite_codes/{docId}")
+                    .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                    .ConfigureAwait(false);
+                var data = snap?.Data;
+                if (data is null) continue;
+
+                var teamId = ReadString(data, "teamId");
+                if (string.IsNullOrEmpty(teamId)) continue;
+
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup hit invite_codes/{docId} → {teamId}");
+                return new CloudTeamLookup
+                {
+                    TeamId = teamId,
+                    TeamName = ReadString(data, "teamName")
+                };
+            }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CloudTeam] LookupInvite: {ex.Message}");
-            return null;
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] LookupInvite doc path: {ex.Message}");
         }
+
+        // 2) Fallback: collection-group query on metadata.inviteCode
+        //    (covers teams created when invite_codes write failed or was blocked by rules)
+        try
+        {
+            var querySnap = await _db.GetCollectionGroup("metadata")
+                .WhereEqualsTo("inviteCode", code)
+                .LimitedTo(5)
+                .GetDocumentsAsync<Dictionary<object, object>>()
+                .ConfigureAwait(false);
+
+            if (querySnap?.Documents != null)
+            {
+                foreach (var doc in querySnap.Documents)
+                {
+                    var data = doc.Data;
+                    if (data is null) continue;
+                    // Path: teams/{teamId}/metadata/info
+                    var teamId = doc.Reference?.Parent?.Parent?.Id;
+                    if (string.IsNullOrEmpty(teamId)) continue;
+                    var teamName = ReadString(data, "teamName");
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CloudTeam] Lookup hit metadata inviteCode={code} → {teamId}");
+
+                    // Heal the missing invite_codes doc for next join.
+                    try
+                    {
+                        var uid = _auth.UserId ?? "";
+                        await UpsertInviteCodeLookupAsync(code, teamId, teamName, uid).ConfigureAwait(false);
+                    }
+                    catch (Exception healEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[CloudTeam] heal invite_codes: {healEx.Message}");
+                    }
+
+                    return new CloudTeamLookup { TeamId = teamId, TeamName = teamName };
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] LookupInvite collectionGroup: {ex.Message}");
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup miss for invite code '{code}'");
+        return null;
+    }
+
+    /// <summary>
+    /// Writes invite_codes docs used for O(1) join. Uses both dashed and undashed ids
+    /// so clients that strip punctuation still resolve.
+    /// </summary>
+    private async Task UpsertInviteCodeLookupAsync(string code, string teamId, string teamName, string createdBy)
+    {
+        var payload = new Dictionary<object, object>
+        {
+            ["teamId"] = teamId,
+            ["teamName"] = teamName ?? "",
+            ["inviteCode"] = code,
+            ["createdBy"] = createdBy ?? ""
+        };
+
+        Exception? last = null;
+        var wrote = false;
+        foreach (var docId in InviteCodeDocumentIds(code))
+        {
+            try
+            {
+                await _db.GetDocument($"invite_codes/{docId}")
+                    .SetDataAsync(payload, SetOptions.Merge())
+                    .ConfigureAwait(false);
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] Upserted invite_codes/{docId}");
+                wrote = true;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] Upsert invite_codes/{docId} failed: {ex.Message}");
+            }
+        }
+
+        if (!wrote && last != null)
+            throw last;
+    }
+
+    /// <summary>Normalized invite codes: uppercase, keep alphanumerics and single dash form.</summary>
+    internal static string NormalizeInviteCode(string? inviteCode)
+    {
+        if (string.IsNullOrWhiteSpace(inviteCode)) return "";
+        // Uppercase, strip spaces; preserve hyphens used in display codes (TQAQ-TN2K).
+        var raw = inviteCode.Trim().ToUpperInvariant().Replace(" ", "", StringComparison.Ordinal);
+        // Collapse multiple hyphens / surrounding junk
+        var chars = raw.Where(c => char.IsLetterOrDigit(c) || c == '-').ToArray();
+        return new string(chars);
+    }
+
+    /// <summary>Document id variants to write/read for an invite code.</summary>
+    private static IEnumerable<string> InviteCodeDocumentIds(string normalizedCode)
+    {
+        yield return normalizedCode;
+        var compact = new string(normalizedCode.Where(char.IsLetterOrDigit).ToArray());
+        if (!string.IsNullOrEmpty(compact) &&
+            !string.Equals(compact, normalizedCode, StringComparison.Ordinal))
+            yield return compact;
     }
 
     public async Task<string> JoinByInviteCodeAsync(string inviteCode, string displayName)
@@ -247,36 +357,64 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            var code = newCode.Trim().ToUpperInvariant();
+            var code = NormalizeInviteCode(newCode);
+            if (string.IsNullOrEmpty(code)) return false;
+
             await _db.GetDocument($"teams/{teamId}/metadata/info")
                 .SetDataAsync(new Dictionary<object, object>
                 {
                     ["inviteCode"] = code
                 }, SetOptions.Merge()).ConfigureAwait(false);
 
-            if (!string.IsNullOrEmpty(oldCode))
+            var oldNorm = NormalizeInviteCode(oldCode);
+            if (!string.IsNullOrEmpty(oldNorm))
             {
-                try
+                foreach (var docId in InviteCodeDocumentIds(oldNorm))
                 {
-                    await _db.GetDocument($"invite_codes/{oldCode.Trim().ToUpperInvariant()}")
-                        .DeleteDocumentAsync().ConfigureAwait(false);
+                    try
+                    {
+                        await _db.GetDocument($"invite_codes/{docId}").DeleteDocumentAsync().ConfigureAwait(false);
+                    }
+                    catch { /* non-fatal */ }
                 }
-                catch { /* non-fatal */ }
             }
 
-            await _db.GetDocument($"invite_codes/{code}")
-                .SetDataAsync(new Dictionary<object, object>
-                {
-                    ["teamId"] = teamId,
-                    ["teamName"] = teamName,
-                    ["createdBy"] = uid
-                }, SetOptions.Merge()).ConfigureAwait(false);
-
+            await UpsertInviteCodeLookupAsync(code, teamId, teamName, uid).ConfigureAwait(false);
             return true;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] UpdateInvite: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Re-publishes invite_codes/{code} for an existing team (self-heal for teams created
+    /// before invite lookup writes were required).
+    /// </summary>
+    public async Task<bool> EnsureInviteCodePublishedAsync(string teamId, string inviteCode, string teamName)
+    {
+        var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
+        if (uid is null) return false;
+        var code = NormalizeInviteCode(inviteCode);
+        if (string.IsNullOrEmpty(code) || string.IsNullOrWhiteSpace(teamId)) return false;
+
+        try
+        {
+            await UpsertInviteCodeLookupAsync(code, teamId, teamName ?? "", uid).ConfigureAwait(false);
+            // Keep metadata.inviteCode aligned for collection-group fallback.
+            await _db.GetDocument($"teams/{teamId}/metadata/info")
+                .SetDataAsync(new Dictionary<object, object>
+                {
+                    ["inviteCode"] = code,
+                    ["teamName"] = teamName ?? ""
+                }, SetOptions.Merge()).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] EnsureInviteCodePublished: {ex.Message}");
             return false;
         }
     }

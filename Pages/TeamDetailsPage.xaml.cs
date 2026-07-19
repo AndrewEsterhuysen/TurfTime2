@@ -1637,6 +1637,29 @@ private void RegisterTeamId(string teamId)
 		{
 			var inviteCode = Preferences.Get($"{teamId}_invite_code", "N/A");
 			InviteCodeDisplay.Text = inviteCode;
+
+			// Self-heal: ensure invite_codes/{code} exists in Firestore so other devices can join.
+			// Teams created when that write failed silently cannot be joined until this runs.
+			if (!string.IsNullOrEmpty(inviteCode) && inviteCode != "N/A")
+			{
+				var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
+				_ = Task.Run(async () =>
+				{
+					try
+					{
+						var cloud = ResolveCloudTeam();
+						if (cloud is null) return;
+						var ok = await cloud.EnsureInviteCodePublishedAsync(teamId, inviteCode, teamName);
+						System.Diagnostics.Debug.WriteLine(
+							ok ? $"[TeamDetails] Invite code published for join: {inviteCode}"
+							   : $"[TeamDetails] Invite code publish failed: {inviteCode}");
+					}
+					catch (Exception ex)
+					{
+						System.Diagnostics.Debug.WriteLine($"[TeamDetails] Invite publish: {ex.Message}");
+					}
+				});
+			}
 		}
 	}
 

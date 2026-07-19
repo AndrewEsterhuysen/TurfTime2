@@ -29,6 +29,11 @@ public interface ICloudTeamService
 
     Task<bool> UpdateInviteCodeAsync(string teamId, string oldCode, string newCode, string teamName);
 
+    /// <summary>
+    /// Ensures invite_codes lookup docs exist for a team (self-heal after failed create writes).
+    /// </summary>
+    Task<bool> EnsureInviteCodePublishedAsync(string teamId, string inviteCode, string teamName);
+
     /// <summary>Calls Cloud Function requestAdminCodeEmail. Returns success:teamName, not_found, or error:…</summary>
     Task<string> RequestAdminCodeEmailAsync(string teamId);
 }
