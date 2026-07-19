@@ -25,6 +25,28 @@
                            Text="Mode: Not configured"
                            FontSize="12"
                            TextColor="{AppThemeBinding Light=#999, Dark=#888}"/>
+
+                    <!-- Chat / member display name (shared teams only) -->
+                    <StackLayout x:Name="DisplayNameSection"
+                                 IsVisible="False"
+                                 Spacing="6"
+                                 Margin="0,12,0,0">
+                        <Label Text="Your chat display name"
+                               FontAttributes="Bold"
+                               FontSize="13"/>
+                        <Label Text="Teammates see this name in Chat and push notifications."
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                        <Entry x:Name="CurrentDisplayNameEntry"
+                               Placeholder="e.g. Alex or Coach Sam"
+                               MaxLength="40"/>
+                        <Button x:Name="SaveDisplayNameButton"
+                                Text="Save Display Name"
+                                Clicked="OnSaveDisplayNameClicked"
+                                BackgroundColor="#9C27B0"
+                                TextColor="White"/>
+                    </StackLayout>
+
                     <HorizontalStackLayout Spacing="10" Margin="0,10,0,0">
                         <Button x:Name="ShareTeamButton"
                                 Text="Share Team (QR)"
@@ -242,6 +264,13 @@
                     <Entry x:Name="InviteCodeEntry"
                            Placeholder="Enter invite code (e.g. ABCD-EFGH)"
                            MaxLength="20"/>
+                    <Label Text="Your display name (shown in Chat)"
+                           FontSize="12"
+                           TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"
+                           Margin="0,6,0,0"/>
+                    <Entry x:Name="JoinDisplayNameEntry"
+                           Placeholder="e.g. Alex or Coach Sam"
+                           MaxLength="40"/>
                     <Button Text="Join as Member"
                             Clicked="OnJoinTeamClicked"
                             BackgroundColor="#2196F3"
@@ -306,6 +335,13 @@
                             <Entry x:Name="NicknameEntry"
                                    Placeholder="Team nickname (e.g., Socceroos)"
                                    TextChanged="OnNicknameChanged"/>
+                            <Label Text="Your display name (shown in Chat)"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"
+                                   Margin="0,5,0,0"/>
+                            <Entry x:Name="CreateDisplayNameEntry"
+                                   Placeholder="e.g. Alex or Coach Sam"
+                                   MaxLength="40"/>
                             <Label Text="Your Email Address" FontSize="12" TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" Margin="0,5,0,0"/>
                             <Label Text="Used to send you the Admin Recovery Code as a backup. Stored securely in the cloud."
                                    FontSize="11"
@@ -400,6 +436,9 @@
                         <Entry x:Name="AdminRejoinCodeEntry"
                                Placeholder="Admin Recovery Code (e.g. ABCD-EFGH-IJKL-MNPQ)"
                                MaxLength="24"/>
+                        <Entry x:Name="AdminRejoinDisplayNameEntry"
+                               Placeholder="Your display name (shown in Chat)"
+                               MaxLength="40"/>
                         <Button x:Name="RejoinAsAdminButton"
                                 Text="Restore Admin Access"
                                 Clicked="OnRejoinAsAdminClicked"

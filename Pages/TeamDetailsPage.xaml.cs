@@ -1,5 +1,6 @@
 using System.Text;
 using System.Collections.ObjectModel;
+using TurfTime2.Helpers;
 using TurfTime2.Models;
 using TurfTime2.Services;
 
@@ -43,6 +44,18 @@ public partial class TeamDetailsPage : ContentPage
 		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
 		var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
 		var userRole = Preferences.Get(USER_ROLE_KEY, string.Empty);
+		var savedDisplayName = UserDisplayName.Get();
+
+		// Prefill join/create/rejoin fields when the user already has a name
+		if (!string.IsNullOrEmpty(savedDisplayName))
+		{
+			if (string.IsNullOrWhiteSpace(JoinDisplayNameEntry.Text))
+				JoinDisplayNameEntry.Text = savedDisplayName;
+			if (string.IsNullOrWhiteSpace(CreateDisplayNameEntry.Text))
+				CreateDisplayNameEntry.Text = savedDisplayName;
+			if (string.IsNullOrWhiteSpace(AdminRejoinDisplayNameEntry.Text))
+				AdminRejoinDisplayNameEntry.Text = savedDisplayName;
+		}
 
 		if (string.IsNullOrEmpty(teamMode))
 		{
@@ -50,6 +63,7 @@ public partial class TeamDetailsPage : ContentPage
 			TeamModeLabel.Text = "Mode: Not configured";
 			AdminPanel.IsVisible = false;
 			LeaveTeamButton.IsVisible = false;
+			DisplayNameSection.IsVisible = false;
 		}
 		else
 		{
@@ -69,6 +83,54 @@ public partial class TeamDetailsPage : ContentPage
 			// Only show Leave Team button for shared mode (makes sense to leave a cloud team)
 			// For local mode, just switch to another team instead
 			LeaveTeamButton.IsVisible = teamMode == "shared";
+
+			// Display name is a cloud-team identity (chat + member profile)
+			DisplayNameSection.IsVisible = teamMode == "shared";
+			CurrentDisplayNameEntry.Text = savedDisplayName;
+		}
+	}
+
+	private async void OnSaveDisplayNameClicked(object sender, EventArgs e)
+	{
+		if (!UserDisplayName.TryValidate(CurrentDisplayNameEntry.Text, out var displayName, out var error))
+		{
+			await DisplayAlert("Display Name", error, "OK");
+			return;
+		}
+
+		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		if (teamMode != "shared" || string.IsNullOrEmpty(teamId))
+		{
+			await DisplayAlert("No Shared Team", "Select a shared team first.", "OK");
+			return;
+		}
+
+		SaveDisplayNameButton.IsEnabled = false;
+		try
+		{
+			UserDisplayName.Set(displayName);
+			CurrentDisplayNameEntry.Text = displayName;
+
+			var cloudResult = await UpdateMemberDisplayNameInFirestore(teamId, displayName);
+			if (cloudResult != "success")
+			{
+				// Local name still saved so chat can stamp messages; cloud sync can retry later
+				await DisplayAlert("Saved Locally",
+					$"Your name is set on this device, but the cloud update failed:\n{cloudResult}\n\nChat will still use this name on new messages.",
+					"OK");
+				return;
+			}
+
+			await DisplayAlert("Saved", "Your display name was updated for this team.", "OK");
+		}
+		catch (Exception ex)
+		{
+			await DisplayAlert("Error", $"Failed to save display name: {ex.Message}", "OK");
+		}
+		finally
+		{
+			SaveDisplayNameButton.IsEnabled = true;
 		}
 	}
 
@@ -962,6 +1024,12 @@ public partial class TeamDetailsPage : ContentPage
 			return;
 		}
 
+		if (!UserDisplayName.TryValidate(CreateDisplayNameEntry.Text, out var displayName, out var nameError))
+		{
+			await DisplayAlert("Display Name Required", nameError, "OK");
+			return;
+		}
+
 		// Show loading state
 		CreateSharedTeamButton.IsEnabled = false;
 		CreateTeamLoadingSection.IsVisible = true;
@@ -973,7 +1041,7 @@ public partial class TeamDetailsPage : ContentPage
 			var adminCode = GenerateAdminCode();
 			var adminCodeHash = HashAdminCode(adminCode);
 			var creatorEmail = CreatorEmailEntry.Text?.Trim() ?? string.Empty;
-			var result = await CreateTeamInFirestore(teamId, teamName, inviteCode, adminCodeHash, creatorEmail);
+			var result = await CreateTeamInFirestore(teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
 
 				if (result == "success")
 				{
@@ -981,6 +1049,7 @@ public partial class TeamDetailsPage : ContentPage
 					Preferences.Set($"{teamId}_invite_code", inviteCode);
 					Preferences.Set($"{teamId}_name", teamName);
 					RegisterTeamId(teamId);
+					UserDisplayName.Set(displayName);
 
 					// Set as current team
 						Preferences.Set(TEAM_MODE_KEY, "shared");
@@ -1000,6 +1069,7 @@ public partial class TeamDetailsPage : ContentPage
 						await DisplayAlert("Team Created!",
 							$"Team: {teamName}\n\n" +
 							$"Team ID: {teamId}\n\n" +
+							$"Your chat name: {displayName}\n\n" +
 							$"Invite Code (members): {inviteCode}\n\n" +
 							$"⚠️ ADMIN RECOVERY CODE:\n{adminCode}\n\n" +
 							"Save this admin code in a secure location outside this device (e.g. a password manager). " +
@@ -1016,6 +1086,7 @@ public partial class TeamDetailsPage : ContentPage
 					TeamEntry.Text = string.Empty;
 					NicknameEntry.Text = string.Empty;
 					CreatorEmailEntry.Text = string.Empty;
+					// Keep CreateDisplayNameEntry — useful if they create another team
 			}
 			else
 			{
@@ -1117,7 +1188,7 @@ return false;
 }
 }
 
-private async Task<string> CreateTeamInFirestore(string teamId, string teamName, string inviteCode, string adminCodeHash, string creatorEmail)
+private async Task<string> CreateTeamInFirestore(string teamId, string teamName, string inviteCode, string adminCodeHash, string creatorEmail, string displayName)
 {
 System.Diagnostics.Debug.WriteLine($"[TeamDetails] CreateTeamInFirestore called for team: {teamName}");
 
@@ -1154,14 +1225,14 @@ return $"error: {err}";
 }
 System.Diagnostics.Debug.WriteLine("[Firebase] Team metadata created");
 
-// 2. Add creator as admin member
+// 2. Add creator as admin member (displayName is the chat identity)
 var memberUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
 var memberBody = System.Text.Json.JsonSerializer.Serialize(new
 {
 fields = new
 {
 role = new { stringValue = "admin" },
-displayName = new { stringValue = "Admin" }
+displayName = new { stringValue = displayName }
 }
 });
 await _httpClient.PostAsync(memberUrl,
@@ -1243,8 +1314,14 @@ private void RegisterTeamId(string teamId)
 				return;
 			}
 
+			if (!UserDisplayName.TryValidate(JoinDisplayNameEntry.Text, out var displayName, out var nameError))
+			{
+				await DisplayAlert("Display Name Required", nameError, "OK");
+				return;
+			}
+
 			// Try to join team via Firestore first
-			var result = await JoinTeamInFirestore(inviteCode);
+			var result = await JoinTeamInFirestore(inviteCode, displayName);
 
 			if (result.StartsWith("success:"))
 			{
@@ -1262,6 +1339,7 @@ private void RegisterTeamId(string teamId)
 					Preferences.Set(USER_ROLE_KEY, "member");
 					Preferences.Set($"{teamId}_role", "member");
 					Preferences.Set($"{teamId}_name", teamName);
+					UserDisplayName.Set(displayName);
 
 					// ALSO store per-team keys for GamePage polling
 					Preferences.Set($"team_mode_{teamId}", "shared");
@@ -1271,7 +1349,8 @@ private void RegisterTeamId(string teamId)
 
 					await DisplayAlert("Joined Team!", 
 							$"Successfully joined: {teamName}\n\n" +
-							$"Role: Member\n\n" +
+							$"Role: Member\n" +
+							$"Chat name: {displayName}\n\n" +
 							"You can now collaborate with your team.", 
 							"OK");
 
@@ -1287,11 +1366,17 @@ private void RegisterTeamId(string teamId)
 				var parts = result.Split(':', 3);
 				if (parts.Length >= 3)
 				{
+					// Still persist local name and refresh member profile for this device
+					UserDisplayName.Set(displayName);
+					var existingTeamId = parts[1];
+					_ = UpdateMemberDisplayNameInFirestore(existingTeamId, displayName);
+
 					var teamName = parts[2];
 					await DisplayAlert("Already a Member", 
-						$"You are already a member of '{teamName}'.", 
+						$"You are already a member of '{teamName}'. Your display name was updated.", 
 						"OK");
 					InviteCodeEntry.Text = string.Empty;
+					LoadCurrentTeam();
 					return;
 				}
 			}
@@ -1360,9 +1445,15 @@ private void RegisterTeamId(string teamId)
 						return;
 					}
 
+					if (!UserDisplayName.TryValidate(AdminRejoinDisplayNameEntry.Text, out var displayName, out var nameError))
+					{
+						await DisplayAlert("Display Name Required", nameError, "OK");
+						return;
+					}
+
 					RejoinAsAdminButton.IsEnabled = false;
 
-					var result = await RejoinAsAdminInFirestore(teamId, adminCode);
+					var result = await RejoinAsAdminInFirestore(teamId, adminCode, displayName);
 
 					if (result.StartsWith("success:"))
 					{
@@ -1378,10 +1469,12 @@ private void RegisterTeamId(string teamId)
 						Preferences.Set($"team_mode_{restoredTeamId}", "shared");
 						Preferences.Set($"user_role_{restoredTeamId}", "admin");
 						Preferences.Set($"{restoredTeamId}_name", restoredTeamName);
+						UserDisplayName.Set(displayName);
 						RegisterTeamId(restoredTeamId);
 
 						await DisplayAlert("Admin Access Restored",
 							$"You have rejoined '{restoredTeamName}' as Admin.\n\n" +
+							$"Chat name: {displayName}\n\n" +
 							"Your team data is intact in the cloud.",
 							"OK");
 
@@ -1457,7 +1550,7 @@ private void RegisterTeamId(string teamId)
 					}
 				}
 
-				private async Task<string> JoinTeamInFirestore(string inviteCode)
+				private async Task<string> JoinTeamInFirestore(string inviteCode, string displayName)
 			{
 				System.Diagnostics.Debug.WriteLine($"[TeamDetails] JoinTeamInFirestore - invite code: {inviteCode}");
 
@@ -1514,7 +1607,7 @@ private void RegisterTeamId(string teamId)
 				return $"already_member:{teamId}:{teamName}";
 			}
 
-			// 4. Add self as member
+			// 4. Add self as member (displayName is the chat identity)
 			var addMemberUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
 			var addMemberBody = System.Text.Json.JsonSerializer.Serialize(new
 			{
@@ -1522,7 +1615,7 @@ private void RegisterTeamId(string teamId)
 				{
 					role = new { stringValue = "member" },
 					joinedAt = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") },
-					displayName = new { stringValue = "Member" }
+					displayName = new { stringValue = displayName }
 				}
 			});
 
@@ -1685,7 +1778,7 @@ private void RegisterTeamId(string teamId)
 	}
 	/// Returns "success:teamId:teamName" on success, or an "error:..." string on failure.
 	/// </summary>
-	private async Task<string> RejoinAsAdminInFirestore(string teamId, string adminCode)
+	private async Task<string> RejoinAsAdminInFirestore(string teamId, string adminCode, string displayName)
 	{
 		System.Diagnostics.Debug.WriteLine($"[TeamDetails] RejoinAsAdminInFirestore - team: {teamId}");
 
@@ -1730,14 +1823,14 @@ private void RegisterTeamId(string teamId)
 			if (!string.Equals(suppliedHash, storedHash, StringComparison.OrdinalIgnoreCase))
 				return "error: Invalid admin code. Please check the code and try again.";
 
-			// 3. Upsert member document with admin role
+			// 3. Upsert member document with admin role + chat display name
 			var memberUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
 			var memberBody = System.Text.Json.JsonSerializer.Serialize(new
 			{
 				fields = new
 				{
 					role = new { stringValue = "admin" },
-					displayName = new { stringValue = "Admin" },
+					displayName = new { stringValue = displayName },
 					rejoinedAt = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") }
 				}
 			});
@@ -1756,6 +1849,80 @@ private void RegisterTeamId(string teamId)
 		catch (Exception ex)
 		{
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] RejoinAsAdminInFirestore error: {ex.Message}");
+			return $"error: {ex.Message}";
+		}
+	}
+
+	/// <summary>
+	/// Updates (or creates) the current user's member.displayName for a shared team.
+	/// Uses PATCH + updateMask so FCM tokens and role are not wiped.
+	/// </summary>
+	private async Task<string> UpdateMemberDisplayNameInFirestore(string teamId, string displayName)
+	{
+		if (string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(displayName))
+			return "error: Missing team or display name.";
+
+		if (!await EnsureFirebaseAuthAsync())
+			return "error: Could not authenticate with Firebase. Please check your internet connection.";
+
+		try
+		{
+			var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
+			_httpClient.DefaultRequestHeaders.Authorization =
+				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
+
+			var memberPath = $"{baseUrl}/teams/{teamId}/members/{_firebaseUserId}";
+			var getResponse = await _httpClient.GetAsync(memberPath);
+
+			if (getResponse.IsSuccessStatusCode)
+			{
+				// Patch only displayName so fcmTokens/role remain intact
+				var patchUrl = $"{memberPath}?updateMask.fieldPaths=displayName";
+				var patchBody = System.Text.Json.JsonSerializer.Serialize(new
+				{
+					fields = new
+					{
+						displayName = new { stringValue = displayName }
+					}
+				});
+				var patchResponse = await _httpClient.PatchAsync(patchUrl,
+					new StringContent(patchBody, System.Text.Encoding.UTF8, "application/json"));
+				if (!patchResponse.IsSuccessStatusCode)
+				{
+					var err = await patchResponse.Content.ReadAsStringAsync();
+					System.Diagnostics.Debug.WriteLine($"[TeamDetails] displayName patch failed: {err}");
+					return $"error: {err}";
+				}
+			}
+			else
+			{
+				// Member doc missing (edge case) — create with member role
+				var createUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
+				var createBody = System.Text.Json.JsonSerializer.Serialize(new
+				{
+					fields = new
+					{
+						role = new { stringValue = Preferences.Get(USER_ROLE_KEY, "member") },
+						displayName = new { stringValue = displayName },
+						joinedAt = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") }
+					}
+				});
+				var createResponse = await _httpClient.PostAsync(createUrl,
+					new StringContent(createBody, System.Text.Encoding.UTF8, "application/json"));
+				if (!createResponse.IsSuccessStatusCode)
+				{
+					var err = await createResponse.Content.ReadAsStringAsync();
+					System.Diagnostics.Debug.WriteLine($"[TeamDetails] displayName create failed: {err}");
+					return $"error: {err}";
+				}
+			}
+
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✅ displayName updated for {teamId}");
+			return "success";
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] UpdateMemberDisplayNameInFirestore error: {ex.Message}");
 			return $"error: {ex.Message}";
 		}
 	}

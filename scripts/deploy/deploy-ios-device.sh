@@ -48,17 +48,25 @@ dotnet build "$PROJECT_FILE" \
   -c "$CONFIG" \
   -p:RuntimeIdentifier="$RID"
 
-# Prefer the RID-level .app; fall back to device-builds copy produced by mlaunch packaging.
+# Prefer device-builds .app (installable bundle); fall back to any newest .app under RID.
 APP=""
 SEARCH_ROOT="$REPO_ROOT/bin/$CONFIG/$TFM/$RID"
 if [[ -d "$SEARCH_ROOT" ]]; then
-  # Prefer newest .app (device-builds often holds the installable bundle)
-  APP="$(find "$SEARCH_ROOT" -type d -name '*.app' -print0 2>/dev/null \
-    | xargs -0 ls -td 2>/dev/null | head -1 || true)"
+  # macOS-safe: handle spaces in paths (e.g. "UTM Shared"); avoid xargs.
+  # Prefer device-builds/*/*.app, then any other .app under the RID output.
+  APP="$(find "$SEARCH_ROOT/device-builds" -type d -name '*.app' 2>/dev/null \
+    | while IFS= read -r p; do printf '%s\t%s\n' "$(stat -f '%m' "$p" 2>/dev/null || echo 0)" "$p"; done \
+    | sort -nr | head -1 | cut -f2- || true)"
+  if [[ -z "$APP" || ! -d "$APP" ]]; then
+    APP="$(find "$SEARCH_ROOT" -type d -name '*.app' 2>/dev/null \
+      | while IFS= read -r p; do printf '%s\t%s\n' "$(stat -f '%m' "$p" 2>/dev/null || echo 0)" "$p"; done \
+      | sort -nr | head -1 | cut -f2- || true)"
+  fi
 fi
 
 if [[ -z "$APP" || ! -d "$APP" ]]; then
   echo "ERROR: Build succeeded but no .app was found under $SEARCH_ROOT" >&2
+  find "$SEARCH_ROOT" -type d -name '*.app' 2>/dev/null | head -20 >&2 || true
   exit 1
 fi
 

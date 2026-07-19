@@ -1,3 +1,5 @@
+using TurfTime2.Helpers;
+
 namespace TurfTime2;
 
 public partial class ChatPage : ContentPage
@@ -8,11 +10,61 @@ public partial class ChatPage : ContentPage
 		LoadChatInterface();
 	}
 
-	protected override void OnAppearing()
+	protected override async void OnAppearing()
 	{
 		base.OnAppearing();
 		// Rebuild with the current team ID in case the team changed since last visit
 		LoadChatInterface();
+		await EnsureDisplayNameForSharedTeamAsync();
+	}
+
+	/// <summary>
+	/// Existing shared-team members may never have set a display name (pre-feature).
+	/// Prompt once when opening Chat so messages and push use a human name.
+	/// </summary>
+	private async Task EnsureDisplayNameForSharedTeamAsync()
+	{
+		var teamMode = Preferences.Get("team_mode", string.Empty);
+		var teamId = Preferences.Get("team_id", string.Empty);
+		if (teamMode != "shared" || string.IsNullOrEmpty(teamId))
+			return;
+
+		if (!string.IsNullOrWhiteSpace(UserDisplayName.Get()))
+			return;
+
+		var entered = await DisplayPromptAsync(
+			"Your name in Chat",
+			"Teammates need a name to see who is messaging. Enter a display name:",
+			accept: "Save",
+			cancel: "Later",
+			placeholder: "e.g. Alex or Coach Sam",
+			maxLength: UserDisplayName.MaxLength,
+			keyboard: Keyboard.Text);
+
+		if (!UserDisplayName.TryValidate(entered, out var displayName, out _))
+			return;
+
+		UserDisplayName.Set(displayName);
+		// Rebuild HTML so sendMessage bakes in the new name
+		LoadChatInterface();
+
+		// Best-effort: push name onto member doc after WebView auth is ready
+		_ = Task.Run(async () =>
+		{
+			try
+			{
+				await Task.Delay(2000);
+				await MainThread.InvokeOnMainThreadAsync(async () =>
+				{
+					var safe = EscapeJavaScript(displayName);
+					await ChatWebView.EvaluateJavaScriptAsync($"updateMemberDisplayName('{safe}')");
+				});
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[Chat] updateMemberDisplayName: {ex.Message}");
+			}
+		});
 	}
 
 	private void LoadChatInterface()
@@ -73,9 +125,43 @@ public partial class ChatPage : ContentPage
 		if (string.IsNullOrWhiteSpace(message))
 			return;
 
-		// Send message via JavaScript
-		await ChatWebView.EvaluateJavaScriptAsync($"sendMessage('{EscapeJavaScript(message)}')");
-		
+		// Require a display name before posting (shared-team identity)
+		var displayName = UserDisplayName.Get();
+		if (string.IsNullOrWhiteSpace(displayName))
+		{
+			var entered = await DisplayPromptAsync(
+				"Your name in Chat",
+				"Enter a display name so teammates know who sent this message:",
+				accept: "Send",
+				cancel: "Cancel",
+				placeholder: "e.g. Alex or Coach Sam",
+				maxLength: UserDisplayName.MaxLength,
+				keyboard: Keyboard.Text);
+
+			if (!UserDisplayName.TryValidate(entered, out displayName, out var error))
+			{
+				if (!string.IsNullOrWhiteSpace(entered))
+					await DisplayAlert("Display Name", error ?? "Please enter a valid name.", "OK");
+				return;
+			}
+
+			UserDisplayName.Set(displayName);
+			var safeName = EscapeJavaScript(displayName);
+			try
+			{
+				await ChatWebView.EvaluateJavaScriptAsync($"updateMemberDisplayName('{safeName}')");
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[Chat] updateMemberDisplayName on send: {ex.Message}");
+			}
+		}
+
+		// Pass name at send time so we don't depend on HTML rebuild for late name capture
+		var safeMessage = EscapeJavaScript(message);
+		var safeSender = EscapeJavaScript(displayName);
+		await ChatWebView.EvaluateJavaScriptAsync($"sendMessage('{safeMessage}','{safeSender}')");
+
 		// Clear input
 		MessageEntry.Text = string.Empty;
 	}
@@ -273,7 +359,7 @@ public partial class ChatPage : ContentPage
 	<!-- Firebase SDK v10 (Modular) -->
 	<script type='module'>
 		import {{ initializeApp }} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-		import {{ getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp }} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+		import {{ getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, getDocs, doc, getDoc, updateDoc, setDoc, arrayUnion }} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 		import {{ getAuth, signInAnonymously, onAuthStateChanged }} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
 		const firebaseConfig = {{
@@ -287,23 +373,62 @@ public partial class ChatPage : ContentPage
 		}};
 
 		const TEAM_ID = '{safeTeamId}';
+		const LOCAL_DISPLAY_NAME = '{safeUserName}';
 
 		const app = initializeApp(firebaseConfig);
 		const db = getFirestore(app);
 		const auth = getAuth(app);
 
 		let currentUserId = null;
+		let memberNames = {{}};
 		let messagesContainer = document.getElementById('messages');
+
+		function isPlaceholderName(name) {{
+			if (!name || !String(name).trim()) return true;
+			const n = String(name).trim();
+			return n === 'Admin' || n === 'Member' || n === 'Someone' || n === 'Teammate';
+		}}
+
+		function resolveDisplayName(data) {{
+			if (data.userId === currentUserId) return 'You';
+			const sn = (data.senderName || '').trim();
+			const mn = (memberNames[data.userId] || '').trim();
+			if (sn && !isPlaceholderName(sn)) return sn;
+			if (mn && !isPlaceholderName(mn)) return mn;
+			if (sn) return sn;
+			if (mn) return mn;
+			return 'Teammate';
+		}}
+
+		async function loadMemberNames() {{
+			try {{
+				const snap = await getDocs(collection(db, 'teams', TEAM_ID, 'members'));
+				const map = {{}};
+				snap.forEach((d) => {{
+					const name = (d.data().displayName || '').trim();
+					if (name) map[d.id] = name;
+				}});
+				memberNames = map;
+				console.log('[Chat] Loaded', Object.keys(memberNames).length, 'member display names');
+			}} catch (err) {{
+				console.warn('[Chat] Could not load member names:', err);
+			}}
+		}}
 
 		// Wait for Firebase to restore the persisted anonymous user from IndexedDB before
 		// calling signInAnonymously. Calling it eagerly races with IndexedDB restoration and
 		// produces a NEW uid on each page reload, breaking the own/other comparison.
-		onAuthStateChanged(auth, (user) => {{
+		onAuthStateChanged(auth, async (user) => {{
 			if (user) {{
 				currentUserId = user.uid;
 				console.log('[Chat] ✅ User authenticated:', currentUserId.substring(0, 8) + '...');
 				if (!window._chatListenerStarted) {{
 					window._chatListenerStarted = true;
+					await loadMemberNames();
+					// Sync local name to member profile when we already know it
+					if (LOCAL_DISPLAY_NAME && !isPlaceholderName(LOCAL_DISPLAY_NAME)) {{
+						try {{ await window.updateMemberDisplayName(LOCAL_DISPLAY_NAME); }} catch (_) {{}}
+					}}
 					startChatListener();
 				}}
 			}} else {{
@@ -323,8 +448,8 @@ public partial class ChatPage : ContentPage
 				console.log(`[Chat] 📩 Received ${{snapshot.size}} messages`);
 				messagesContainer.innerHTML = '';
 
-				snapshot.forEach((doc) => {{
-					const data = doc.data();
+				snapshot.forEach((docSnap) => {{
+					const data = docSnap.data();
 					displayMessage(data);
 				}});
 
@@ -334,7 +459,7 @@ public partial class ChatPage : ContentPage
 			}});
 		}}
 
-		// Display a message
+		// Display a message — prefer denormalized senderName, then member profile
 		function displayMessage(data) {{
 			const messageDiv = document.createElement('div');
 			messageDiv.className = `message ${{data.userId === currentUserId ? 'own' : 'other'}}`;
@@ -344,7 +469,7 @@ public partial class ChatPage : ContentPage
 
 			const userSpan = document.createElement('div');
 			userSpan.className = 'message-user';
-			userSpan.textContent = data.userId === currentUserId ? 'You' : `User ${{data.userId.substring(0, 8)}}`;
+			userSpan.textContent = resolveDisplayName(data);
 			bubble.appendChild(userSpan);
 
 			const textSpan = document.createElement('div');
@@ -373,8 +498,8 @@ public partial class ChatPage : ContentPage
 			return `${{dateStr}} ${{timeStr}}`;
 		}}
 
-		// Send a message (called from C# code)
-		window.sendMessage = async function(text) {{
+		// Send a message (called from C#). Optional senderNameOverride wins over baked-in preference.
+		window.sendMessage = async function(text, senderNameOverride) {{
 			if (!text || !currentUserId) {{
 				console.error('[Chat] ❌ Cannot send - missing text or userId');
 				return;
@@ -382,7 +507,8 @@ public partial class ChatPage : ContentPage
 
 			console.log('[Chat] 📤 Sending message to team:', TEAM_ID);
 			try {{
-				const senderName = '{safeUserName}' || currentUserId?.substring(0, 8) || 'Someone';
+				const raw = (senderNameOverride || LOCAL_DISPLAY_NAME || '').trim();
+				const senderName = (!isPlaceholderName(raw) ? raw : '') || 'Someone';
 				const docRef = await addDoc(collection(db, 'teams', TEAM_ID, 'messages'), {{
 					text: text.substring(0, 500),
 					userId: currentUserId,
@@ -395,6 +521,31 @@ public partial class ChatPage : ContentPage
 			}}
 		}};
 
+		// Upsert displayName on the authenticated member doc (does not wipe fcmTokens)
+		window.updateMemberDisplayName = async function(name) {{
+			if (!name || !currentUserId || !TEAM_ID) {{
+				console.warn('[Chat] ⚠️ updateMemberDisplayName: missing name, userId, or teamId');
+				return 'missing_params';
+			}}
+			const displayName = String(name).trim().substring(0, 40);
+			if (!displayName) return 'empty';
+			try {{
+				const memberRef = doc(db, 'teams', TEAM_ID, 'members', currentUserId);
+				const memberSnap = await getDoc(memberRef);
+				if (memberSnap.exists()) {{
+					await updateDoc(memberRef, {{ displayName: displayName }});
+				}} else {{
+					await setDoc(memberRef, {{ displayName: displayName, role: 'member' }}, {{ merge: true }});
+				}}
+				memberNames[currentUserId] = displayName;
+				console.log('[Chat] ✅ Member displayName updated:', displayName);
+				return 'ok';
+			}} catch (error) {{
+				console.error('[Chat] ❌ updateMemberDisplayName error:', error);
+				return 'error';
+			}}
+		}};
+
 		// Save FCM token to Firestore under the authenticated user's member document
 		// Called from C# after the native FCM token is acquired
 		window.saveFcmToken = async function(token) {{
@@ -403,7 +554,6 @@ public partial class ChatPage : ContentPage
 				return 'missing_params';
 			}}
 			try {{
-				const {{ doc, getDoc, updateDoc, setDoc, arrayUnion }} = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
 				const memberRef = doc(db, 'teams', TEAM_ID, 'members', currentUserId);
 				const memberSnap = await getDoc(memberRef);
 				if (memberSnap.exists()) {{

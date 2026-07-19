@@ -35,7 +35,7 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 | `PushTeamAlerts` | FCM / push for team events | Free (candidate paid) | Use no-op when disabled |
 | `CloudTeamJoin` | Join existing cloud team | Free (candidate paid) | **UI unlocked** |
 | `CloudLocationShare` | Location under Details tab (match venue / GPS) for shared teams | Free (candidate paid) | **Details tab unlocked** for shared mode; Location is a Details submenu |
-| `TeamChat` | Chat tab for shared teams | Free (candidate paid) | **Tab unlocked** for shared mode |
+| `TeamChat` | Chat tab for shared teams | Free (candidate paid) | **Tab unlocked** for shared mode. Identity: user-entered **display name** stored on `teams/{{id}}/members/{{uid}}.displayName` + local `user_name`; messages denormalize `senderName` for UI/push |
 | `TeamKit` | Kit / colours under Details | Not shipped | Placeholder “Coming soon…” under Details |
 | `TeamDuties` | Match-day duties under Details | Not shipped | Placeholder “Coming soon…” under Details |
 | `TeamNominations` | Nominations under Details | Not shipped | Placeholder “Coming soon…” under Details |

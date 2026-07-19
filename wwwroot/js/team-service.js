@@ -111,11 +111,12 @@ class TeamService {
                 isActive: true
             });
 
-            // Add creator as admin member
+            // Add creator as admin member (displayName should be the user's chat name when available)
+            const adminDisplayName = (typeof localStorage !== 'undefined' && localStorage.getItem('user_name')) || 'Admin';
             await this.db.collection('teams').doc(teamId).collection('members').doc(this.currentUserId).set({
                 role: 'admin',
                 joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                displayName: 'Admin'
+                displayName: adminDisplayName
             });
 
             // Initialize empty roster
@@ -179,12 +180,13 @@ class TeamService {
                 };
             }
 
-            // Add as member
+            // Add as member (displayName should be the user's chat name when available)
+            const memberDisplayName = (typeof localStorage !== 'undefined' && localStorage.getItem('user_name')) || 'Member';
             await this.db.collection('teams').doc(teamId)
                 .collection('members').doc(this.currentUserId).set({
                     role: 'member',
                     joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    displayName: 'Member'
+                    displayName: memberDisplayName
                 });
 
             console.log('[TeamService] ✅ Joined team successfully');
