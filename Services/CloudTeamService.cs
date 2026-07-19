@@ -5,10 +5,15 @@ using Plugin.Firebase.Functions;
 namespace TurfTime2.Services;
 
 /// <summary>
-/// Shared-team create/join/metadata via Plugin.Firebase Firestore (no Firestore REST).
+/// Shared-team create/join/metadata via Plugin.Firebase Firestore.
+/// Invite lookup prefers the SDK; falls back to authenticated Firestore REST if the
+/// Plugin.Firebase snapshot cast returns empty (observed with Dictionary reads on device).
 /// </summary>
 public sealed class CloudTeamService : ICloudTeamService
 {
+    private const string FirebaseProjectId = "turf-timer";
+    private static readonly HttpClient RestHttp = new();
+
     private readonly IFirebaseAuthService _auth;
     private readonly IFirebaseFirestore _db;
 
@@ -16,6 +21,29 @@ public sealed class CloudTeamService : ICloudTeamService
     {
         _auth = auth;
         _db = db;
+    }
+
+    /// <summary>
+    /// Typed invite_codes document. Plugin.Firebase recommends IFirestoreObject POCOs;
+    /// Dictionary&lt;string,object&gt; snapshot.Data has returned null on device even when
+    /// the document exists (verified via REST).
+    /// </summary>
+    private sealed class InviteCodeDoc : IFirestoreObject
+    {
+        [FirestoreProperty("teamId")]
+        public string TeamId { get; set; } = "";
+
+        [FirestoreProperty("teamName")]
+        public string TeamName { get; set; } = "";
+
+        [FirestoreProperty("inviteCode")]
+        public string InviteCode { get; set; } = "";
+
+        [FirestoreProperty("inviteCodeCompact")]
+        public string InviteCodeCompact { get; set; } = "";
+
+        [FirestoreProperty("createdBy")]
+        public string CreatedBy { get; set; } = "";
     }
 
     public Task<string?> EnsureSignedInAsync() => _auth.EnsureSignedInAsync();
@@ -98,7 +126,33 @@ public sealed class CloudTeamService : ICloudTeamService
         if (string.IsNullOrEmpty(code)) return null;
         var compact = CompactInviteCode(code);
 
-        // 1) Root invite_codes/{id} — production rules allow read/create for signed-in users
+        // 1) Direct doc get via IFirestoreObject POCO (Plugin.Firebase recommended path)
+        try
+        {
+            foreach (var docId in InviteCodeDocumentIds(code))
+            {
+                var snap = await _db.GetDocument($"invite_codes/{docId}")
+                    .GetDocumentSnapshotAsync<InviteCodeDoc>()
+                    .ConfigureAwait(false);
+                var data = snap?.Data;
+                if (data is null || string.IsNullOrEmpty(data.TeamId))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CloudTeam] Lookup POCO invite_codes/{docId}: Data null or empty teamId");
+                    continue;
+                }
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudTeam] Lookup hit (POCO) invite_codes/{docId} → {data.TeamId}");
+                return new CloudTeamLookup { TeamId = data.TeamId, TeamName = data.TeamName ?? "" };
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup POCO invite_codes: {ex.Message}");
+        }
+
+        // 2) Dictionary snapshot (secondary SDK path)
         try
         {
             foreach (var docId in InviteCodeDocumentIds(code))
@@ -110,7 +164,7 @@ public sealed class CloudTeamService : ICloudTeamService
                 if (data is null) continue;
                 var teamId = ReadString(data, "teamId");
                 if (string.IsNullOrEmpty(teamId)) continue;
-                System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup hit invite_codes/{docId} → {teamId}");
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup hit (dict) invite_codes/{docId} → {teamId}");
                 return new CloudTeamLookup
                 {
                     TeamId = teamId,
@@ -120,10 +174,41 @@ public sealed class CloudTeamService : ICloudTeamService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup invite_codes: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup dict invite_codes: {ex.Message}");
         }
 
-        // 2) teams/.../public/invite via collection-group (after rules allow public/*)
+        // 3) Collection query on invite_codes by field (works even if doc id form differs)
+        try
+        {
+            foreach (var (field, value) in new[]
+                     {
+                         ("inviteCode", code),
+                         ("inviteCodeCompact", compact),
+                         ("inviteCode", compact)
+                     })
+            {
+                if (string.IsNullOrEmpty(value)) continue;
+                var querySnap = await _db.GetCollection("invite_codes")
+                    .WhereEqualsTo(field, value)
+                    .LimitedTo(5)
+                    .GetDocumentsAsync<InviteCodeDoc>()
+                    .ConfigureAwait(false);
+
+                var hit = ExtractLookupFromInviteQuery(querySnap);
+                if (hit != null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CloudTeam] Lookup hit invite_codes query {field}={value} → {hit.TeamId}");
+                    return hit;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup invite_codes query: {ex.Message}");
+        }
+
+        // 4) teams/.../public/invite via collection-group
         try
         {
             foreach (var fieldValue in new[] { code, compact }.Distinct(StringComparer.Ordinal))
@@ -149,7 +234,7 @@ public sealed class CloudTeamService : ICloudTeamService
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup public CG: {ex.Message}");
         }
 
-        // 3) metadata.inviteCode collection-group
+        // 5) metadata.inviteCode collection-group
         try
         {
             var querySnap = await _db.GetCollectionGroup("metadata")
@@ -177,7 +262,91 @@ public sealed class CloudTeamService : ICloudTeamService
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup metadata CG: {ex.Message}");
         }
 
+        // 6) Authenticated Firestore REST — proven path when SDK Data is empty but docs exist
+        try
+        {
+            var restHit = await LookupInviteCodeViaRestAsync(code).ConfigureAwait(false);
+            if (restHit != null)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudTeam] Lookup hit REST invite → {restHit.TeamId}");
+                return restHit;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup REST: {ex.Message}");
+        }
+
         System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup miss for invite code '{code}'");
+        return null;
+    }
+
+    private async Task<CloudTeamLookup?> LookupInviteCodeViaRestAsync(string normalizedCode)
+    {
+        var idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+        {
+            System.Diagnostics.Debug.WriteLine("[CloudTeam] REST lookup: no id token");
+            return null;
+        }
+
+        foreach (var docId in InviteCodeDocumentIds(normalizedCode))
+        {
+            // Hyphenated ids are valid; EscapeDataString is safe for both forms.
+            var url =
+                $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/invite_codes/{Uri.EscapeDataString(docId)}";
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+
+            using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] REST invite_codes/{docId}: 404");
+                continue;
+            }
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudTeam] REST invite_codes/{docId}: {(int)resp.StatusCode} {body[..Math.Min(200, body.Length)]}");
+                continue;
+            }
+
+            using var json = JsonDocument.Parse(body);
+            if (!json.RootElement.TryGetProperty("fields", out var fields))
+                continue;
+
+            var teamId = ReadFirestoreRestString(fields, "teamId");
+            if (string.IsNullOrEmpty(teamId)) continue;
+            var teamName = ReadFirestoreRestString(fields, "teamName");
+            return new CloudTeamLookup { TeamId = teamId, TeamName = teamName };
+        }
+
+        return null;
+    }
+
+    private static string ReadFirestoreRestString(JsonElement fields, string fieldName)
+    {
+        if (!fields.TryGetProperty(fieldName, out var field)) return "";
+        if (field.TryGetProperty("stringValue", out var sv))
+            return sv.GetString() ?? "";
+        return "";
+    }
+
+    private static CloudTeamLookup? ExtractLookupFromInviteQuery(IQuerySnapshot<InviteCodeDoc>? querySnap)
+    {
+        if (querySnap?.Documents == null) return null;
+        foreach (var doc in querySnap.Documents)
+        {
+            var data = doc.Data;
+            if (data is null || string.IsNullOrEmpty(data.TeamId)) continue;
+            return new CloudTeamLookup { TeamId = data.TeamId, TeamName = data.TeamName ?? "" };
+        }
         return null;
     }
 
