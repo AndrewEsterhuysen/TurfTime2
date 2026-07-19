@@ -139,7 +139,7 @@ public sealed class CloudRosterService : ICloudRosterService
         try
         {
             var snap = await _db.GetDocument($"teams/{teamId}/roster/data")
-                .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
             if (snap?.Data is null)
                 return null;
@@ -185,7 +185,7 @@ public sealed class CloudRosterService : ICloudRosterService
         };
     }
 
-    private static RosterSnapshot? FromDictionary(IDictionary<object, object> fields)
+    private static RosterSnapshot? FromDictionary(IDictionary<string, object> fields)
     {
         try
         {
@@ -210,10 +210,15 @@ public sealed class CloudRosterService : ICloudRosterService
             {
                 foreach (var item in list)
                 {
-                    if (item is not IDictionary<object, object> pf && item is not IDictionary<string, object>)
-                        continue;
-                    var map = item as IDictionary<object, object>
-                              ?? ((IDictionary<string, object>)item).ToDictionary(kv => (object)kv.Key, kv => kv.Value);
+                    IDictionary<string, object>? map = item switch
+                    {
+                        IDictionary<string, object> s => s,
+                        IDictionary<object, object> o => o.ToDictionary(
+                            kv => kv.Key?.ToString() ?? "",
+                            kv => kv.Value!),
+                        _ => null
+                    };
+                    if (map is null) continue;
                     snapshot.Players.Add(new PlayerSnapshot
                     {
                         SlotId = ReadInt(map, "slotId", 0),
@@ -236,17 +241,10 @@ public sealed class CloudRosterService : ICloudRosterService
         }
     }
 
-    private static object? Get(IDictionary<object, object> d, string key)
-    {
-        if (d.TryGetValue(key, out var v)) return v;
-        foreach (var kv in d)
-        {
-            if (kv.Key?.ToString() == key) return kv.Value;
-        }
-        return null;
-    }
+    private static object? Get(IDictionary<string, object> d, string key)
+        => d.TryGetValue(key, out var v) ? v : null;
 
-    private static int ReadInt(IDictionary<object, object> d, string key, int fallback)
+    private static int ReadInt(IDictionary<string, object> d, string key, int fallback)
     {
         var v = Get(d, key);
         return v switch
@@ -259,7 +257,7 @@ public sealed class CloudRosterService : ICloudRosterService
         };
     }
 
-    private static bool ReadBool(IDictionary<object, object> d, string key, bool fallback)
+    private static bool ReadBool(IDictionary<string, object> d, string key, bool fallback)
     {
         var v = Get(d, key);
         return v switch
@@ -270,10 +268,10 @@ public sealed class CloudRosterService : ICloudRosterService
         };
     }
 
-    private static string ReadString(IDictionary<object, object> d, string key, string fallback)
+    private static string ReadString(IDictionary<string, object> d, string key, string fallback)
         => Get(d, key)?.ToString() ?? fallback;
 
-    private static DateTimeOffset ReadTimestamp(IDictionary<object, object> d, params string[] keys)
+    private static DateTimeOffset ReadTimestamp(IDictionary<string, object> d, params string[] keys)
     {
         foreach (var key in keys)
         {
@@ -291,3 +289,4 @@ public sealed class CloudRosterService : ICloudRosterService
         return DateTimeOffset.UtcNow;
     }
 }
+

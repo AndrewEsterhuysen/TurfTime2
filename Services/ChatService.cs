@@ -35,7 +35,7 @@ public sealed class ChatService : IChatService
                 .OrderBy("timestamp", descending: false)
                 .LimitedTo(100);
 
-            return query.AddSnapshotListener<Dictionary<object, object>>(
+            return query.AddSnapshotListener<Dictionary<string, object>>(
                 snapshot =>
                 {
                     try
@@ -164,7 +164,7 @@ public sealed class ChatService : IChatService
         try
         {
             var snap = await _db.GetCollection($"teams/{teamId}/members")
-                .GetDocumentsAsync<Dictionary<object, object>>()
+                .GetDocumentsAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
 
             if (snap?.Documents == null) return map;
@@ -186,29 +186,18 @@ public sealed class ChatService : IChatService
         return map;
     }
 
-    private static string ReadString(IDictionary<object, object> d, string key)
+    private static string ReadString(IDictionary<string, object>? d, string key)
     {
+        if (d is null) return "";
         if (d.TryGetValue(key, out var v) && v != null)
             return v.ToString() ?? "";
-        foreach (var kv in d)
-        {
-            if (kv.Key?.ToString() == key)
-                return kv.Value?.ToString() ?? "";
-        }
         return "";
     }
 
-    private static DateTimeOffset? ReadTimestamp(IDictionary<object, object> d, string key)
+    private static DateTimeOffset? ReadTimestamp(IDictionary<string, object>? d, string key)
     {
-        object? v = null;
-        if (d.TryGetValue(key, out var direct)) v = direct;
-        else
-        {
-            foreach (var kv in d)
-            {
-                if (kv.Key?.ToString() == key) { v = kv.Value; break; }
-            }
-        }
+        if (d is null || !d.TryGetValue(key, out var v) || v is null)
+            return null;
 
         return v switch
         {
@@ -219,3 +208,4 @@ public sealed class ChatService : IChatService
         };
     }
 }
+

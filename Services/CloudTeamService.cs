@@ -104,7 +104,7 @@ public sealed class CloudTeamService : ICloudTeamService
             foreach (var docId in InviteCodeDocumentIds(code))
             {
                 var snap = await _db.GetDocument($"invite_codes/{docId}")
-                    .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                    .GetDocumentSnapshotAsync<Dictionary<string, object>>()
                     .ConfigureAwait(false);
                 var data = snap?.Data;
                 if (data is null) continue;
@@ -132,7 +132,7 @@ public sealed class CloudTeamService : ICloudTeamService
                 var querySnap = await _db.GetCollectionGroup("public")
                     .WhereEqualsTo("inviteCode", fieldValue)
                     .LimitedTo(5)
-                    .GetDocumentsAsync<Dictionary<object, object>>()
+                    .GetDocumentsAsync<Dictionary<string, object>>()
                     .ConfigureAwait(false);
 
                 var hit = ExtractLookupFromQuery(querySnap, preferTeamIdFromPath: true);
@@ -155,7 +155,7 @@ public sealed class CloudTeamService : ICloudTeamService
             var querySnap = await _db.GetCollectionGroup("metadata")
                 .WhereEqualsTo("inviteCode", code)
                 .LimitedTo(5)
-                .GetDocumentsAsync<Dictionary<object, object>>()
+                .GetDocumentsAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
 
             var hit = ExtractLookupFromQuery(querySnap, preferTeamIdFromPath: true);
@@ -182,7 +182,7 @@ public sealed class CloudTeamService : ICloudTeamService
     }
 
     private static CloudTeamLookup? ExtractLookupFromQuery(
-        IQuerySnapshot<Dictionary<object, object>>? querySnap,
+        IQuerySnapshot<Dictionary<string, object>>? querySnap,
         bool preferTeamIdFromPath)
     {
         if (querySnap?.Documents == null) return null;
@@ -310,7 +310,7 @@ public sealed class CloudTeamService : ICloudTeamService
             var teamName = lookup.TeamName;
 
             var existing = await _db.GetDocument($"teams/{teamId}/members/{uid}")
-                .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
             if (existing?.Data is not null)
                 return $"already_member:{teamId}:{teamName}";
@@ -345,7 +345,7 @@ public sealed class CloudTeamService : ICloudTeamService
         try
         {
             var snap = await _db.GetDocument($"teams/{teamId}/metadata/info")
-                .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
             var data = snap?.Data;
             if (data is null)
@@ -392,7 +392,7 @@ public sealed class CloudTeamService : ICloudTeamService
             if (name.Length > 40) name = name[..40];
 
             var doc = _db.GetDocument($"teams/{teamId}/members/{uid}");
-            var existing = await doc.GetDocumentSnapshotAsync<Dictionary<object, object>>().ConfigureAwait(false);
+            var existing = await doc.GetDocumentSnapshotAsync<Dictionary<string, object>>().ConfigureAwait(false);
 
             if (existing?.Data is not null)
             {
@@ -554,11 +554,22 @@ public sealed class CloudTeamService : ICloudTeamService
         }
     }
 
-    private static string ReadString(IDictionary<object, object> d, string key)
+    private static string ReadString(IDictionary<string, object>? d, string key)
     {
+        if (d is null) return "";
         if (d.TryGetValue(key, out var v) && v != null) return v.ToString() ?? "";
         foreach (var kv in d)
-            if (kv.Key?.ToString() == key) return kv.Value?.ToString() ?? "";
+            if (string.Equals(kv.Key, key, StringComparison.OrdinalIgnoreCase) && kv.Value != null)
+                return kv.Value.ToString() ?? "";
+        return "";
+    }
+
+    private static string ReadString(IDictionary<object, object>? d, string key)
+    {
+        if (d is null) return "";
+        if (d.TryGetValue(key, out var v) && v != null) return v.ToString() ?? "";
+        foreach (var kv in d)
+            if (kv.Key?.ToString() == key && kv.Value != null) return kv.Value.ToString() ?? "";
         return "";
     }
 }

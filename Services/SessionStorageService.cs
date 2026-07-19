@@ -104,7 +104,7 @@ public sealed class SessionStorageService : ISessionStorageService
         try
         {
             var snap = await _db.GetDocument($"teams/{teamId}/sessions/{sessionId}")
-                .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
             return ParseSessionData(snap?.Data);
         }
@@ -172,7 +172,7 @@ public sealed class SessionStorageService : ISessionStorageService
         try
         {
             var querySnap = await _db.GetCollection($"teams/{teamId}/sessions")
-                .GetDocumentsAsync<Dictionary<object, object>>()
+                .GetDocumentsAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
 
             var result = new List<SessionSummary>();
@@ -202,27 +202,14 @@ public sealed class SessionStorageService : ISessionStorageService
         }
     }
 
-    private static GameSession? ParseSessionData(IDictionary<object, object>? fields)
+    private static GameSession? ParseSessionData(IDictionary<string, object>? fields)
     {
         if (fields is null) return null;
         try
         {
-            object? rawObj = null;
-            if (fields.TryGetValue("sessionJson", out var v))
-                rawObj = v;
-            else
-            {
-                foreach (var kv in fields)
-                {
-                    if (kv.Key?.ToString() == "sessionJson")
-                    {
-                        rawObj = kv.Value;
-                        break;
-                    }
-                }
-            }
-
-            var raw = rawObj?.ToString();
+            if (!fields.TryGetValue("sessionJson", out var rawObj) || rawObj is null)
+                return null;
+            var raw = rawObj.ToString();
             if (string.IsNullOrEmpty(raw)) return null;
             return JsonSerializer.Deserialize<GameSession>(raw, SessionJsonOptions);
         }
@@ -233,3 +220,4 @@ public sealed class SessionStorageService : ISessionStorageService
         }
     }
 }
+
