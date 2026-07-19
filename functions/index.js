@@ -1,187 +1,250 @@
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
-const { getFirestore } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 
 initializeApp();
 
-// Trigger: New message added to messages collection (2nd Gen)
+/**
+ * Resolve a human-readable team name for notification titles.
+ * App stores metadata at teams/{teamId}/metadata/info.teamName — there is often
+ * no root teams/{teamId} document. Never fail notification send on missing name.
+ */
+async function resolveTeamName(db, teamId) {
+    try {
+        const metaSnap = await db
+            .collection('teams')
+            .doc(teamId)
+            .collection('metadata')
+            .doc('info')
+            .get();
+        if (metaSnap.exists) {
+            const meta = metaSnap.data() || {};
+            if (meta.teamName && String(meta.teamName).trim()) {
+                return String(meta.teamName).trim();
+            }
+            if (meta.name && String(meta.name).trim()) {
+                return String(meta.name).trim();
+            }
+        }
+    } catch (err) {
+        console.warn(`[sendChatNotification] metadata read failed for ${teamId}:`, err.message);
+    }
+
+    try {
+        const rootSnap = await db.collection('teams').doc(teamId).get();
+        if (rootSnap.exists) {
+            const data = rootSnap.data() || {};
+            if (data.teamName && String(data.teamName).trim()) {
+                return String(data.teamName).trim();
+            }
+            if (data.name && String(data.name).trim()) {
+                return String(data.name).trim();
+            }
+        }
+    } catch (err) {
+        console.warn(`[sendChatNotification] root team read failed for ${teamId}:`, err.message);
+    }
+
+    return 'Your Team';
+}
+
+/**
+ * Trigger: new chat message under teams/{teamId}/messages/{messageId}
+ * Sends FCM push to all other members that have registered device tokens.
+ */
 exports.sendChatNotification = onDocumentCreated('teams/{teamId}/messages/{messageId}', async (event) => {
     try {
         const snapshot = event.data;
         if (!snapshot) {
-            console.log('No data associated with the event');
-            return;
-        }
-
-        const message = snapshot.data();
-        const teamId = event.params.teamId;
-
-        console.log(`New message in team ${teamId} from ${message.senderName || 'Unknown'}`);
-
-        // Get team info
-        const teamDoc = await getFirestore()
-            .collection('teams')
-            .doc(teamId)
-            .get();
-
-        if (!teamDoc.exists) {
-            console.log('Team not found');
+            console.log('[sendChatNotification] No data associated with the event');
             return null;
         }
 
-        const teamData = teamDoc.data();
-        const teamName = teamData.name || 'Your Team';
+        const message = snapshot.data() || {};
+        const teamId = event.params.teamId;
+        const messageId = event.params.messageId;
+        const senderId = message.userId || message.senderId || null;
+        const senderLabel =
+            (message.senderName && String(message.senderName).trim()) ||
+            (senderId ? String(senderId).substring(0, 8) : 'Someone');
+        const textPreview = (message.text && String(message.text).trim()) || 'New message';
 
-        // Get all team members' FCM tokens (except sender)
-        const membersSnapshot = await getFirestore()
+        console.log(`[sendChatNotification] New message in team ${teamId} from ${senderLabel} (id=${messageId})`);
+
+        const db = getFirestore();
+        const teamName = await resolveTeamName(db, teamId);
+        console.log(`[sendChatNotification] Team title: ${teamName}`);
+
+        // All team members' FCM tokens except the sender
+        const membersSnapshot = await db
             .collection('teams')
             .doc(teamId)
             .collection('members')
             .get();
 
         const tokens = [];
-        const tokenToMemberMap = {}; // Track which member each token belongs to
+        const tokenToMemberMap = {};
+        let memberCount = 0;
+        let skippedSender = 0;
 
-        membersSnapshot.forEach(doc => {
-            const member = doc.data();
-            const memberId = doc.id;
+        membersSnapshot.forEach((docSnap) => {
+            memberCount += 1;
+            const member = docSnap.data() || {};
+            const memberId = docSnap.id;
 
-            // Don't notify the sender
-            if (memberId === message.userId || member.uid === message.userId) {
+            // Don't notify the sender (member doc id is the Firebase uid used in chat)
+            if (senderId && (memberId === senderId || member.uid === senderId)) {
+                skippedSender += 1;
                 return;
             }
 
-            // Support both fcmTokens (array) and fcmToken (single string) for backward compatibility
             if (member.fcmTokens && Array.isArray(member.fcmTokens)) {
-                // New multi-device format
-                member.fcmTokens.forEach(token => {
-                    if (token) {
+                member.fcmTokens.forEach((token) => {
+                    if (token && typeof token === 'string' && !tokenToMemberMap[token]) {
                         tokens.push(token);
                         tokenToMemberMap[token] = memberId;
                     }
                 });
-            } else if (member.fcmToken) {
-                // Old single-device format (backward compatibility)
-                tokens.push(member.fcmToken);
-                tokenToMemberMap[member.fcmToken] = memberId;
-            }
-        });
-
-        if (tokens.length === 0) {
-            console.log('No tokens to send to');
-            return null;
-        }
-
-        console.log(`Sending notification to ${tokens.length} device(s)`);
-
-        // Create notification payload
-        const payload = {
-            notification: {
-                title: `💬 ${teamName}`,
-                body: `${message.senderName || message.userId?.substring(0, 8) || 'Someone'}: ${message.text || 'New message'}`
-            },
-            data: {
-                teamId: teamId,
-                messageId: event.params.messageId,
-                type: 'chat_message'
-            }
-        };
-
-        // Send notification to all tokens
-        const response = await getMessaging().sendEachForMulticast({
-            tokens: tokens,
-            notification: payload.notification,
-            data: payload.data,
-            android: {
-                notification: {
-                    icon: 'notification_icon',
-                    sound: 'default'
+            } else if (member.fcmToken && typeof member.fcmToken === 'string') {
+                // Legacy single-token field
+                if (!tokenToMemberMap[member.fcmToken]) {
+                    tokens.push(member.fcmToken);
+                    tokenToMemberMap[member.fcmToken] = memberId;
                 }
             }
         });
 
-        console.log(`Notification sent. Success: ${response.successCount}, Failure: ${response.failureCount}`);
+        console.log(
+            `[sendChatNotification] Members=${memberCount}, skippedSender=${skippedSender}, tokens=${tokens.length}`
+        );
 
-        // Clean up invalid tokens
+        if (tokens.length === 0) {
+            console.log('[sendChatNotification] No tokens to send to — ensure each device opened Chat once');
+            return null;
+        }
+
+        const title = `💬 ${teamName}`;
+        const body = `${senderLabel}: ${textPreview}`.substring(0, 180);
+
+        // FCM multicast (max 500 tokens per call; team chat is far smaller)
+        const response = await getMessaging().sendEachForMulticast({
+            tokens,
+            notification: {
+                title,
+                body
+            },
+            data: {
+                teamId: String(teamId),
+                messageId: String(messageId),
+                type: 'chat_message'
+            },
+            android: {
+                priority: 'high',
+                notification: {
+                    sound: 'default',
+                    channelId: 'general'
+                }
+            },
+            apns: {
+                headers: {
+                    'apns-priority': '10'
+                },
+                payload: {
+                    aps: {
+                        alert: {
+                            title,
+                            body
+                        },
+                        sound: 'default',
+                        badge: 1
+                    }
+                }
+            }
+        });
+
+        console.log(
+            `[sendChatNotification] Sent. Success=${response.successCount}, Failure=${response.failureCount}`
+        );
+
+        // Clean up invalid / unregistered tokens only (not transient / config errors)
         const failedTokens = [];
         response.responses.forEach((resp, idx) => {
             if (!resp.success) {
-                console.error('Failure sending to', tokens[idx], resp.error);
-                // Remove invalid tokens
-                if (resp.error?.code === 'messaging/invalid-registration-token' ||
-                    resp.error?.code === 'messaging/registration-token-not-registered') {
+                const code = resp.error?.code || 'unknown';
+                const msg = resp.error?.message || '';
+                console.error('[sendChatNotification] Failure for token', tokens[idx]?.substring(0, 12), code, msg);
+
+                // APNs key/cert missing or invalid in Firebase Console → iOS delivery always fails.
+                if (code === 'messaging/third-party-auth-error') {
+                    console.error(
+                        '[sendChatNotification] APNs auth failed. Upload an APNs Authentication Key (.p8) in ' +
+                        'Firebase Console → Project settings → Cloud Messaging → Apple app configuration. ' +
+                        'Development builds need a key that covers the App ID com.andrewestherhuysen.turftime.'
+                    );
+                }
+
+                if (
+                    code === 'messaging/invalid-registration-token' ||
+                    code === 'messaging/registration-token-not-registered'
+                ) {
                     failedTokens.push(tokens[idx]);
                 }
             }
         });
 
-        // Remove invalid tokens from Firestore
-        if (failedTokens.length > 0) {
-            console.log(`Cleaning up ${failedTokens.length} invalid token(s)`);
-
-            const batch = getFirestore().batch();
-
-            // Group failed tokens by member
-            const memberTokensToRemove = {};
-            failedTokens.forEach(token => {
-                const memberId = tokenToMemberMap[token];
-                if (memberId) {
-                    if (!memberTokensToRemove[memberId]) {
-                        memberTokensToRemove[memberId] = [];
-                    }
-                    memberTokensToRemove[memberId].push(token);
-                }
-            });
-
-            // Update each member document
-            for (const [memberId, tokensToRemove] of Object.entries(memberTokensToRemove)) {
-                const memberRef = getFirestore()
-                    .collection('teams')
-                    .doc(teamId)
-                    .collection('members')
-                    .doc(memberId);
-
-                const memberDoc = await memberRef.get();
-                const memberData = memberDoc.data();
-
-                if (memberData.fcmTokens && Array.isArray(memberData.fcmTokens)) {
-                    // Remove invalid tokens from array
-                    const updatedTokens = memberData.fcmTokens.filter(t => !tokensToRemove.includes(t));
-                    batch.update(memberRef, { fcmTokens: updatedTokens });
-                } else if (memberData.fcmToken && tokensToRemove.includes(memberData.fcmToken)) {
-                    // Old format - remove the single token
-                    batch.update(memberRef, { fcmToken: getFirestore().FieldValue.delete() });
-                }
-            }
-
-            await batch.commit();
-            console.log(`✅ Cleaned up invalid tokens from ${Object.keys(memberTokensToRemove).length} member(s)`);
+        if (failedTokens.length === 0) {
+            return null;
         }
+
+        console.log(`[sendChatNotification] Cleaning up ${failedTokens.length} invalid token(s)`);
+
+        const memberTokensToRemove = {};
+        failedTokens.forEach((token) => {
+            const memberId = tokenToMemberMap[token];
+            if (!memberId) return;
+            if (!memberTokensToRemove[memberId]) {
+                memberTokensToRemove[memberId] = [];
+            }
+            memberTokensToRemove[memberId].push(token);
+        });
+
+        const batch = db.batch();
+        for (const [memberId, tokensToRemove] of Object.entries(memberTokensToRemove)) {
+            const memberRef = db.collection('teams').doc(teamId).collection('members').doc(memberId);
+            const memberDoc = await memberRef.get();
+            if (!memberDoc.exists) continue;
+
+            const memberData = memberDoc.data() || {};
+            if (memberData.fcmTokens && Array.isArray(memberData.fcmTokens)) {
+                const updatedTokens = memberData.fcmTokens.filter((t) => !tokensToRemove.includes(t));
+                batch.update(memberRef, { fcmTokens: updatedTokens });
+            } else if (memberData.fcmToken && tokensToRemove.includes(memberData.fcmToken)) {
+                batch.update(memberRef, { fcmToken: FieldValue.delete() });
+            }
+        }
+
+        await batch.commit();
+        console.log(
+            `[sendChatNotification] Cleaned invalid tokens from ${Object.keys(memberTokensToRemove).length} member(s)`
+        );
 
         return null;
     } catch (error) {
-        console.error('Error sending notification:', error);
+        console.error('[sendChatNotification] Error sending notification:', error);
         return null;
     }
 });
 
-// Log when function is ready
 console.log('💬 Chat notification function loaded successfully (2nd Gen)');
 
 /**
  * Callable function: requestAdminCodeEmail
- * 
- * Called by a team creator to trigger an email with their admin recovery code.
+ *
+ * Called by a team creator to trigger an email with their admin recovery reminder.
  * The plain-text admin code is NEVER stored in Firestore — only its SHA-256 hash is.
- * This function therefore cannot email the code directly; instead it emails the
- * team metadata (Team ID + Team Name) so the creator knows which team they own,
- * and reminds them that the admin code was shown only once at creation time.
- * 
- * If you integrate a transactional email provider (e.g. SendGrid via Firebase Extensions
- * or a custom SMTP relay) you can extend this function to deliver the reminder email.
- * 
+ *
  * Request payload: { teamId: string }
  * Returns: { status: "sent" | "not_found" | "error", teamName?: string }
  */
@@ -213,13 +276,11 @@ exports.requestAdminCodeEmail = onCall(async (request) => {
         console.log(`[requestAdminCodeEmail] Recovery reminder requested for team ${teamId} (${teamName}) by uid ${createdBy}`);
 
         if (!creatorEmail) {
-            // No email registered — return success anyway so app doesn't alarm the user
             console.log(`[requestAdminCodeEmail] No creatorEmail stored for team ${teamId} — skipping email`);
             return { status: 'sent', teamName };
         }
 
         // Write to the 'mail' collection — requires the Firebase "Trigger Email" extension
-        // https://extensions.dev/extensions/firebase/firestore-send-email
         await db.collection('mail').add({
             to: creatorEmail,
             message: {
@@ -247,7 +308,6 @@ exports.requestAdminCodeEmail = onCall(async (request) => {
 
         console.log(`[requestAdminCodeEmail] Mail document created for ${creatorEmail}`);
         return { status: 'sent', teamName };
-
     } catch (error) {
         console.error('[requestAdminCodeEmail] Error:', error);
         throw new HttpsError('internal', 'Could not process request.');

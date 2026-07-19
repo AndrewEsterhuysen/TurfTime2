@@ -16,17 +16,12 @@
 			android:name="firebase_crashlytics_collection_enabled"
 			android:value="false" />
 
-		<!-- Firebase Cloud Messaging - also removes the CrashlyticsRegistrar injected by the native AAR -->
-		<service
-			android:name="com.google.firebase.messaging.FirebaseMessagingService"
-			android:exported="false">
-			<intent-filter>
-				<action android:name="com.google.firebase.MESSAGING_EVENT" />
-			</intent-filter>
-			<meta-data
-				android:name="com.google.firebase.components:com.google.firebase.crashlytics.CrashlyticsRegistrar"
-				tools:node="remove" />
-		</service>
+		<!-- Do NOT declare base FirebaseMessagingService here — it steals MESSAGING_EVENT from
+		     Plugin.Firebase.CloudMessaging's MyFirebaseMessagingService (merged via the NuGet AAR).
+		     Only strip Crashlytics registrar and set default notification presentation. -->
+		<meta-data
+			android:name="com.google.firebase.components:com.google.firebase.crashlytics.CrashlyticsRegistrar"
+			tools:node="remove" />
 
 		<meta-data
 			android:name="com.google.firebase.messaging.default_notification_icon"
@@ -35,6 +30,10 @@
 		<meta-data
 			android:name="com.google.firebase.messaging.default_notification_color"
 			android:resource="@android:color/holo_blue_light" />
+
+		<meta-data
+			android:name="com.google.firebase.messaging.default_notification_channel_id"
+			android:value="general" />
 
 		
 	</application>
@@ -49,6 +48,7 @@
 	<uses-permission android:name="android.permission.WAKE_LOCK" />
 	<uses-permission android:name="android.permission.VIBRATE" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
 	<uses-permission android:name="android.permission.CAMERA" />
 
 	<!-- Feature Declarations -->

@@ -4,6 +4,8 @@ namespace TurfTime2;
 
 public partial class ChatPage : ContentPage
 {
+	private int _fcmRegisterInFlight;
+
 	public ChatPage()
 	{
 		InitializeComponent();
@@ -74,6 +76,8 @@ public partial class ChatPage : ContentPage
 		{
 			Html = GetChatHtml(teamId)
 		};
+		// Avoid stacking handlers each time OnAppearing rebuilds the page.
+		ChatWebView.Navigated -= OnChatWebViewNavigated;
 		ChatWebView.Navigated += OnChatWebViewNavigated;
 		ChatWebView.Source = htmlSource;
 		ApplyThemeToInputBar();
@@ -81,21 +85,156 @@ public partial class ChatPage : ContentPage
 
 	private void OnChatWebViewNavigated(object? sender, WebNavigatedEventArgs e)
 	{
-		// Register this page as the JS token-save path once auth is ready.
-		// Delay slightly to let the anonymous auth complete before calling saveFcmToken.
+		// Preferred path: save FCM tokens via the WebView's authenticated Firebase session.
+		// REST fallback cannot work — Preferences "user_id" is never set for chat auth.
 		Services.FcmService.SaveTokenViaJs = async (token) =>
 		{
-			await Task.Delay(1500); // allow Firebase auth to complete
-			await SaveFcmTokenAsync(token);
+			await MainThread.InvokeOnMainThreadAsync(async () =>
+			{
+				await SaveFcmTokenAsync(token);
+			});
 		};
 
-		// If we already have a token, save it now that the WebView is loaded.
-		Task.Run(async () =>
+		// Register (or re-register) this device's FCM token after chat auth is ready.
+		_ = RegisterFcmTokenWhenChatReadyAsync();
+	}
+
+	/// <summary>
+	/// Waits for WebView Firebase anonymous auth, then writes the native FCM token
+	/// onto teams/{teamId}/members/{chatUid}.fcmTokens so Cloud Functions can push.
+	/// Primary path: C# REST PATCH using the chat user's ID token (reliable).
+	/// Secondary path: JS arrayUnion (legacy / backup).
+	/// </summary>
+	private async Task RegisterFcmTokenWhenChatReadyAsync()
+	{
+		if (System.Threading.Interlocked.CompareExchange(ref _fcmRegisterInFlight, 1, 0) != 0)
+			return;
+
+		try
 		{
+			var teamId = Preferences.Get("team_id", string.Empty);
+			if (string.IsNullOrEmpty(teamId) || teamId.StartsWith("local_", StringComparison.Ordinal))
+			{
+				System.Diagnostics.Debug.WriteLine("[Chat] Skip FCM register — no shared team");
+				return;
+			}
+
+			// Ensure native FCM is initialized (token + permission) before we try to save.
+			var fcmOk = await Services.FcmService.Instance.InitializeAsync();
 			var token = await Services.FcmService.Instance.GetTokenAsync();
-			if (!string.IsNullOrEmpty(token))
-				await Services.FcmService.Instance.UpdateTokenInFirestoreAsync(token);
-		});
+			if (string.IsNullOrEmpty(token))
+			{
+				System.Diagnostics.Debug.WriteLine($"[Chat] ⚠️ No FCM token (initOk={fcmOk}) — cannot register for push");
+				return;
+			}
+
+			System.Diagnostics.Debug.WriteLine($"[Chat] Native FCM token ready: {token.Substring(0, Math.Min(16, token.Length))}…");
+
+			// Poll until chat auth is ready, then save via REST with that identity.
+			for (var attempt = 1; attempt <= 20; attempt++)
+			{
+				var (uid, idToken) = await GetChatAuthCredentialsAsync();
+				if (!string.IsNullOrEmpty(uid) && !string.IsNullOrEmpty(idToken))
+				{
+					var saved = await Services.FcmService.Instance.SaveTokenWithChatAuthAsync(
+						teamId, uid, idToken, token);
+					if (saved)
+					{
+						System.Diagnostics.Debug.WriteLine($"[Chat] ✅ FCM token registered via REST on attempt {attempt} for {uid[..Math.Min(8, uid.Length)]}…");
+						// Best-effort JS mirror (keeps arrayUnion path warm)
+						await MainThread.InvokeOnMainThreadAsync(async () => await SaveFcmTokenAsync(token));
+						return;
+					}
+
+					System.Diagnostics.Debug.WriteLine($"[Chat] REST FCM save failed attempt {attempt}; will retry");
+				}
+				else
+				{
+					System.Diagnostics.Debug.WriteLine($"[Chat] Chat auth not ready attempt {attempt}");
+				}
+
+				await Task.Delay(750);
+			}
+
+			// Last resort: pure JS path
+			string? jsResult = null;
+			await MainThread.InvokeOnMainThreadAsync(async () => { jsResult = await SaveFcmTokenAsync(token); });
+			System.Diagnostics.Debug.WriteLine($"[Chat] ❌ FCM registration exhausted retries. JS last={jsResult}");
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[Chat] ❌ RegisterFcmTokenWhenChatReadyAsync: {ex.Message}");
+		}
+		finally
+		{
+			System.Threading.Interlocked.Exchange(ref _fcmRegisterInFlight, 0);
+		}
+	}
+
+	/// <summary>
+	/// Reads uid + Firebase ID token from the chat WebView auth session.
+	/// </summary>
+	private async Task<(string? Uid, string? IdToken)> GetChatAuthCredentialsAsync()
+	{
+		try
+		{
+			return await MainThread.InvokeOnMainThreadAsync(async () =>
+			{
+				// Kick async refresh; poll window.__chatAuthPayload.
+				await ChatWebView.EvaluateJavaScriptAsync(
+					"(function(){ if (typeof window.refreshChatAuthPayload==='function'){ window.refreshChatAuthPayload(); } return 'x'; })()");
+
+				for (var i = 0; i < 15; i++)
+				{
+					await Task.Delay(250);
+					var raw = await ChatWebView.EvaluateJavaScriptAsync(
+						"(function(){ return window.__chatAuthPayload || ''; })()");
+					var payload = NormalizeJsString(raw);
+					if (string.IsNullOrWhiteSpace(payload) || payload is "pending" or "null")
+						continue;
+
+					try
+					{
+						using var doc = System.Text.Json.JsonDocument.Parse(payload);
+						var uid = doc.RootElement.TryGetProperty("uid", out var u) ? u.GetString() : null;
+						var idToken = doc.RootElement.TryGetProperty("idToken", out var t) ? t.GetString() : null;
+						if (!string.IsNullOrEmpty(uid) && !string.IsNullOrEmpty(idToken))
+							return (uid, idToken);
+					}
+					catch (Exception parseEx)
+					{
+						System.Diagnostics.Debug.WriteLine($"[Chat] auth payload parse: {parseEx.Message} raw={payload[..Math.Min(80, payload.Length)]}");
+					}
+				}
+
+				return ((string?)null, (string?)null);
+			});
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[Chat] GetChatAuthCredentialsAsync: {ex.Message}");
+			return (null, null);
+		}
+	}
+
+	private static string NormalizeJsString(string? raw)
+	{
+		if (string.IsNullOrEmpty(raw))
+			return string.Empty;
+		var s = raw.Trim();
+		// WKWebView / Chromium often return JSON strings wrapped in extra quotes and escaped.
+		if (s.Length >= 2 && s[0] == '"' && s[^1] == '"')
+		{
+			try
+			{
+				s = System.Text.Json.JsonSerializer.Deserialize<string>(s) ?? s.Trim('"');
+			}
+			catch
+			{
+				s = s.Trim('"').Replace("\\\"", "\"").Replace("\\\\", "\\");
+			}
+		}
+		return s;
 	}
 
 	private void ApplyThemeToInputBar()
@@ -162,6 +301,9 @@ public partial class ChatPage : ContentPage
 		var safeSender = EscapeJavaScript(displayName);
 		await ChatWebView.EvaluateJavaScriptAsync($"sendMessage('{safeMessage}','{safeSender}')");
 
+		// Ensure this device's push token is registered (covers late FCM readiness).
+		_ = RegisterFcmTokenWhenChatReadyAsync();
+
 		// Clear input
 		MessageEntry.Text = string.Empty;
 	}
@@ -177,21 +319,64 @@ public partial class ChatPage : ContentPage
 	/// <summary>
 	/// Saves the native FCM token to Firestore via the authenticated JS Firebase session.
 	/// Must be called after the chat WebView has loaded and the user is authenticated.
+	/// Returns the JS result: "ok", "missing_params", "error", "pending", or null on failure.
 	/// </summary>
-	public async Task SaveFcmTokenAsync(string token)
+	public async Task<string?> SaveFcmTokenAsync(string token)
 	{
 		if (string.IsNullOrWhiteSpace(token))
-			return;
+			return "empty_token";
 
-		var safeToken = EscapeJavaScript(token);
+		// JSON-stringify so tokens with quotes/backslashes cannot break the JS call.
+		var tokenJson = System.Text.Json.JsonSerializer.Serialize(token);
 		try
 		{
-			var result = await ChatWebView.EvaluateJavaScriptAsync($"saveFcmToken('{safeToken}')");
-			System.Diagnostics.Debug.WriteLine($"[Chat] saveFcmToken result: {result}");
+			// 1) Queue token for auto-save when auth becomes ready (handles race).
+			// 2) Attempt immediate save if auth is already ready.
+			// 3) Use a completion flag because EvaluateJavaScriptAsync does not await JS Promises.
+			var script =
+				$"(function(){{" +
+				$"try{{" +
+				$"  window.__pendingFcmToken = {tokenJson};" +
+				$"  window.__fcmSaveResult = 'pending';" +
+				$"  if (typeof window.saveFcmToken === 'function') {{" +
+				$"    Promise.resolve(window.saveFcmToken(window.__pendingFcmToken))" +
+				$"      .then(function(r){{ window.__fcmSaveResult = r || 'ok'; }})" +
+				$"      .catch(function(e){{ window.__fcmSaveResult = 'error'; console.error('[Chat] saveFcmToken', e); }});" +
+				$"    return 'started';" +
+				$"  }}" +
+				$"  return 'no_fn';" +
+				$"}}catch(e){{ window.__fcmSaveResult = 'error'; return 'throw'; }}" +
+				$"}})()";
+
+			var started = await ChatWebView.EvaluateJavaScriptAsync(script);
+			System.Diagnostics.Debug.WriteLine($"[Chat] saveFcmToken start: {started}");
+
+			// Poll for async JS completion (max ~4s).
+			for (var i = 0; i < 20; i++)
+			{
+				await Task.Delay(200);
+				var result = await ChatWebView.EvaluateJavaScriptAsync(
+					"(function(){ return window.__fcmSaveResult || ''; })()");
+				// WebView often wraps string results in quotes.
+				var normalized = (result ?? string.Empty).Trim().Trim('"', '\'');
+				if (normalized is "ok" or "missing_params" or "error" or "empty")
+				{
+					System.Diagnostics.Debug.WriteLine($"[Chat] saveFcmToken result: {normalized}");
+					return normalized;
+				}
+			}
+
+			// Auth may still be starting — pending token will flush in onAuthStateChanged.
+			var pending = await ChatWebView.EvaluateJavaScriptAsync(
+				"(function(){ return window.__fcmSaveResult || 'pending'; })()");
+			var pendingNorm = (pending ?? "pending").Trim().Trim('"', '\'');
+			System.Diagnostics.Debug.WriteLine($"[Chat] saveFcmToken still: {pendingNorm}");
+			return pendingNorm;
 		}
 		catch (Exception ex)
 		{
 			System.Diagnostics.Debug.WriteLine($"[Chat] ❌ SaveFcmTokenAsync error: {ex.Message}");
+			return "error";
 		}
 	}
 
@@ -362,14 +547,14 @@ public partial class ChatPage : ContentPage
 		import {{ getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, getDocs, doc, getDoc, updateDoc, setDoc, arrayUnion }} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 		import {{ getAuth, signInAnonymously, onAuthStateChanged }} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
+		// Must match Firebase project turf-timer apps (project number 846410659178).
 		const firebaseConfig = {{
 			apiKey: 'AIzaSyDAKivCFX5kYYZ6SkAQluBNdR92I320glk',
 			authDomain: 'turf-timer.firebaseapp.com',
 			projectId: 'turf-timer',
 			storageBucket: 'turf-timer.firebasestorage.app',
-			messagingSenderId: '1046768934531',
-			appId: '1:1046768934531:web:02ee36e7e02f2b90b39e0e',
-			measurementId: 'G-PHVV7HVYPY'
+			messagingSenderId: '846410659178',
+			appId: '1:846410659178:web:f26efa105cf06cd241a113'
 		}};
 
 		const TEAM_ID = '{safeTeamId}';
@@ -415,13 +600,49 @@ public partial class ChatPage : ContentPage
 			}}
 		}}
 
+		// Expose uid + ID token for C# REST FCM registration (avoids WebView Promise races).
+		window.__chatAuthPayload = '';
+		window.refreshChatAuthPayload = async function() {{
+			try {{
+				window.__chatAuthPayload = 'pending';
+				const u = auth.currentUser;
+				if (!u) {{
+					window.__chatAuthPayload = '';
+					return 'no_user';
+				}}
+				const idToken = await u.getIdToken(/* forceRefresh */ false);
+				window.__chatAuthPayload = JSON.stringify({{ uid: u.uid, idToken: idToken }});
+				return 'ok';
+			}} catch (e) {{
+				console.error('[Chat] refreshChatAuthPayload', e);
+				window.__chatAuthPayload = '';
+				return 'error';
+			}}
+		}};
+
 		// Wait for Firebase to restore the persisted anonymous user from IndexedDB before
 		// calling signInAnonymously. Calling it eagerly races with IndexedDB restoration and
 		// produces a NEW uid on each page reload, breaking the own/other comparison.
 		onAuthStateChanged(auth, async (user) => {{
 			if (user) {{
 				currentUserId = user.uid;
+				window.__chatAuthReady = true;
+				window.__chatUserId = currentUserId;
 				console.log('[Chat] ✅ User authenticated:', currentUserId.substring(0, 8) + '...');
+				try {{ await window.refreshChatAuthPayload(); }} catch (_) {{}}
+
+				// If C# already injected an FCM token before auth finished, save it now.
+				if (window.__pendingFcmToken) {{
+					try {{
+						const r = await window.saveFcmToken(window.__pendingFcmToken);
+						window.__fcmSaveResult = r || 'ok';
+						console.log('[Chat] FCM token saved after auth:', window.__fcmSaveResult);
+					}} catch (err) {{
+						window.__fcmSaveResult = 'error';
+						console.error('[Chat] FCM token save after auth failed:', err);
+					}}
+				}}
+
 				if (!window._chatListenerStarted) {{
 					window._chatListenerStarted = true;
 					await loadMemberNames();
@@ -432,6 +653,8 @@ public partial class ChatPage : ContentPage
 					startChatListener();
 				}}
 			}} else {{
+				window.__chatAuthReady = false;
+				window.__chatAuthPayload = '';
 				// No persisted user — sign in anonymously once
 				console.log('[Chat] No existing user, signing in anonymously...');
 				signInAnonymously(auth).catch(err => console.error('[Chat] ❌ Auth error:', err));
@@ -547,10 +770,17 @@ public partial class ChatPage : ContentPage
 		}};
 
 		// Save FCM token to Firestore under the authenticated user's member document
-		// Called from C# after the native FCM token is acquired
+		// Called from C# after the native FCM token is acquired (or auto after auth if pending).
 		window.saveFcmToken = async function(token) {{
-			if (!token || !currentUserId || !TEAM_ID) {{
-				console.warn('[Chat] ⚠️ saveFcmToken: missing token, userId, or teamId');
+			if (!token) {{
+				console.warn('[Chat] ⚠️ saveFcmToken: missing token');
+				window.__fcmSaveResult = 'empty';
+				return 'empty';
+			}}
+			window.__pendingFcmToken = token;
+			if (!currentUserId || !TEAM_ID) {{
+				console.warn('[Chat] ⚠️ saveFcmToken: auth not ready yet — token queued');
+				window.__fcmSaveResult = 'missing_params';
 				return 'missing_params';
 			}}
 			try {{
@@ -559,12 +789,18 @@ public partial class ChatPage : ContentPage
 				if (memberSnap.exists()) {{
 					await updateDoc(memberRef, {{ fcmTokens: arrayUnion(token), tokenUpdatedAt: new Date().toISOString() }});
 				}} else {{
-					await setDoc(memberRef, {{ fcmTokens: [token], tokenUpdatedAt: new Date().toISOString() }}, {{ merge: true }});
+					await setDoc(memberRef, {{
+						fcmTokens: [token],
+						tokenUpdatedAt: new Date().toISOString(),
+						role: 'member'
+					}}, {{ merge: true }});
 				}}
-				console.log('[Chat] ✅ FCM token saved for user:', currentUserId.substring(0, 8));
+				console.log('[Chat] ✅ FCM token saved for user:', currentUserId.substring(0, 8), 'team:', TEAM_ID);
+				window.__fcmSaveResult = 'ok';
 				return 'ok';
 			}} catch (error) {{
 				console.error('[Chat] ❌ saveFcmToken error:', error);
+				window.__fcmSaveResult = 'error';
 				return 'error';
 			}}
 		}};
