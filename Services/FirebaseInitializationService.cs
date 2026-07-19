@@ -16,8 +16,8 @@ public class FirebaseInitializationService
     /// 
     /// NOTE: This WebView + JavaScript Firebase (JS SDK) path is OBSOLETE.
     /// The working Android app (and the intended cross-platform design) uses:
-    ///   - Plugin.Firebase (native) for Auth + CloudMessaging (FCM)
-    ///   - Direct REST calls to Firestore (authenticated via identitytoolkit anonymous sign-up)
+    ///   - Plugin.Firebase (native) for Auth + Firestore + CloudMessaging (FCM)
+    ///   - (Obsolete path) previously used WebView JS + REST; do not reintroduce.
     ///     See CloudRosterService, FcmService.UpdateTokenViaRestAsync, SessionSaveBridge, TeamDetailsPage, etc.
     /// 
     /// On iOS we short-circuit early to avoid:

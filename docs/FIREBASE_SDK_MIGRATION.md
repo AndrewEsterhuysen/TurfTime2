@@ -24,12 +24,18 @@
 
 ## Migration phases
 
-1. **Foundation** — enable Firestore in `CrossFirebaseSettings`; auth service; DI.  
-2. **Data services** — roster, sessions, FCM token writes off REST.  
-3. **Chat** — native UI + `IChatService` listeners; delete WebView JS Firebase.  
-4. **Teams** — extract `TeamDetailsPage` REST into `ICloudTeamService`.  
-5. **Cleanup** — remove Identity Toolkit REST helpers, obsolete bridges, wrong project ids (`turftime-6a97b`).  
-6. **Verify** — Android + iOS device deploy; push token on member doc; message listen.
+1. **Foundation** — enable Firestore in `CrossFirebaseSettings`; auth service; DI. ✅  
+2. **Data services** — roster, sessions, FCM token writes off REST. ✅  
+3. **Chat** — native UI + `IChatService` listeners; delete WebView JS Firebase. ✅  
+4. **Teams** — extract `TeamDetailsPage` REST into `ICloudTeamService`. ✅  
+5. **Cleanup** — bridges now delegate to SDK services (no Identity Toolkit / Firestore REST). ✅  
+6. **Verify** — Android + iOS Debug device deploy (build 2.0.0/20). ✅  
+
+### Remaining polish (optional)
+
+- Delete unused WebView Firebase JS assets under `wwwroot/js/firebase/` if nothing else references them.  
+- Exercise create/join/chat/push E2E on devices; upload APNs key for iOS push delivery.  
+- Admin email: SDK Functions callable with HTTPS callable fallback (not Firestore REST).
 
 ## Out of scope
 

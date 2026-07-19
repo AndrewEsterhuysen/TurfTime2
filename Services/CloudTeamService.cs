@@ -1,9 +1,11 @@
+using System.Text.Json;
 using Plugin.Firebase.Firestore;
+using Plugin.Firebase.Functions;
 
 namespace TurfTime2.Services;
 
 /// <summary>
-/// Shared-team create/join/metadata via Plugin.Firebase Firestore (no REST).
+/// Shared-team create/join/metadata via Plugin.Firebase Firestore (no Firestore REST).
 /// </summary>
 public sealed class CloudTeamService : ICloudTeamService
 {
@@ -32,11 +34,12 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
+            var code = inviteCode.Trim().ToUpperInvariant();
             await _db.GetDocument($"teams/{teamId}/metadata/info")
                 .SetDataAsync(new Dictionary<object, object>
                 {
                     ["teamName"] = teamName,
-                    ["inviteCode"] = inviteCode,
+                    ["inviteCode"] = code,
                     ["adminCodeHash"] = adminCodeHash,
                     ["creatorEmail"] = creatorEmail ?? "",
                     ["createdBy"] = uid,
@@ -59,7 +62,7 @@ public sealed class CloudTeamService : ICloudTeamService
 
             try
             {
-                await _db.GetDocument($"invite_codes/{inviteCode}")
+                await _db.GetDocument($"invite_codes/{code}")
                     .SetDataAsync(new Dictionary<object, object>
                     {
                         ["teamId"] = teamId,
@@ -72,7 +75,6 @@ public sealed class CloudTeamService : ICloudTeamService
                 System.Diagnostics.Debug.WriteLine($"[CloudTeam] invite lookup non-fatal: {invEx.Message}");
             }
 
-            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Created team {teamId}");
             return "success";
         }
         catch (Exception ex)
@@ -89,15 +91,19 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            var snap = await _db.GetDocument($"invite_codes/{inviteCode.Trim()}")
+            var code = inviteCode.Trim().ToUpperInvariant();
+            var snap = await _db.GetDocument($"invite_codes/{code}")
                 .GetDocumentSnapshotAsync<Dictionary<object, object>>()
                 .ConfigureAwait(false);
             var data = snap?.Data;
             if (data is null) return null;
 
+            var teamId = ReadString(data, "teamId");
+            if (string.IsNullOrEmpty(teamId)) return null;
+
             return new CloudTeamLookup
             {
-                TeamId = ReadString(data, "teamId"),
+                TeamId = teamId,
                 TeamName = ReadString(data, "teamName")
             };
         }
@@ -108,13 +114,27 @@ public sealed class CloudTeamService : ICloudTeamService
         }
     }
 
-    public async Task<bool> JoinAsMemberAsync(string teamId, string displayName)
+    public async Task<string> JoinByInviteCodeAsync(string inviteCode, string displayName)
     {
         var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
-        if (uid is null || string.IsNullOrWhiteSpace(teamId)) return false;
+        if (uid is null)
+            return "error: Could not authenticate with Firebase. Please check your internet connection.";
 
         try
         {
+            var lookup = await LookupInviteCodeAsync(inviteCode).ConfigureAwait(false);
+            if (lookup is null || string.IsNullOrEmpty(lookup.TeamId))
+                return $"error: Invite code '{inviteCode}' not found. Please check the code and try again.";
+
+            var teamId = lookup.TeamId;
+            var teamName = lookup.TeamName;
+
+            var existing = await _db.GetDocument($"teams/{teamId}/members/{uid}")
+                .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                .ConfigureAwait(false);
+            if (existing?.Data is not null)
+                return $"already_member:{teamId}:{teamName}";
+
             await _db.GetDocument($"teams/{teamId}/members/{uid}")
                 .SetDataAsync(new Dictionary<object, object>
                 {
@@ -122,26 +142,102 @@ public sealed class CloudTeamService : ICloudTeamService
                     ["displayName"] = displayName ?? "",
                     ["joinedAt"] = DateTimeOffset.UtcNow
                 }, SetOptions.Merge()).ConfigureAwait(false);
-            return true;
+
+            return $"success:{teamId}:{teamName}";
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Join: {ex.Message}");
-            return false;
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] JoinByInvite: {ex.Message}");
+            return $"error: {ex.Message}";
         }
     }
 
-    public async Task UpdateMemberDisplayNameAsync(string teamId, string displayName)
+    public async Task<string> RejoinAsAdminAsync(
+        string teamId,
+        string adminCode,
+        string displayName,
+        Func<string, string> hashAdminCode)
     {
         var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
-        if (uid is null || string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(displayName))
-            return;
+        if (uid is null)
+            return "error: Could not authenticate with Firebase. Please check your internet connection.";
 
-        await _db.GetDocument($"teams/{teamId}/members/{uid}")
-            .SetDataAsync(new Dictionary<object, object>
+        try
+        {
+            var snap = await _db.GetDocument($"teams/{teamId}/metadata/info")
+                .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                .ConfigureAwait(false);
+            var data = snap?.Data;
+            if (data is null)
+                return $"error: Team '{teamId}' not found. Check the Team ID and try again.";
+
+            var storedHash = ReadString(data, "adminCodeHash");
+            var teamName = ReadString(data, "teamName");
+            if (string.IsNullOrEmpty(storedHash))
+                return "error: This team does not have an admin recovery code configured.";
+
+            var suppliedHash = hashAdminCode(adminCode.Trim());
+            if (!string.Equals(suppliedHash, storedHash, StringComparison.OrdinalIgnoreCase))
+                return "error: Invalid admin code. Please check the code and try again.";
+
+            await _db.GetDocument($"teams/{teamId}/members/{uid}")
+                .SetDataAsync(new Dictionary<object, object>
+                {
+                    ["role"] = "admin",
+                    ["displayName"] = displayName ?? "",
+                    ["rejoinedAt"] = DateTimeOffset.UtcNow
+                }, SetOptions.Merge()).ConfigureAwait(false);
+
+            return $"success:{teamId}:{teamName}";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] RejoinAsAdmin: {ex.Message}");
+            return $"error: {ex.Message}";
+        }
+    }
+
+    public async Task<string> UpdateMemberDisplayNameAsync(string teamId, string displayName, string? roleHint = null)
+    {
+        if (string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(displayName))
+            return "error: Missing team or display name.";
+
+        var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
+        if (uid is null)
+            return "error: Could not authenticate with Firebase. Please check your internet connection.";
+
+        try
+        {
+            var name = displayName.Trim();
+            if (name.Length > 40) name = name[..40];
+
+            var doc = _db.GetDocument($"teams/{teamId}/members/{uid}");
+            var existing = await doc.GetDocumentSnapshotAsync<Dictionary<object, object>>().ConfigureAwait(false);
+
+            if (existing?.Data is not null)
             {
-                ["displayName"] = displayName.Trim()
-            }, SetOptions.Merge()).ConfigureAwait(false);
+                await doc.SetDataAsync(new Dictionary<object, object>
+                {
+                    ["displayName"] = name
+                }, SetOptions.Merge()).ConfigureAwait(false);
+            }
+            else
+            {
+                await doc.SetDataAsync(new Dictionary<object, object>
+                {
+                    ["role"] = roleHint ?? "member",
+                    ["displayName"] = name,
+                    ["joinedAt"] = DateTimeOffset.UtcNow
+                }, SetOptions.Merge()).ConfigureAwait(false);
+            }
+
+            return "success";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] UpdateDisplayName: {ex.Message}");
+            return $"error: {ex.Message}";
+        }
     }
 
     public async Task<bool> UpdateInviteCodeAsync(string teamId, string oldCode, string newCode, string teamName)
@@ -151,19 +247,24 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
+            var code = newCode.Trim().ToUpperInvariant();
             await _db.GetDocument($"teams/{teamId}/metadata/info")
                 .SetDataAsync(new Dictionary<object, object>
                 {
-                    ["inviteCode"] = newCode
+                    ["inviteCode"] = code
                 }, SetOptions.Merge()).ConfigureAwait(false);
 
             if (!string.IsNullOrEmpty(oldCode))
             {
-                try { await _db.GetDocument($"invite_codes/{oldCode}").DeleteDocumentAsync().ConfigureAwait(false); }
+                try
+                {
+                    await _db.GetDocument($"invite_codes/{oldCode.Trim().ToUpperInvariant()}")
+                        .DeleteDocumentAsync().ConfigureAwait(false);
+                }
                 catch { /* non-fatal */ }
             }
 
-            await _db.GetDocument($"invite_codes/{newCode}")
+            await _db.GetDocument($"invite_codes/{code}")
                 .SetDataAsync(new Dictionary<object, object>
                 {
                     ["teamId"] = teamId,
@@ -177,6 +278,70 @@ public sealed class CloudTeamService : ICloudTeamService
         {
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] UpdateInvite: {ex.Message}");
             return false;
+        }
+    }
+
+    public async Task<string> RequestAdminCodeEmailAsync(string teamId)
+    {
+        if (await _auth.EnsureSignedInAsync().ConfigureAwait(false) is null)
+            return "error: Could not authenticate. Please check your internet connection.";
+
+        // Prefer Plugin.Firebase.Functions when the generic CallAsync works; otherwise HTTPS callable.
+        try
+        {
+            var payload = JsonSerializer.Serialize(new { teamId });
+            var result = await CrossFirebaseFunctions.Current
+                .GetHttpsCallable("requestAdminCodeEmail")
+                .CallAsync<Dictionary<string, object>>(payload)
+                .ConfigureAwait(false);
+
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] requestAdminCodeEmail (SDK) → {result}");
+            if (result is null)
+                return await RequestAdminCodeEmailHttpFallbackAsync(teamId).ConfigureAwait(false);
+
+            string? status = null;
+            string? teamName = teamId;
+            if (result.TryGetValue("status", out var st)) status = st?.ToString();
+            if (result.TryGetValue("teamName", out var tn)) teamName = tn?.ToString() ?? teamId;
+            if (status == "not_found") return "not_found";
+            return $"success:{teamName}";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Functions callable failed, HTTP fallback: {ex.Message}");
+            return await RequestAdminCodeEmailHttpFallbackAsync(teamId).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<string> RequestAdminCodeEmailHttpFallbackAsync(string teamId)
+    {
+        try
+        {
+            var idToken = await _auth.GetIdTokenAsync().ConfigureAwait(false);
+            if (string.IsNullOrEmpty(idToken))
+                return "error: Could not authenticate.";
+
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+            var functionUrl = "https://us-central1-turf-timer.cloudfunctions.net/requestAdminCodeEmail";
+            var payload = JsonSerializer.Serialize(new { data = new { teamId } });
+            var response = await client.PostAsync(functionUrl,
+                new StringContent(payload, System.Text.Encoding.UTF8, "application/json")).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                return $"error: Server returned {(int)response.StatusCode}.";
+
+            using var doc = JsonDocument.Parse(body);
+            var result = doc.RootElement.GetProperty("result");
+            var status = result.TryGetProperty("status", out var statusEl) ? statusEl.GetString() : null;
+            if (status == "not_found") return "not_found";
+            var teamName = result.TryGetProperty("teamName", out var tnEl) ? tnEl.GetString() ?? teamId : teamId;
+            return $"success:{teamName}";
+        }
+        catch (Exception ex)
+        {
+            return $"error: {ex.Message}";
         }
     }
 

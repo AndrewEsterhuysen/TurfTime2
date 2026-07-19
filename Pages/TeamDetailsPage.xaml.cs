@@ -600,186 +600,28 @@ public partial class TeamDetailsPage : ContentPage
 		return await DownloadRosterFromFirestoreStatic(teamId);
 	}
 
-	// Static wrapper for GamePage polling
+	// Static wrapper — uses ICloudRosterService (Plugin.Firebase), not REST.
 	public static async Task<string?> DownloadRosterFromFirestoreStatic(string teamId)
 	{
 		try
 		{
-			if (!await EnsureFirebaseAuthStaticAsync()) return null;
-
-			var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
-			var rosterUrl = $"{baseUrl}/teams/{teamId}/roster/data";
-
-			System.Net.Http.HttpResponseMessage response2;
-			for (int attempt = 0; attempt < 2; attempt++)
+			var services = Application.Current?.Handler?.MauiContext?.Services;
+			var rosterSvc = services?.GetService<Services.ICloudRosterService>();
+			if (rosterSvc is null)
 			{
-				_httpClient.DefaultRequestHeaders.Authorization =
-					new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
-				response2 = await _httpClient.GetAsync(rosterUrl);
-
-				if (response2.StatusCode == System.Net.HttpStatusCode.Unauthorized && attempt == 0)
-				{
-					System.Diagnostics.Debug.WriteLine("[TeamDetails] Token expired on download, refreshing...");
-					_firebaseIdToken = null;
-					if (!await EnsureFirebaseAuthStaticAsync()) return null;
-					continue;
-				}
-
-				if (!response2.IsSuccessStatusCode)
-					return null;
-
-				var json2 = await response2.Content.ReadAsStringAsync();
-
-			// Parse Firestore document and convert to roster format
-			using var doc2 = System.Text.Json.JsonDocument.Parse(json2);
-			if (!doc2.RootElement.TryGetProperty("fields", out var fields))
+				System.Diagnostics.Debug.WriteLine("[TeamDetails] ICloudRosterService unavailable");
 				return null;
-
-			var rosterDataBuilder = new System.Text.StringBuilder();
-			rosterDataBuilder.Append("{");
-
-			// Extract lastModified
-			if (fields.TryGetProperty("lastModified", out var timestamp) &&
-				timestamp.TryGetProperty("timestampValue", out var ts))
-			{
-				rosterDataBuilder.Append($"\"lastModified\":\"{ts.GetString()}\",");
 			}
 
-			// Extract game state fields
-			if (fields.TryGetProperty("matchDurationSeconds", out var matchDuration) &&
-				matchDuration.TryGetProperty("integerValue", out var matchDurVal))
-			{
-				rosterDataBuilder.Append($"\"matchDurationSeconds\":{matchDurVal.GetString()},");
-			}
-
-			if (fields.TryGetProperty("halfDurationSeconds", out var halfDuration) &&
-				halfDuration.TryGetProperty("integerValue", out var halfDurVal))
-			{
-				rosterDataBuilder.Append($"\"halfDurationSeconds\":{halfDurVal.GetString()},");
-			}
-
-			if (fields.TryGetProperty("matchRemainingSeconds", out var matchRemaining) &&
-				matchRemaining.TryGetProperty("integerValue", out var matchRemVal))
-			{
-				rosterDataBuilder.Append($"\"matchRemainingSeconds\":{matchRemVal.GetString()},");
-			}
-
-			if (fields.TryGetProperty("currentHalf", out var currentHalf) &&
-				currentHalf.TryGetProperty("stringValue", out var currentHalfVal))
-			{
-				rosterDataBuilder.Append($"\"currentHalf\":\"{currentHalfVal.GetString()}\",");
-			}
-
-			if (fields.TryGetProperty("timerRunning", out var timerRunning) &&
-				timerRunning.TryGetProperty("booleanValue", out var timerRunningVal))
-			{
-				rosterDataBuilder.Append($"\"timerRunning\":{(timerRunningVal.GetBoolean() ? "true" : "false")},");
-			}
-
-			if (fields.TryGetProperty("countdownPreset", out var countdownPreset) &&
-				countdownPreset.TryGetProperty("integerValue", out var countdownVal))
-			{
-				rosterDataBuilder.Append($"\"countdownPreset\":{countdownVal.GetString()},");
-			}
-
-			if (fields.TryGetProperty("teamAScore", out var teamAScore) &&
-				teamAScore.TryGetProperty("integerValue", out var teamAVal))
-			{
-				rosterDataBuilder.Append($"\"teamAScore\":{teamAVal.GetString()},");
-			}
-
-			if (fields.TryGetProperty("teamBScore", out var teamBScore) &&
-				teamBScore.TryGetProperty("integerValue", out var teamBVal))
-			{
-				rosterDataBuilder.Append($"\"teamBScore\":{teamBVal.GetString()},");
-			}
-
-			// Extract players array
-			if (fields.TryGetProperty("players", out var players) &&
-				players.TryGetProperty("arrayValue", out var playersArray) &&
-				playersArray.TryGetProperty("values", out var values))
-			{
-				rosterDataBuilder.Append("\"players\":[");
-
-				bool first = true;
-				foreach (var player in values.EnumerateArray())
-				{
-					if (!first) rosterDataBuilder.Append(",");
-					first = false;
-
-					var simplePlayer = ConvertFirestorePlayerToJson(player);
-					rosterDataBuilder.Append(simplePlayer);
-				}
-
-				rosterDataBuilder.Append("]");
-			}
-			else
-			{
-				rosterDataBuilder.Append("\"players\":[]");
-			}
-
-			rosterDataBuilder.Append("}");
-
-			return rosterDataBuilder.ToString();
-			} // end for loop
-			return null;
+			var snap = await rosterSvc.LoadAsync(teamId);
+			if (snap is null) return null;
+			return System.Text.Json.JsonSerializer.Serialize(snap);
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] DownloadRosterStatic error: {ex.Message}");
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] DownloadRoster SDK: {ex.Message}");
 			return null;
 		}
-	}
-
-	private static string ConvertFirestorePlayerToJson(System.Text.Json.JsonElement firestorePlayer)
-	{
-		var playerBuilder = new System.Text.StringBuilder();
-		playerBuilder.Append("{");
-
-		if (firestorePlayer.TryGetProperty("mapValue", out var mapValue) &&
-			mapValue.TryGetProperty("fields", out var playerFields))
-		{
-			bool firstField = true;
-
-			foreach (var field in playerFields.EnumerateObject())
-			{
-				if (!firstField) playerBuilder.Append(",");
-				firstField = false;
-
-				playerBuilder.Append($"\"{field.Name}\":");
-
-				// Convert Firestore value to simple JSON value
-				var value = field.Value;
-				if (value.TryGetProperty("stringValue", out var stringVal))
-				{
-					playerBuilder.Append($"\"{stringVal.GetString()}\"");
-				}
-				else if (value.TryGetProperty("integerValue", out var intVal))
-				{
-					playerBuilder.Append(intVal.GetString());
-				}
-				else if (value.TryGetProperty("booleanValue", out var boolVal))
-				{
-					playerBuilder.Append(boolVal.GetBoolean() ? "true" : "false");
-				}
-				else if (value.TryGetProperty("doubleValue", out var doubleVal))
-				{
-					playerBuilder.Append(doubleVal.GetDouble());
-				}
-				else if (value.TryGetProperty("nullValue", out _))
-				{
-					playerBuilder.Append("null");
-				}
-				else
-				{
-					// Fallback: use empty string
-					playerBuilder.Append("\"\"");
-				}
-			}
-		}
-
-		playerBuilder.Append("}");
-		return playerBuilder.ToString();
 	}
 
 	// Delete team handler (invoked by swipe gesture)
@@ -1106,20 +948,7 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
-	#if ANDROID && DEBUG
-private static readonly HttpClient _httpClient = new HttpClient(new Xamarin.Android.Net.AndroidMessageHandler
-{
-	ServerCertificateCustomValidationCallback = (_, _, _, _) => true
-});
-#elif ANDROID
-private static readonly HttpClient _httpClient = new HttpClient(new Xamarin.Android.Net.AndroidMessageHandler());
-#else
-private static readonly HttpClient _httpClient = new HttpClient();
-#endif
-private static string? _firebaseIdToken;
 private static string? _firebaseUserId;
-private const string FirebaseApiKey = "AIzaSyDAKivCFX5kYYZ6SkAQluBNdR92I320glk";
-private const string FirebaseProjectId = "turf-timer";
 
 private static Services.ICloudTeamService? ResolveCloudTeam()
 {
@@ -1159,10 +988,6 @@ private async Task<bool> EnsureFirebaseAuthAsync()
 		return false;
 
 	_firebaseUserId = uid;
-	_firebaseIdToken = await auth.GetIdTokenAsync() ?? "";
-	// Bridges no longer need REST tokens; keep call for compatibility.
-	if (!string.IsNullOrEmpty(_firebaseIdToken))
-		FirebaseSaveBridge.SetAuthToken(_firebaseIdToken, uid);
 	return true;
 }
 
@@ -1173,9 +998,6 @@ private static async Task<bool> EnsureFirebaseAuthStaticAsync()
 	var uid = await auth.EnsureSignedInAsync();
 	if (string.IsNullOrEmpty(uid)) return false;
 	_firebaseUserId = uid;
-	_firebaseIdToken = await auth.GetIdTokenAsync() ?? "";
-	if (!string.IsNullOrEmpty(_firebaseIdToken))
-		FirebaseSaveBridge.SetAuthToken(_firebaseIdToken, uid);
 	return true;
 }
 
@@ -1456,111 +1278,34 @@ private void RegisterTeamId(string teamId)
 					}
 				}
 
-				private async Task<string> JoinTeamInFirestore(string inviteCode, string displayName)
-			{
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] JoinTeamInFirestore - invite code: {inviteCode}");
+	private async Task<string> JoinTeamInFirestore(string inviteCode, string displayName)
+	{
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] JoinTeamInFirestore (SDK) - invite code: {inviteCode}");
+		var cloud = ResolveCloudTeam();
+		if (cloud is null)
+			return "error: Cloud team service not available";
 
-		if (!await EnsureFirebaseAuthAsync())
-			return "error: Could not authenticate with Firebase. Please check your internet connection.";
-
-		try
+		var result = await cloud.JoinByInviteCodeAsync(inviteCode, displayName);
+		if (result.StartsWith("success:", StringComparison.Ordinal) ||
+		    result.StartsWith("already_member:", StringComparison.Ordinal))
 		{
-			var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
-			_httpClient.DefaultRequestHeaders.Authorization =
-				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
-
-			// 1. Look up the invite code via the flat lookup document (O(1) GET, no collectionGroup query needed)
-			var lookupUrl = $"{baseUrl}/invite_codes/{inviteCode.ToUpperInvariant()}";
-			var lookupResponse = await _httpClient.GetAsync(lookupUrl);
-
-			if (!lookupResponse.IsSuccessStatusCode)
+			var parts = result.Split(':');
+			if (parts.Length >= 2)
 			{
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Invite code not found: {inviteCode}");
-				return $"error: Invite code '{inviteCode}' not found. Please check the code and try again.";
-			}
-
-			var lookupJson = await lookupResponse.Content.ReadAsStringAsync();
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Lookup response: {lookupJson}");
-
-			// 2. Parse teamId and teamName from the lookup document
-			string? teamId = null;
-			string? teamName = null;
-
-			using var lookupDoc = System.Text.Json.JsonDocument.Parse(lookupJson);
-			if (lookupDoc.RootElement.TryGetProperty("fields", out var fields))
-			{
-				if (fields.TryGetProperty("teamId", out var tid) &&
-					tid.TryGetProperty("stringValue", out var tidVal))
-					teamId = tidVal.GetString();
-
-				if (fields.TryGetProperty("teamName", out var tn) &&
-					tn.TryGetProperty("stringValue", out var tnVal))
-					teamName = tnVal.GetString();
-			}
-
-			if (string.IsNullOrEmpty(teamId))
-				return $"error: Invite code '{inviteCode}' not found. Please check the code and try again.";
-
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Found team: {teamId} ({teamName})");
-
-			// 3. Check if already a member
-			var memberUrl = $"{baseUrl}/teams/{teamId}/members/{_firebaseUserId}";
-			var memberCheck = await _httpClient.GetAsync(memberUrl);
-
-			if (memberCheck.IsSuccessStatusCode)
-			{
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Already a member of: {teamId}");
-				return $"already_member:{teamId}:{teamName}";
-			}
-
-			// 4. Add self as member (displayName is the chat identity)
-			var addMemberUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
-			var addMemberBody = System.Text.Json.JsonSerializer.Serialize(new
-			{
-				fields = new
+				var teamId = parts[1];
+				try
 				{
-					role = new { stringValue = "member" },
-					joinedAt = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") },
-					displayName = new { stringValue = displayName }
+					var rosterData = await DownloadRosterFromFirestore(teamId);
+					if (rosterData != null)
+						Preferences.Set($"roster_{teamId}_json", rosterData);
 				}
-			});
-
-			var addMemberResponse = await _httpClient.PostAsync(addMemberUrl,
-				new StringContent(addMemberBody, System.Text.Encoding.UTF8, "application/json"));
-
-			if (!addMemberResponse.IsSuccessStatusCode)
-			{
-				var err = await addMemberResponse.Content.ReadAsStringAsync();
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Add member failed: {err}");
-				return $"error: Failed to join team: {err}";
-			}
-
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✅ Joined team: {teamId}");
-
-			// Download roster data immediately after joining
-			try
-			{
-				var rosterData = await DownloadRosterFromFirestore(teamId);
-				if (rosterData != null)
+				catch (Exception ex)
 				{
-					// Store roster in Preferences so GamePage can load it
-					Preferences.Set($"roster_{teamId}_json", rosterData);
-					System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✓ Downloaded and cached roster for {teamId}");
+					System.Diagnostics.Debug.WriteLine($"[TeamDetails] Roster download after join: {ex.Message}");
 				}
 			}
-			catch (Exception ex)
-			{
-				System.Diagnostics.Debug.WriteLine($"[TeamDetails] ⚠️ Roster download failed: {ex.Message}");
-				// Don't fail the join if roster download fails - user can still join
-			}
-
-			return $"success:{teamId}:{teamName}";
 		}
-		catch (Exception ex)
-		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] JoinTeamInFirestore error: {ex.Message}");
-			return $"error: {ex.Message}";
-		}
+		return result;
 	}
 
 	private TeamInfo? FindTeamByInviteCode(string inviteCode)
@@ -1628,209 +1373,37 @@ private void RegisterTeamId(string teamId)
 	}
 
 	/// <summary>
-	/// Calls the 'requestAdminCodeEmail' Cloud Function which sends a recovery
-	/// reminder email to the creator's registered address for the given team.
-	/// Returns "success:teamName" or "error:message" or "not_found".
+	/// Calls the 'requestAdminCodeEmail' Cloud Function (Plugin.Firebase.Functions / HTTP fallback).
 	/// </summary>
 	private async Task<string> RequestAdminCodeEmailAsync(string teamId)
 	{
-		System.Diagnostics.Debug.WriteLine($"[TeamDetails] RequestAdminCodeEmailAsync - team: {teamId}");
-
-		if (!await EnsureFirebaseAuthAsync())
-			return "error: Could not authenticate. Please check your internet connection.";
-
-		try
-		{
-			// Cloud Run callable functions are invoked via HTTPS POST
-			// URL format: https://{region}-{projectId}.cloudfunctions.net/{functionName}
-			var functionUrl = $"https://us-central1-{FirebaseProjectId}.cloudfunctions.net/requestAdminCodeEmail";
-
-			_httpClient.DefaultRequestHeaders.Authorization =
-				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
-
-			var payload = System.Text.Json.JsonSerializer.Serialize(new
-			{
-				data = new { teamId = teamId }
-			});
-
-			var response = await _httpClient.PostAsync(functionUrl,
-				new StringContent(payload, System.Text.Encoding.UTF8, "application/json"));
-
-			var responseBody = await response.Content.ReadAsStringAsync();
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Cloud Function response: {response.StatusCode} - {responseBody}");
-
-			if (!response.IsSuccessStatusCode)
-				return $"error: Server returned {(int)response.StatusCode}. Check the Team ID and try again.";
-
-			using var doc = System.Text.Json.JsonDocument.Parse(responseBody);
-			var result = doc.RootElement.GetProperty("result");
-
-			var status = result.TryGetProperty("status", out var statusEl)
-				? statusEl.GetString() : null;
-
-			if (status == "not_found")
-				return "not_found";
-
-			var teamName = result.TryGetProperty("teamName", out var tnEl)
-				? tnEl.GetString() ?? teamId : teamId;
-
-			return $"success:{teamName}";
-		}
-		catch (Exception ex)
-		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] RequestAdminCodeEmailAsync error: {ex.Message}");
-			return $"error: {ex.Message}";
-		}
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] RequestAdminCodeEmailAsync (SDK) - team: {teamId}");
+		var cloud = ResolveCloudTeam();
+		if (cloud is null)
+			return "error: Cloud team service not available";
+		return await cloud.RequestAdminCodeEmailAsync(teamId);
 	}
-	/// Returns "success:teamId:teamName" on success, or an "error:..." string on failure.
-	/// </summary>
+
 	private async Task<string> RejoinAsAdminInFirestore(string teamId, string adminCode, string displayName)
 	{
-		System.Diagnostics.Debug.WriteLine($"[TeamDetails] RejoinAsAdminInFirestore - team: {teamId}");
-
-		if (!await EnsureFirebaseAuthAsync())
-			return "error: Could not authenticate with Firebase. Please check your internet connection.";
-
-		try
-		{
-			var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
-			_httpClient.DefaultRequestHeaders.Authorization =
-				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
-
-			// 1. Fetch team metadata to get the stored hash
-			var metadataUrl = $"{baseUrl}/teams/{teamId}/metadata/info";
-			var metadataResponse = await _httpClient.GetAsync(metadataUrl);
-
-			if (!metadataResponse.IsSuccessStatusCode)
-				return $"error: Team '{teamId}' not found. Check the Team ID and try again.";
-
-			var metadataJson = await metadataResponse.Content.ReadAsStringAsync();
-			using var metadataDoc = System.Text.Json.JsonDocument.Parse(metadataJson);
-
-			if (!metadataDoc.RootElement.TryGetProperty("fields", out var fields))
-				return "error: Team metadata is invalid.";
-
-			string? storedHash = null;
-			string? teamName = null;
-
-			if (fields.TryGetProperty("adminCodeHash", out var hashEl) &&
-				hashEl.TryGetProperty("stringValue", out var hashVal))
-				storedHash = hashVal.GetString();
-
-			if (fields.TryGetProperty("teamName", out var tnEl) &&
-				tnEl.TryGetProperty("stringValue", out var tnVal))
-				teamName = tnVal.GetString();
-
-			if (string.IsNullOrEmpty(storedHash))
-				return "error: This team does not have an admin recovery code configured.";
-
-			// 2. Verify code
-			var suppliedHash = HashAdminCode(adminCode.Trim());
-			if (!string.Equals(suppliedHash, storedHash, StringComparison.OrdinalIgnoreCase))
-				return "error: Invalid admin code. Please check the code and try again.";
-
-			// 3. Upsert member document with admin role + chat display name
-			var memberUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
-			var memberBody = System.Text.Json.JsonSerializer.Serialize(new
-			{
-				fields = new
-				{
-					role = new { stringValue = "admin" },
-					displayName = new { stringValue = displayName },
-					rejoinedAt = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") }
-				}
-			});
-			var memberResponse = await _httpClient.PostAsync(memberUrl,
-				new StringContent(memberBody, System.Text.Encoding.UTF8, "application/json"));
-
-			if (!memberResponse.IsSuccessStatusCode)
-			{
-				var err = await memberResponse.Content.ReadAsStringAsync();
-				return $"error: Failed to restore admin access: {err}";
-			}
-
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✅ Admin access restored for team: {teamId}");
-			return $"success:{teamId}:{teamName}";
-		}
-		catch (Exception ex)
-		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] RejoinAsAdminInFirestore error: {ex.Message}");
-			return $"error: {ex.Message}";
-		}
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] RejoinAsAdminInFirestore (SDK) - team: {teamId}");
+		var cloud = ResolveCloudTeam();
+		if (cloud is null)
+			return "error: Cloud team service not available";
+		return await cloud.RejoinAsAdminAsync(teamId, adminCode, displayName, HashAdminCode);
 	}
 
 	/// <summary>
 	/// Updates (or creates) the current user's member.displayName for a shared team.
-	/// Uses PATCH + updateMask so FCM tokens and role are not wiped.
+	/// Merge write preserves fcmTokens and role.
 	/// </summary>
 	private async Task<string> UpdateMemberDisplayNameInFirestore(string teamId, string displayName)
 	{
-		if (string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(displayName))
-			return "error: Missing team or display name.";
-
-		if (!await EnsureFirebaseAuthAsync())
-			return "error: Could not authenticate with Firebase. Please check your internet connection.";
-
-		try
-		{
-			var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
-			_httpClient.DefaultRequestHeaders.Authorization =
-				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
-
-			var memberPath = $"{baseUrl}/teams/{teamId}/members/{_firebaseUserId}";
-			var getResponse = await _httpClient.GetAsync(memberPath);
-
-			if (getResponse.IsSuccessStatusCode)
-			{
-				// Patch only displayName so fcmTokens/role remain intact
-				var patchUrl = $"{memberPath}?updateMask.fieldPaths=displayName";
-				var patchBody = System.Text.Json.JsonSerializer.Serialize(new
-				{
-					fields = new
-					{
-						displayName = new { stringValue = displayName }
-					}
-				});
-				var patchResponse = await _httpClient.PatchAsync(patchUrl,
-					new StringContent(patchBody, System.Text.Encoding.UTF8, "application/json"));
-				if (!patchResponse.IsSuccessStatusCode)
-				{
-					var err = await patchResponse.Content.ReadAsStringAsync();
-					System.Diagnostics.Debug.WriteLine($"[TeamDetails] displayName patch failed: {err}");
-					return $"error: {err}";
-				}
-			}
-			else
-			{
-				// Member doc missing (edge case) — create with member role
-				var createUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
-				var createBody = System.Text.Json.JsonSerializer.Serialize(new
-				{
-					fields = new
-					{
-						role = new { stringValue = Preferences.Get(USER_ROLE_KEY, "member") },
-						displayName = new { stringValue = displayName },
-						joinedAt = new { timestampValue = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") }
-					}
-				});
-				var createResponse = await _httpClient.PostAsync(createUrl,
-					new StringContent(createBody, System.Text.Encoding.UTF8, "application/json"));
-				if (!createResponse.IsSuccessStatusCode)
-				{
-					var err = await createResponse.Content.ReadAsStringAsync();
-					System.Diagnostics.Debug.WriteLine($"[TeamDetails] displayName create failed: {err}");
-					return $"error: {err}";
-				}
-			}
-
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ✅ displayName updated for {teamId}");
-			return "success";
-		}
-		catch (Exception ex)
-		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] UpdateMemberDisplayNameInFirestore error: {ex.Message}");
-			return $"error: {ex.Message}";
-		}
+		var cloud = ResolveCloudTeam();
+		if (cloud is null)
+			return "error: Cloud team service not available";
+		return await cloud.UpdateMemberDisplayNameAsync(
+			teamId, displayName, Preferences.Get(USER_ROLE_KEY, "member"));
 	}
 
 	private async void OnSetLocalTeamClicked(object sender, EventArgs e)
@@ -1951,49 +1524,18 @@ private void RegisterTeamId(string teamId)
 		Preferences.Set($"{teamId}_invite_code", newCode);
 		LoadInviteCode();
 
-		// Sync to Firestore in the background (non-blocking)
+		// Sync to Firestore in the background (Plugin.Firebase — non-blocking)
 		_ = Task.Run(async () =>
 		{
 			try
 			{
-				if (!await EnsureFirebaseAuthAsync()) return;
-
-				var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
-				_httpClient.DefaultRequestHeaders.Authorization =
-					new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
-
-				// 1. Update the team metadata document with the new invite code
-				var metadataUrl = $"{baseUrl}/teams/{teamId}/metadata/info?updateMask.fieldPaths=inviteCode";
-				var metadataBody = System.Text.Json.JsonSerializer.Serialize(new
-				{
-					fields = new { inviteCode = new { stringValue = newCode } }
-				});
-				await _httpClient.PatchAsync(metadataUrl,
-					new StringContent(metadataBody, System.Text.Encoding.UTF8, "application/json"));
-				System.Diagnostics.Debug.WriteLine("[Firebase] Team metadata updated with new invite code");
-
-				// 2. Delete the old invite_codes lookup document (best-effort)
-				if (!string.IsNullOrEmpty(oldCode))
-				{
-					await _httpClient.DeleteAsync($"{baseUrl}/invite_codes/{oldCode}");
-					System.Diagnostics.Debug.WriteLine($"[Firebase] Old invite code lookup deleted: {oldCode}");
-				}
-
-				// 3. Create the new invite_codes lookup document
-				var inviteCodeLookupUrl = $"{baseUrl}/invite_codes?documentId={newCode}";
+				var cloud = ResolveCloudTeam();
+				if (cloud is null) return;
 				var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
-				var lookupBody = System.Text.Json.JsonSerializer.Serialize(new
-				{
-					fields = new
-					{
-						teamId = new { stringValue = teamId },
-						teamName = new { stringValue = teamName },
-						createdBy = new { stringValue = _firebaseUserId }
-					}
-				});
-				await _httpClient.PostAsync(inviteCodeLookupUrl,
-					new StringContent(lookupBody, System.Text.Encoding.UTF8, "application/json"));
-				System.Diagnostics.Debug.WriteLine($"[Firebase] New invite code lookup created: {newCode}");
+				var ok = await cloud.UpdateInviteCodeAsync(teamId, oldCode, newCode, teamName);
+				System.Diagnostics.Debug.WriteLine(ok
+					? $"[Firebase] Invite code synced via SDK: {newCode}"
+					: "[Firebase] Invite code sync failed (non-fatal)");
 			}
 			catch (Exception ex)
 			{

@@ -15,11 +15,22 @@ public interface ICloudTeamService
 
     Task<CloudTeamLookup?> LookupInviteCodeAsync(string inviteCode);
 
-    Task<bool> JoinAsMemberAsync(string teamId, string displayName);
+    /// <summary>
+    /// Join via invite code. Returns success:teamId:teamName, already_member:…, or error:…
+    /// </summary>
+    Task<string> JoinByInviteCodeAsync(string inviteCode, string displayName);
 
-    Task UpdateMemberDisplayNameAsync(string teamId, string displayName);
+    /// <summary>
+    /// Rejoin as admin with recovery code. Returns success:teamId:teamName or error:…
+    /// </summary>
+    Task<string> RejoinAsAdminAsync(string teamId, string adminCode, string displayName, Func<string, string> hashAdminCode);
+
+    Task<string> UpdateMemberDisplayNameAsync(string teamId, string displayName, string? roleHint = null);
 
     Task<bool> UpdateInviteCodeAsync(string teamId, string oldCode, string newCode, string teamName);
+
+    /// <summary>Calls Cloud Function requestAdminCodeEmail. Returns success:teamName, not_found, or error:…</summary>
+    Task<string> RequestAdminCodeEmailAsync(string teamId);
 }
 
 public sealed class CloudTeamLookup
