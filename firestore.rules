@@ -1,0 +1,127 @@
+rules_version = '2';
+
+// Turf Time — Firestore security rules (aligned with Plugin.Firebase client paths)
+// Deploy: firebase deploy --only firestore:rules --project turf-timer
+//
+// Model:
+//   teams/{teamId}/metadata/info
+//   teams/{teamId}/members/{uid}
+//   teams/{teamId}/roster/data
+//   teams/{teamId}/messages/{messageId}
+//   teams/{teamId}/sessions/{sessionId}
+//   teams/{teamId}/public/invite     (join reverse-lookup under team tree)
+//   invite_codes/{code}             (O(1) join lookup)
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isTeamMember(teamId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
+
+    function isTeamAdmin(teamId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // O(1) invite lookup (root collection)
+    match /invite_codes/{inviteCode} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(['teamId', 'teamName', 'createdBy'])
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if signedIn()
+        && resource.data.createdBy == request.auth.uid;
+    }
+
+    // Team metadata — any signed-in user may create a new team; only admin updates
+    match /teams/{teamId}/metadata/info {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if isTeamAdmin(teamId);
+    }
+
+    // Optional public invite doc under the team (for collection-group join)
+    match /teams/{teamId}/public/{docId} {
+      allow read: if signedIn();
+      // Creator may write while bootstrapping the team (before membership is readable everywhere)
+      allow create, update: if signedIn()
+        && (
+          isTeamAdmin(teamId)
+          || request.resource.data.createdBy == request.auth.uid
+        );
+      allow delete: if isTeamAdmin(teamId);
+    }
+
+    // Members
+    match /teams/{teamId}/members/{userId} {
+      allow read: if isTeamMember(teamId)
+        || (signedIn() && request.auth.uid == userId);
+
+      // Self join / self create (new team admin or invite join)
+      allow create: if signedIn() && request.auth.uid == userId;
+
+      // Admins manage members; users may update their own profile/token fields
+      allow update: if isTeamAdmin(teamId)
+        || (
+          signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['displayName', 'fcmTokens', 'tokenUpdatedAt', 'joinedAt', 'rejoinedAt'])
+        );
+
+      allow delete: if isTeamAdmin(teamId)
+        || (signedIn() && request.auth.uid == userId);
+    }
+
+    // Roster
+    match /teams/{teamId}/roster/data {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    // Chat messages
+    match /teams/{teamId}/messages/{messageId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 500;
+      allow update, delete: if false;
+    }
+
+    // Game sessions (reports)
+    match /teams/{teamId}/sessions/{sessionId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn();
+      allow delete: if isTeamAdmin(teamId);
+    }
+
+    // Game logs
+    match /teams/{teamId}/logs/{logId} {
+      allow read, write: if isTeamMember(teamId);
+    }
+
+    // Legacy paths
+    match /rosters/{userId}/{document=**} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /logs/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /messages/{messageId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 500;
+    }
+  }
+}

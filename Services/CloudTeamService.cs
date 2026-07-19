@@ -112,8 +112,32 @@ public sealed class CloudTeamService : ICloudTeamService
         if (string.IsNullOrEmpty(code)) return null;
         var compact = CompactInviteCode(code);
 
-        // 1) Primary: teams/{teamId}/public/invite — under teams/ (same rules as team data)
-        //    Collection-group query on "public" where inviteCode == code
+        // 1) Root invite_codes/{id} — production rules allow read/create for signed-in users
+        try
+        {
+            foreach (var docId in InviteCodeDocumentIds(code))
+            {
+                var snap = await _db.GetDocument($"invite_codes/{docId}")
+                    .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                    .ConfigureAwait(false);
+                var data = snap?.Data;
+                if (data is null) continue;
+                var teamId = ReadString(data, "teamId");
+                if (string.IsNullOrEmpty(teamId)) continue;
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup hit invite_codes/{docId} → {teamId}");
+                return new CloudTeamLookup
+                {
+                    TeamId = teamId,
+                    TeamName = ReadString(data, "teamName")
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup invite_codes: {ex.Message}");
+        }
+
+        // 2) teams/.../public/invite via collection-group (after rules allow public/*)
         try
         {
             foreach (var fieldValue in new[] { code, compact }.Distinct(StringComparer.Ordinal))
@@ -139,7 +163,7 @@ public sealed class CloudTeamService : ICloudTeamService
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup public CG: {ex.Message}");
         }
 
-        // 2) Fallback: metadata collection-group on inviteCode
+        // 3) metadata.inviteCode collection-group
         try
         {
             var querySnap = await _db.GetCollectionGroup("metadata")
@@ -165,31 +189,6 @@ public sealed class CloudTeamService : ICloudTeamService
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup metadata CG: {ex.Message}");
-        }
-
-        // 3) Legacy root invite_codes/{id} (if rules allow)
-        try
-        {
-            foreach (var docId in InviteCodeDocumentIds(code))
-            {
-                var snap = await _db.GetDocument($"invite_codes/{docId}")
-                    .GetDocumentSnapshotAsync<Dictionary<object, object>>()
-                    .ConfigureAwait(false);
-                var data = snap?.Data;
-                if (data is null) continue;
-                var teamId = ReadString(data, "teamId");
-                if (string.IsNullOrEmpty(teamId)) continue;
-                System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup hit invite_codes/{docId} → {teamId}");
-                return new CloudTeamLookup
-                {
-                    TeamId = teamId,
-                    TeamName = ReadString(data, "teamName")
-                };
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup invite_codes: {ex.Message}");
         }
 
         System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup miss for invite code '{code}'");
@@ -223,9 +222,9 @@ public sealed class CloudTeamService : ICloudTeamService
     }
 
     /// <summary>
-    /// Writes join indexes in locations most likely allowed by typical team rules:
-    /// 1) teams/{teamId}/public/invite  (under teams/)
-    /// 2) invite_codes/{compact}        (legacy root; best-effort)
+    /// Writes join indexes. Root <c>invite_codes</c> is allowed by production rules
+    /// (create if signed in). <c>teams/.../public/invite</c> is optional until rules include it.
+    /// Neither path may fail team create if the other succeeds.
     /// </summary>
     private async Task UpsertInviteCodeLookupAsync(string code, string teamId, string teamName, string createdBy)
     {
@@ -239,13 +238,10 @@ public sealed class CloudTeamService : ICloudTeamService
             ["createdBy"] = createdBy ?? ""
         };
 
-        // 1) Under teams/ — primary (same security tree as create team)
-        await _db.GetDocument($"teams/{teamId}/public/invite")
-            .SetDataAsync(payload, SetOptions.Merge())
-            .ConfigureAwait(false);
-        System.Diagnostics.Debug.WriteLine($"[CloudTeam] Upserted teams/{teamId}/public/invite");
+        var anyOk = false;
+        Exception? last = null;
 
-        // 2) Legacy root collection — best-effort only
+        // 1) Root invite_codes — primary for O(1) join (explicit rules allow create)
         foreach (var docId in InviteCodeDocumentIds(code))
         {
             try
@@ -254,13 +250,35 @@ public sealed class CloudTeamService : ICloudTeamService
                     .SetDataAsync(payload, SetOptions.Merge())
                     .ConfigureAwait(false);
                 System.Diagnostics.Debug.WriteLine($"[CloudTeam] Upserted invite_codes/{docId}");
+                anyOk = true;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CloudTeam] invite_codes/{docId} skipped (rules?): {ex.Message}");
+                last = ex;
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] invite_codes/{docId}: {ex.Message}");
             }
         }
+
+        // 2) Under teams/ — optional (needs rules match for public/*)
+        try
+        {
+            await _db.GetDocument($"teams/{teamId}/public/invite")
+                .SetDataAsync(payload, SetOptions.Merge())
+                .ConfigureAwait(false);
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Upserted teams/{teamId}/public/invite");
+            anyOk = true;
+        }
+        catch (Exception ex)
+        {
+            last = ex;
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudTeam] teams/.../public/invite skipped: {ex.Message}");
+        }
+
+        // Join can still use metadata.inviteCode via collection-group if both index paths fail.
+        if (!anyOk && last != null)
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudTeam] No invite index written; metadata.inviteCode remains for CG lookup. Last={last.Message}");
     }
 
     /// <summary>Normalized invite codes: uppercase, keep alphanumerics and single dash form.</summary>
