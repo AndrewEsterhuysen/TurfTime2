@@ -65,6 +65,8 @@
 	<PropertyGroup Condition="'$(Configuration)' == 'Debug' and $(TargetFramework.Contains('ios'))">
 		<CodesignKey>Apple Development: Created via API (BZW4P28WC4)</CodesignKey>
 		<CodesignProvision>TurfTime Development Provisioning Profile</CodesignProvision>
+		<!-- Push: aps-environment=development -->
+		<CodesignEntitlements>Platforms/iOS/Entitlements.plist</CodesignEntitlements>
 	</PropertyGroup>
 
 	<!-- iOS Release Configuration -->
@@ -75,6 +77,8 @@
 		<ArchiveOnBuild>true</ArchiveOnBuild>
 		<MtouchLink>SdkOnly</MtouchLink>
 		<EnableSGenConc>true</EnableSGenConc>
+		<!-- Push: aps-environment=production -->
+		<CodesignEntitlements>Platforms/iOS/Entitlements.Release.plist</CodesignEntitlements>
 	</PropertyGroup>
 
 	<!-- Android Debug Configuration -->

@@ -59,5 +59,11 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Lets the app receive remote notifications (chat push) while backgrounded. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>
+

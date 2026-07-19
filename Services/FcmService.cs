@@ -64,9 +64,10 @@ public class FcmService
 
         try
         {
-            Debug.WriteLine("[FCM] 🔔 Initializing Firebase Cloud Messaging... (cross-platform path — same as working Android)");
+            Debug.WriteLine("[FCM] 🔔 Initializing Firebase Cloud Messaging...");
 
-            // Check notification permission using MAUI Permissions
+#if ANDROID
+            // Android 13+ runtime notification permission
             var status = await Permissions.CheckStatusAsync<Permissions.PostNotifications>();
 
             if (status != PermissionStatus.Granted)
@@ -76,14 +77,31 @@ public class FcmService
 
             if (status != PermissionStatus.Granted)
             {
-                Debug.WriteLine("[FCM] ❌ Notification permission denied");
+                Debug.WriteLine("[FCM] ❌ Notification permission denied (Android)");
                 return false;
             }
 
-            Debug.WriteLine("[FCM] ✅ Notification permission granted");
+            Debug.WriteLine("[FCM] ✅ Notification permission granted (Android)");
+#endif
 
-            // Get FCM token (this requires the native Firebase to have been configured successfully
-            // in MauiProgram via CrossFirebase / the GoogleService-Info.plist on iOS).
+            // iOS: CheckIfValidAsync requests UNUserNotificationCenter authorization, registers for
+            // remote notifications (system "Allow Notifications" sheet), and validates APNs readiness.
+            // Android: validates FCM registration / channel setup.
+            // Do not use Permissions.PostNotifications alone on iOS — it does not register for push
+            // and will not surface a Notifications entry under Settings → Turf Time.
+            try
+            {
+                await CrossFirebaseCloudMessaging.Current.CheckIfValidAsync();
+                Debug.WriteLine("[FCM] ✅ CheckIfValidAsync succeeded (permission + registration OK)");
+            }
+            catch (Exception validEx)
+            {
+                Debug.WriteLine($"[FCM] ❌ CheckIfValidAsync failed: {validEx.GetType().FullName}: {validEx.Message}");
+                Debug.WriteLine($"[FCM] Stack: {validEx.StackTrace}");
+                return false;
+            }
+
+            // Get FCM token (requires native Firebase + on iOS a valid APNs registration).
             _currentToken = await CrossFirebaseCloudMessaging.Current.GetTokenAsync();
             Debug.WriteLine($"[FCM] ✅ Token received: {_currentToken?.Substring(0, Math.Min(20, _currentToken?.Length ?? 0))}...");
 

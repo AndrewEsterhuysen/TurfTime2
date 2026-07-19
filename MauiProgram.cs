@@ -135,7 +135,12 @@ namespace TurfTime2
                                 isCloudMessagingEnabled: true,
                                 isCrashlyticsEnabled: false));
 
-                            System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on iOS (Crashlytics disabled)");
+                            // Required for iOS push: wires UNUserNotificationCenter + remote registration.
+                            // Without this, iOS never shows the notification permission prompt and Settings
+                            // will not offer a Notifications toggle for Turf Time.
+                            FirebaseCloudMessagingImplementation.Initialize();
+
+                            System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on iOS (Crashlytics disabled + FCM ready)");
                         }
                         catch (Exception ex)
                         {
