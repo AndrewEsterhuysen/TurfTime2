@@ -1,18 +1,40 @@
 # Android Multi-Device Deployment Script
-# Deploys to phone, emulator, or both
+# Deploys to phone, emulator, both, or an explicit adb serial.
+#
+# Usage:
+#   ./scripts/deploy/deploy-android.ps1
+#   ./scripts/deploy/deploy-android.ps1 -Target phone
+#   ./scripts/deploy/deploy-android.ps1 -Target ZY227KSJL3
+#
+# Always uninstalls first so Debug can replace a store/release-signed install.
 
 param(
-    [Parameter(Mandatory=$false)]
-    [ValidateSet("phone", "emulator", "both", "choose")]
+    [Parameter(Mandatory = $false)]
     [string]$Target = "choose"
 )
 
+$ErrorActionPreference = "Stop"
+$PackageId = "com.andrewestherhuysen.turftime"
+$Tfm = "net10.0-android"
+$Config = "Debug"
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RepoRoot = (Resolve-Path (Join-Path $ScriptDir "../..")).Path
+$ProjectFile = Join-Path $RepoRoot "TurfTime2.csproj"
+
+Set-Location $RepoRoot
+
+if (-not (Test-Path $ProjectFile)) {
+    Write-Host "ERROR: Project not found: $ProjectFile" -ForegroundColor Red
+    exit 1
+}
+
 Write-Host "=== TurfTime Android Deployment ===" -ForegroundColor Cyan
+Write-Host "Repo: $RepoRoot"
 Write-Host ""
 
-# Get list of connected devices
 Write-Host "Detecting connected devices..." -ForegroundColor Yellow
-$devices = adb devices | Select-String "device$" | ForEach-Object { ($_ -split "\s+")[0] }
+$devices = @(adb devices | Select-String "device$" | ForEach-Object { ($_ -split "\s+")[0] })
 
 if ($devices.Count -eq 0) {
     Write-Host "ERROR: No devices connected!" -ForegroundColor Red
@@ -25,17 +47,17 @@ $emulators = @()
 $phones = @()
 
 foreach ($device in $devices) {
-    if ($device -match "emulator-") {
+    if ($device -match "^emulator-") {
         $emulators += $device
         Write-Host "  [E] $device (Emulator)" -ForegroundColor Cyan
-    } else {
+    }
+    else {
         $phones += $device
         Write-Host "  [P] $device (Physical Device)" -ForegroundColor Green
     }
 }
 Write-Host ""
 
-# Determine target devices
 $targetDevices = @()
 
 if ($Target -eq "choose") {
@@ -50,37 +72,45 @@ if ($Target -eq "choose") {
         "1" { $Target = "phone" }
         "2" { $Target = "emulator" }
         "3" { $Target = "both" }
-        default { 
-            Write-Host "Invalid choice. Defaulting to both." -ForegroundColor Yellow
-            $Target = "both"
+        default {
+            Write-Host "Invalid choice. Defaulting to phone." -ForegroundColor Yellow
+            $Target = "phone"
         }
     }
 }
 
-switch ($Target) {
-    "phone" {
+switch -Regex ($Target) {
+    "^phone$" {
         if ($phones.Count -eq 0) {
             Write-Host "ERROR: No physical devices connected!" -ForegroundColor Red
             exit 1
         }
         $targetDevices = $phones
     }
-    "emulator" {
+    "^emulator$" {
         if ($emulators.Count -eq 0) {
             Write-Host "ERROR: No emulators running!" -ForegroundColor Red
             exit 1
         }
         $targetDevices = $emulators
     }
-    "both" {
+    "^both$" {
         $targetDevices = $devices
+    }
+    default {
+        if ($devices -contains $Target) {
+            $targetDevices = @($Target)
+        }
+        else {
+            Write-Host "ERROR: Unknown target '$Target' (use phone|emulator|both|SERIAL)." -ForegroundColor Red
+            exit 1
+        }
     }
 }
 
 Write-Host ""
 Write-Host "Building APK..." -ForegroundColor Yellow
-dotnet build -f net10.0-android -c Debug
-
+dotnet build $ProjectFile -f $Tfm -c $Config
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed!" -ForegroundColor Red
     exit 1
@@ -89,36 +119,56 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Build successful!" -ForegroundColor Green
 Write-Host ""
 
-# Find the APK
-$apkPath = Get-ChildItem -Path "bin\Debug\net10.0-android" -Filter "*.apk" -Recurse | Select-Object -First 1
+# Prefer the signed fat APK at the TFM root (not nested android-arm64 copies).
+$apkDir = Join-Path $RepoRoot "bin\$Config\$Tfm"
+$signedRoot = Join-Path $apkDir "$PackageId-Signed.apk"
+$unsignedRoot = Join-Path $apkDir "$PackageId.apk"
+
+if (Test-Path $signedRoot) {
+    $apkPath = Get-Item $signedRoot
+}
+elseif (Test-Path $unsignedRoot) {
+    $apkPath = Get-Item $unsignedRoot
+}
+else {
+    $apkPath = Get-ChildItem -Path $apkDir -Filter "*-Signed.apk" -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+}
 
 if (-not $apkPath) {
-    Write-Host "ERROR: APK not found!" -ForegroundColor Red
+    Write-Host "ERROR: APK not found under $apkDir" -ForegroundColor Red
     exit 1
 }
 
 Write-Host "APK: $($apkPath.FullName)" -ForegroundColor Cyan
 Write-Host ""
 
-# Deploy to each target device
 foreach ($device in $targetDevices) {
-    $deviceType = if ($device -match "emulator-") { "Emulator" } else { "Phone" }
+    $deviceType = if ($device -match "^emulator-") { "Emulator" } else { "Phone" }
     Write-Host "Deploying to $deviceType ($device)..." -ForegroundColor Yellow
 
-    # Uninstall old version (suppress errors if not installed)
-    adb -s $device uninstall com.andrewestherhuysen.turftime 2>$null
+    # Uninstall so Debug can replace release/store signature.
+    adb -s $device uninstall $PackageId 2>$null | Out-Null
 
-    # Install new version
     adb -s $device install -r $apkPath.FullName
-
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  ✓ Deployed successfully to $device" -ForegroundColor Green
 
-        # Optional: Launch app
-        Write-Host "  Launching app..." -ForegroundColor Cyan
-        adb -s $device shell am start -n com.andrewestherhuysen.turftime/crc6414c25a36c7c51ce0.MainActivity
-    } else {
+        $activity = (adb -s $device shell cmd package resolve-activity --brief $PackageId 2>$null |
+            Select-Object -Last 1).ToString().Trim()
+        if ($activity -and $activity.Contains("/")) {
+            Write-Host "  Launching $activity ..." -ForegroundColor Cyan
+            adb -s $device shell am start -n $activity | Out-Null
+        }
+        else {
+            Write-Host "  Launching via monkey ..." -ForegroundColor Cyan
+            adb -s $device shell monkey -p $PackageId -c android.intent.category.LAUNCHER 1 2>$null | Out-Null
+        }
+    }
+    else {
         Write-Host "  ✗ Deployment failed to $device" -ForegroundColor Red
+        exit 1
     }
     Write-Host ""
 }

@@ -2,23 +2,30 @@
 set -euo pipefail
 
 # Usage:
-#   ./deploy-ios-sim.sh [SimulatorNameOrUDID]
+#   ./scripts/deploy/deploy-ios-sim.sh [SimulatorNameOrUDID]
 # Examples:
-#   ./deploy-ios-sim.sh                 # use the already-booted sim, else "iPhone 17"
-#   ./deploy-ios-sim.sh "iPhone 17 Pro"
-#   ./deploy-ios-sim.sh B9111FA4-3E50-4887-BB38-D941B865389C
+#   ./scripts/deploy/deploy-ios-sim.sh                 # booted sim, else "iPhone 17"
+#   ./scripts/deploy/deploy-ios-sim.sh "iPhone 17 Pro"
+#   ./scripts/deploy/deploy-ios-sim.sh B9111FA4-3E50-4887-BB38-D941B865389C
 #
 # Note:
-# The combined `dotnet build -t:Run` one-liner fails on a clean tree with
-# "The app must be built before the arguments ... can be computed" because no
-# simulator .app exists yet. So we build first, then install + launch via simctl
-# (the same build-then-run split the device deploy uses).
+# Combined `dotnet build -t:Run` can fail on a clean tree because no simulator
+# .app exists yet. Build first, then install + launch via simctl.
 
 TARGET="${1:-}"
 RID="iossimulator-arm64"
 TFM="net10.0-ios"
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT_DIR"
+CONFIG="Debug"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_FILE="$REPO_ROOT/TurfTime2.csproj"
+
+cd "$REPO_ROOT"
+
+if [[ ! -f "$PROJECT_FILE" ]]; then
+  echo "ERROR: Project not found: $PROJECT_FILE" >&2
+  exit 1
+fi
 
 # --- Resolve a simulator UDID -------------------------------------------------
 booted_udid="$(xcrun simctl list devices booted -j | /usr/bin/python3 -c \
@@ -33,7 +40,6 @@ if [[ -z "$TARGET" ]]; then
 fi
 
 if [[ -z "${UDID:-}" ]]; then
-  # Treat TARGET as a UDID if it looks like one, otherwise resolve by name.
   if [[ "$TARGET" =~ ^[0-9A-Fa-f-]{36}$ ]]; then
     UDID="$TARGET"
   else
@@ -49,7 +55,11 @@ if [[ -z "${UDID:-}" ]]; then
   exit 1
 fi
 
-echo "Target simulator UDID: $UDID"
+echo "=== TurfTime iOS simulator deploy ==="
+echo "Repo:   $REPO_ROOT"
+echo "Target: $UDID"
+echo "Config: $CONFIG | $TFM | $RID"
+echo
 
 # --- Boot it (idempotent) and bring the Simulator window up -------------------
 open -a Simulator || true
@@ -57,17 +67,30 @@ xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
 
 # --- Build for the simulator RID ----------------------------------------------
 echo "Building TurfTime2 for $RID ..."
-dotnet build TurfTime2.csproj -f "$TFM" -c Debug -p:RuntimeIdentifier="$RID"
+dotnet build "$PROJECT_FILE" -f "$TFM" -c "$CONFIG" -p:RuntimeIdentifier="$RID"
 
-# --- Locate the freshly built .app and its bundle id --------------------------
-APP="$(find "bin/Debug/$TFM/$RID" -type d -name '*.app' -maxdepth 4 | head -1)"
+# Prefer the RID-root .app; skip stale device-builds copies if present.
+APP=""
+if [[ -d "$REPO_ROOT/bin/$CONFIG/$TFM/$RID" ]]; then
+  while IFS= read -r candidate; do
+    case "$candidate" in
+      */device-builds/*) continue ;;
+      *) APP="$candidate"; break ;;
+    esac
+  done < <(find "$REPO_ROOT/bin/$CONFIG/$TFM/$RID" -type d -name '*.app' -maxdepth 4 | sort)
+fi
+
 if [[ -z "$APP" ]]; then
-  echo "Build succeeded but no .app bundle was found under bin/Debug/$TFM/$RID." >&2
+  echo "Build succeeded but no .app bundle was found under bin/$CONFIG/$TFM/$RID." >&2
   exit 1
 fi
+
 BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
+VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" 2>/dev/null || true)"
+BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist" 2>/dev/null || true)"
 echo "App bundle: $APP"
 echo "Bundle id : $BID"
+echo "Version   : ${VER:-unknown} (${BUILD:-unknown})"
 
 # --- Install + launch ---------------------------------------------------------
 echo "Installing ..."
