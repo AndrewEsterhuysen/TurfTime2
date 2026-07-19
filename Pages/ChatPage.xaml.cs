@@ -1,36 +1,138 @@
+using System.Collections.ObjectModel;
+using Microsoft.Maui.Controls.Shapes;
 using TurfTime2.Helpers;
+using TurfTime2.Services;
 
 namespace TurfTime2;
 
 public partial class ChatPage : ContentPage
 {
+	private readonly ObservableCollection<ChatMessage> _messages = new();
+	private IChatService? _chat;
+	private IFirebaseAuthService? _auth;
+	private IDisposable? _subscription;
+	private string _teamId = string.Empty;
 	private int _fcmRegisterInFlight;
 
 	public ChatPage()
 	{
 		InitializeComponent();
-		LoadChatInterface();
+		MessagesList.ItemsSource = _messages;
+		MessagesList.ItemTemplate = new DataTemplate(() =>
+		{
+			var nameLabel = new Label { FontSize = 11, TextColor = Color.FromArgb("#666666") };
+			nameLabel.SetBinding(Label.TextProperty, nameof(ChatMessage.SenderName));
+
+			var textLabel = new Label { FontSize = 15, LineBreakMode = LineBreakMode.WordWrap };
+			textLabel.SetBinding(Label.TextProperty, nameof(ChatMessage.Text));
+
+			var timeLabel = new Label { FontSize = 10, TextColor = Color.FromArgb("#888888"), HorizontalOptions = LayoutOptions.End };
+			timeLabel.SetBinding(Label.TextProperty, new Binding(nameof(ChatMessage.Timestamp), stringFormat: "{0:t}"));
+
+			var stack = new VerticalStackLayout { Spacing = 2, Children = { nameLabel, textLabel, timeLabel } };
+			var border = new Border
+			{
+				Padding = new Thickness(10, 8),
+				StrokeThickness = 0,
+				Content = stack,
+				MaximumWidthRequest = 320
+			};
+			border.StrokeShape = new RoundRectangle { CornerRadius = 12 };
+
+			border.SetBinding(Border.BackgroundColorProperty, new Binding(nameof(ChatMessage.IsMine), converter: new MineToColorConverter()));
+			textLabel.SetBinding(Label.TextColorProperty, new Binding(nameof(ChatMessage.IsMine), converter: new MineToTextColorConverter()));
+			nameLabel.SetBinding(Label.IsVisibleProperty, new Binding(nameof(ChatMessage.IsMine), converter: new InvertBoolConverter()));
+			border.SetBinding(View.HorizontalOptionsProperty, new Binding(nameof(ChatMessage.IsMine), converter: new MineToAlignConverter()));
+
+			return new Grid { Padding = 4, Children = { border } };
+		});
 	}
 
 	protected override async void OnAppearing()
 	{
 		base.OnAppearing();
-		// Rebuild with the current team ID in case the team changed since last visit
-		LoadChatInterface();
+		ResolveServices();
+		ApplyThemeToInputBar();
+
+		_teamId = Preferences.Get("team_id", string.Empty);
+		var mode = Preferences.Get("team_mode", string.Empty);
+		if (mode != "shared" || string.IsNullOrEmpty(_teamId) || _teamId.StartsWith("local_"))
+		{
+			_messages.Clear();
+			_messages.Add(new ChatMessage
+			{
+				Text = "Chat is available for shared (cloud) teams only.",
+				SenderName = "Turf Time",
+				IsMine = false
+			});
+			return;
+		}
+
 		await EnsureDisplayNameForSharedTeamAsync();
+		await StartChatAsync();
+		_ = RegisterFcmTokenAsync();
 	}
 
-	/// <summary>
-	/// Existing shared-team members may never have set a display name (pre-feature).
-	/// Prompt once when opening Chat so messages and push use a human name.
-	/// </summary>
+	protected override void OnDisappearing()
+	{
+		base.OnDisappearing();
+		_subscription?.Dispose();
+		_subscription = null;
+	}
+
+	private void ResolveServices()
+	{
+		var services = Handler?.MauiContext?.Services
+			?? Application.Current?.Handler?.MauiContext?.Services;
+		_chat ??= services?.GetService<IChatService>();
+		_auth ??= services?.GetService<IFirebaseAuthService>();
+	}
+
+	private async Task StartChatAsync()
+	{
+		if (_chat is null)
+		{
+			ResolveServices();
+			if (_chat is null)
+			{
+				System.Diagnostics.Debug.WriteLine("[Chat] IChatService not registered");
+				return;
+			}
+		}
+
+		_subscription?.Dispose();
+		_subscription = await _chat.SubscribeAsync(
+			_teamId,
+			msgs => MainThread.BeginInvokeOnMainThread(() =>
+			{
+				_messages.Clear();
+				foreach (var m in msgs)
+				{
+					var display = m.IsMine ? "You" : (string.IsNullOrWhiteSpace(m.SenderName) ? "Teammate" : m.SenderName);
+					_messages.Add(new ChatMessage
+					{
+						Id = m.Id,
+						Text = m.Text,
+						UserId = m.UserId,
+						SenderName = display,
+						Timestamp = m.Timestamp,
+						IsMine = m.IsMine
+					});
+				}
+
+				if (_messages.Count > 0)
+					MessagesList.ScrollTo(_messages[^1], position: ScrollToPosition.End, animate: false);
+			}),
+			ex => System.Diagnostics.Debug.WriteLine($"[Chat] listen error: {ex.Message}"));
+
+		// Sync display name to member profile
+		var name = UserDisplayName.Get();
+		if (!string.IsNullOrWhiteSpace(name) && _chat is not null)
+			await _chat.UpdateDisplayNameAsync(_teamId, name);
+	}
+
 	private async Task EnsureDisplayNameForSharedTeamAsync()
 	{
-		var teamMode = Preferences.Get("team_mode", string.Empty);
-		var teamId = Preferences.Get("team_id", string.Empty);
-		if (teamMode != "shared" || string.IsNullOrEmpty(teamId))
-			return;
-
 		if (!string.IsNullOrWhiteSpace(UserDisplayName.Get()))
 			return;
 
@@ -47,224 +149,45 @@ public partial class ChatPage : ContentPage
 			return;
 
 		UserDisplayName.Set(displayName);
-		// Rebuild HTML so sendMessage bakes in the new name
-		LoadChatInterface();
-
-		// Best-effort: push name onto member doc after WebView auth is ready
-		_ = Task.Run(async () =>
-		{
-			try
-			{
-				await Task.Delay(2000);
-				await MainThread.InvokeOnMainThreadAsync(async () =>
-				{
-					var safe = EscapeJavaScript(displayName);
-					await ChatWebView.EvaluateJavaScriptAsync($"updateMemberDisplayName('{safe}')");
-				});
-			}
-			catch (Exception ex)
-			{
-				System.Diagnostics.Debug.WriteLine($"[Chat] updateMemberDisplayName: {ex.Message}");
-			}
-		});
+		if (_chat is not null)
+			await _chat.UpdateDisplayNameAsync(_teamId, displayName);
 	}
 
-	private void LoadChatInterface()
+	private async Task RegisterFcmTokenAsync()
 	{
-		var teamId = Preferences.Get("team_id", string.Empty);
-		var htmlSource = new HtmlWebViewSource
-		{
-			Html = GetChatHtml(teamId)
-		};
-		// Avoid stacking handlers each time OnAppearing rebuilds the page.
-		ChatWebView.Navigated -= OnChatWebViewNavigated;
-		ChatWebView.Navigated += OnChatWebViewNavigated;
-		ChatWebView.Source = htmlSource;
-		ApplyThemeToInputBar();
-	}
-
-	private void OnChatWebViewNavigated(object? sender, WebNavigatedEventArgs e)
-	{
-		// Preferred path: save FCM tokens via the WebView's authenticated Firebase session.
-		// REST fallback cannot work — Preferences "user_id" is never set for chat auth.
-		Services.FcmService.SaveTokenViaJs = async (token) =>
-		{
-			await MainThread.InvokeOnMainThreadAsync(async () =>
-			{
-				await SaveFcmTokenAsync(token);
-			});
-		};
-
-		// Register (or re-register) this device's FCM token after chat auth is ready.
-		_ = RegisterFcmTokenWhenChatReadyAsync();
-	}
-
-	/// <summary>
-	/// Waits for WebView Firebase anonymous auth, then writes the native FCM token
-	/// onto teams/{teamId}/members/{chatUid}.fcmTokens so Cloud Functions can push.
-	/// Primary path: C# REST PATCH using the chat user's ID token (reliable).
-	/// Secondary path: JS arrayUnion (legacy / backup).
-	/// </summary>
-	private async Task RegisterFcmTokenWhenChatReadyAsync()
-	{
-		if (System.Threading.Interlocked.CompareExchange(ref _fcmRegisterInFlight, 1, 0) != 0)
+		if (Interlocked.CompareExchange(ref _fcmRegisterInFlight, 1, 0) != 0)
 			return;
-
 		try
 		{
-			var teamId = Preferences.Get("team_id", string.Empty);
-			if (string.IsNullOrEmpty(teamId) || teamId.StartsWith("local_", StringComparison.Ordinal))
+			var ok = await FcmService.Instance.InitializeAsync();
+			var token = await FcmService.Instance.GetTokenAsync();
+			if (string.IsNullOrEmpty(token) || _chat is null)
 			{
-				System.Diagnostics.Debug.WriteLine("[Chat] Skip FCM register — no shared team");
+				System.Diagnostics.Debug.WriteLine($"[Chat] FCM register skip initOk={ok} token={(token != null)}");
 				return;
 			}
 
-			// Ensure native FCM is initialized (token + permission) before we try to save.
-			var fcmOk = await Services.FcmService.Instance.InitializeAsync();
-			var token = await Services.FcmService.Instance.GetTokenAsync();
-			if (string.IsNullOrEmpty(token))
-			{
-				System.Diagnostics.Debug.WriteLine($"[Chat] ⚠️ No FCM token (initOk={fcmOk}) — cannot register for push");
-				return;
-			}
-
-			System.Diagnostics.Debug.WriteLine($"[Chat] Native FCM token ready: {token.Substring(0, Math.Min(16, token.Length))}…");
-
-			// Poll until chat auth is ready, then save via REST with that identity.
-			for (var attempt = 1; attempt <= 20; attempt++)
-			{
-				var (uid, idToken) = await GetChatAuthCredentialsAsync();
-				if (!string.IsNullOrEmpty(uid) && !string.IsNullOrEmpty(idToken))
-				{
-					var saved = await Services.FcmService.Instance.SaveTokenWithChatAuthAsync(
-						teamId, uid, idToken, token);
-					if (saved)
-					{
-						System.Diagnostics.Debug.WriteLine($"[Chat] ✅ FCM token registered via REST on attempt {attempt} for {uid[..Math.Min(8, uid.Length)]}…");
-						// Best-effort JS mirror (keeps arrayUnion path warm)
-						await MainThread.InvokeOnMainThreadAsync(async () => await SaveFcmTokenAsync(token));
-						return;
-					}
-
-					System.Diagnostics.Debug.WriteLine($"[Chat] REST FCM save failed attempt {attempt}; will retry");
-				}
-				else
-				{
-					System.Diagnostics.Debug.WriteLine($"[Chat] Chat auth not ready attempt {attempt}");
-				}
-
-				await Task.Delay(750);
-			}
-
-			// Last resort: pure JS path
-			string? jsResult = null;
-			await MainThread.InvokeOnMainThreadAsync(async () => { jsResult = await SaveFcmTokenAsync(token); });
-			System.Diagnostics.Debug.WriteLine($"[Chat] ❌ FCM registration exhausted retries. JS last={jsResult}");
+			var saved = await _chat.RegisterFcmTokenAsync(_teamId, token);
+			System.Diagnostics.Debug.WriteLine(saved
+				? "[Chat] ✅ FCM token registered via ChatService"
+				: "[Chat] ❌ FCM token registration failed");
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[Chat] ❌ RegisterFcmTokenWhenChatReadyAsync: {ex.Message}");
+			System.Diagnostics.Debug.WriteLine($"[Chat] RegisterFcmToken: {ex.Message}");
 		}
 		finally
 		{
-			System.Threading.Interlocked.Exchange(ref _fcmRegisterInFlight, 0);
+			Interlocked.Exchange(ref _fcmRegisterInFlight, 0);
 		}
 	}
 
-	/// <summary>
-	/// Reads uid + Firebase ID token from the chat WebView auth session.
-	/// </summary>
-	private async Task<(string? Uid, string? IdToken)> GetChatAuthCredentialsAsync()
-	{
-		try
-		{
-			return await MainThread.InvokeOnMainThreadAsync(async () =>
-			{
-				// Kick async refresh; poll window.__chatAuthPayload.
-				await ChatWebView.EvaluateJavaScriptAsync(
-					"(function(){ if (typeof window.refreshChatAuthPayload==='function'){ window.refreshChatAuthPayload(); } return 'x'; })()");
-
-				for (var i = 0; i < 15; i++)
-				{
-					await Task.Delay(250);
-					var raw = await ChatWebView.EvaluateJavaScriptAsync(
-						"(function(){ return window.__chatAuthPayload || ''; })()");
-					var payload = NormalizeJsString(raw);
-					if (string.IsNullOrWhiteSpace(payload) || payload is "pending" or "null")
-						continue;
-
-					try
-					{
-						using var doc = System.Text.Json.JsonDocument.Parse(payload);
-						var uid = doc.RootElement.TryGetProperty("uid", out var u) ? u.GetString() : null;
-						var idToken = doc.RootElement.TryGetProperty("idToken", out var t) ? t.GetString() : null;
-						if (!string.IsNullOrEmpty(uid) && !string.IsNullOrEmpty(idToken))
-							return (uid, idToken);
-					}
-					catch (Exception parseEx)
-					{
-						System.Diagnostics.Debug.WriteLine($"[Chat] auth payload parse: {parseEx.Message} raw={payload[..Math.Min(80, payload.Length)]}");
-					}
-				}
-
-				return ((string?)null, (string?)null);
-			});
-		}
-		catch (Exception ex)
-		{
-			System.Diagnostics.Debug.WriteLine($"[Chat] GetChatAuthCredentialsAsync: {ex.Message}");
-			return (null, null);
-		}
-	}
-
-	private static string NormalizeJsString(string? raw)
-	{
-		if (string.IsNullOrEmpty(raw))
-			return string.Empty;
-		var s = raw.Trim();
-		// WKWebView / Chromium often return JSON strings wrapped in extra quotes and escaped.
-		if (s.Length >= 2 && s[0] == '"' && s[^1] == '"')
-		{
-			try
-			{
-				s = System.Text.Json.JsonSerializer.Deserialize<string>(s) ?? s.Trim('"');
-			}
-			catch
-			{
-				s = s.Trim('"').Replace("\\\"", "\"").Replace("\\\\", "\\");
-			}
-		}
-		return s;
-	}
-
-	private void ApplyThemeToInputBar()
-	{
-		var theme = Preferences.Get("AppTheme", "classic");
-		if (theme == "modern")
-		{
-			InputBar.BackgroundColor   = Color.FromArgb("#1b263b");
-			MessageEntry.TextColor     = Color.FromArgb("#e0e0e0");
-			MessageEntry.PlaceholderColor = Color.FromArgb("#6688aa");
-			SendButton.BackgroundColor = Color.FromArgb("#00d9ff");
-			SendButton.TextColor       = Color.FromArgb("#0d1b2a");
-		}
-		else
-		{
-			InputBar.BackgroundColor   = Color.FromArgb("#2e7d32");
-			MessageEntry.TextColor     = Colors.White;
-			MessageEntry.PlaceholderColor = Color.FromArgb("#AAFFAA");
-			SendButton.BackgroundColor = Color.FromArgb("#FF6B35");
-			SendButton.TextColor       = Colors.White;
-		}
-	}
-
-	private async void OnSendClicked(object sender, EventArgs e)
+	private async void OnSendClicked(object? sender, EventArgs e)
 	{
 		var message = MessageEntry.Text?.Trim();
-		if (string.IsNullOrWhiteSpace(message))
+		if (string.IsNullOrWhiteSpace(message) || _chat is null)
 			return;
 
-		// Require a display name before posting (shared-team identity)
 		var displayName = UserDisplayName.Get();
 		if (string.IsNullOrWhiteSpace(displayName))
 		{
@@ -285,530 +208,68 @@ public partial class ChatPage : ContentPage
 			}
 
 			UserDisplayName.Set(displayName);
-			var safeName = EscapeJavaScript(displayName);
-			try
-			{
-				await ChatWebView.EvaluateJavaScriptAsync($"updateMemberDisplayName('{safeName}')");
-			}
-			catch (Exception ex)
-			{
-				System.Diagnostics.Debug.WriteLine($"[Chat] updateMemberDisplayName on send: {ex.Message}");
-			}
+			await _chat.UpdateDisplayNameAsync(_teamId, displayName);
 		}
 
-		// Pass name at send time so we don't depend on HTML rebuild for late name capture
-		var safeMessage = EscapeJavaScript(message);
-		var safeSender = EscapeJavaScript(displayName);
-		await ChatWebView.EvaluateJavaScriptAsync($"sendMessage('{safeMessage}','{safeSender}')");
-
-		// Ensure this device's push token is registered (covers late FCM readiness).
-		_ = RegisterFcmTokenWhenChatReadyAsync();
-
-		// Clear input
-		MessageEntry.Text = string.Empty;
-	}
-
-	private string EscapeJavaScript(string text)
-	{
-		return text.Replace("'", "\\'")
-				   .Replace("\n", "\\n")
-				   .Replace("\r", "\\r")
-				   .Replace("\"", "\\\"");
-	}
-
-	/// <summary>
-	/// Saves the native FCM token to Firestore via the authenticated JS Firebase session.
-	/// Must be called after the chat WebView has loaded and the user is authenticated.
-	/// Returns the JS result: "ok", "missing_params", "error", "pending", or null on failure.
-	/// </summary>
-	public async Task<string?> SaveFcmTokenAsync(string token)
-	{
-		if (string.IsNullOrWhiteSpace(token))
-			return "empty_token";
-
-		// JSON-stringify so tokens with quotes/backslashes cannot break the JS call.
-		var tokenJson = System.Text.Json.JsonSerializer.Serialize(token);
 		try
 		{
-			// 1) Queue token for auto-save when auth becomes ready (handles race).
-			// 2) Attempt immediate save if auth is already ready.
-			// 3) Use a completion flag because EvaluateJavaScriptAsync does not await JS Promises.
-			var script =
-				$"(function(){{" +
-				$"try{{" +
-				$"  window.__pendingFcmToken = {tokenJson};" +
-				$"  window.__fcmSaveResult = 'pending';" +
-				$"  if (typeof window.saveFcmToken === 'function') {{" +
-				$"    Promise.resolve(window.saveFcmToken(window.__pendingFcmToken))" +
-				$"      .then(function(r){{ window.__fcmSaveResult = r || 'ok'; }})" +
-				$"      .catch(function(e){{ window.__fcmSaveResult = 'error'; console.error('[Chat] saveFcmToken', e); }});" +
-				$"    return 'started';" +
-				$"  }}" +
-				$"  return 'no_fn';" +
-				$"}}catch(e){{ window.__fcmSaveResult = 'error'; return 'throw'; }}" +
-				$"}})()";
-
-			var started = await ChatWebView.EvaluateJavaScriptAsync(script);
-			System.Diagnostics.Debug.WriteLine($"[Chat] saveFcmToken start: {started}");
-
-			// Poll for async JS completion (max ~4s).
-			for (var i = 0; i < 20; i++)
-			{
-				await Task.Delay(200);
-				var result = await ChatWebView.EvaluateJavaScriptAsync(
-					"(function(){ return window.__fcmSaveResult || ''; })()");
-				// WebView often wraps string results in quotes.
-				var normalized = (result ?? string.Empty).Trim().Trim('"', '\'');
-				if (normalized is "ok" or "missing_params" or "error" or "empty")
-				{
-					System.Diagnostics.Debug.WriteLine($"[Chat] saveFcmToken result: {normalized}");
-					return normalized;
-				}
-			}
-
-			// Auth may still be starting — pending token will flush in onAuthStateChanged.
-			var pending = await ChatWebView.EvaluateJavaScriptAsync(
-				"(function(){ return window.__fcmSaveResult || 'pending'; })()");
-			var pendingNorm = (pending ?? "pending").Trim().Trim('"', '\'');
-			System.Diagnostics.Debug.WriteLine($"[Chat] saveFcmToken still: {pendingNorm}");
-			return pendingNorm;
+			await _chat.SendAsync(_teamId, message, displayName);
+			MessageEntry.Text = string.Empty;
+			_ = RegisterFcmTokenAsync();
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[Chat] ❌ SaveFcmTokenAsync error: {ex.Message}");
-			return "error";
+			System.Diagnostics.Debug.WriteLine($"[Chat] Send failed: {ex.Message}");
+			await DisplayAlert("Chat", "Could not send message. Check your connection.", "OK");
 		}
 	}
 
-	private string GetChatHtml(string teamId)
+	private void ApplyThemeToInputBar()
 	{
-		if (string.IsNullOrEmpty(teamId))
-		{
-			return @"<!DOCTYPE html><html><body style='font-family:sans-serif;padding:20px;color:#667781;text-align:center;'>
-				<p style='margin-top:40px;font-size:16px;'>No team selected.</p>
-				<p style='font-size:13px;'>Go to Settings → Team Details to create or join a team.</p>
-				</body></html>";
-		}
-
-		var safeTeamId = teamId.Replace("'", "\\'").Replace("\\", "\\\\");
-		var rawUserName = Preferences.Get("user_name", "");
-		var safeUserName = string.IsNullOrWhiteSpace(rawUserName)
-			? ""
-			: rawUserName.Replace("\\", "\\\\").Replace("'", "\\'").Replace("`", "'");
-
-		// Resolve theme colours from app Preferences
 		var theme = Preferences.Get("AppTheme", "classic");
-		string bodyBg, ownBubbleBg, otherBubbleBg, msgText,
-			   ownUserColor, otherUserColor, timestampColor, loadingColor;
-
 		if (theme == "modern")
 		{
-			bodyBg         = "#0d1b2a";
-			ownBubbleBg    = "#1a3550";
-			otherBubbleBg  = "#1b263b";
-			msgText        = "#e0e0e0";
-			ownUserColor   = "#00d9ff";
-			otherUserColor = "rgba(224,224,224,0.75)";
-			timestampColor = "rgba(224,224,224,0.5)";
-			loadingColor   = "rgba(224,224,224,0.55)";
+			InputBar.BackgroundColor = Color.FromArgb("#1b263b");
+			MessageEntry.TextColor = Color.FromArgb("#e0e0e0");
+			MessageEntry.PlaceholderColor = Color.FromArgb("#6688aa");
+			SendButton.BackgroundColor = Color.FromArgb("#00d9ff");
+			SendButton.TextColor = Color.FromArgb("#0d1b2a");
 		}
-		else // classic
+		else
 		{
-			bodyBg         = "#1b5e20";
-			ownBubbleBg    = "#2e7d32";
-			otherBubbleBg  = "rgba(0,0,0,0.22)";
-			msgText        = "#ffffff";
-			ownUserColor   = "#FF6B35";
-			otherUserColor = "rgba(255,255,255,0.75)";
-			timestampColor = "rgba(255,255,255,0.55)";
-			loadingColor   = "rgba(255,255,255,0.6)";
+			InputBar.BackgroundColor = Color.FromArgb("#2e7d32");
+			MessageEntry.TextColor = Colors.White;
+			MessageEntry.PlaceholderColor = Color.FromArgb("#AAFFAA");
+			SendButton.BackgroundColor = Color.FromArgb("#FF6B35");
+			SendButton.TextColor = Colors.White;
 		}
+	}
 
-		return $@"
-<!DOCTYPE html>
-<html>
-<head>
-	<meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>
-	<style>
-		* {{
-			margin: 0;
-			padding: 0;
-			box-sizing: border-box;
-		}}
+	private sealed class MineToColorConverter : IValueConverter
+	{
+		public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+			=> value is true ? Color.FromArgb("#DCF8C6") : Color.FromArgb("#FFFFFF");
+		public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) => throw new NotSupportedException();
+	}
 
-		body {{
-			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-			background: {bodyBg};
-			padding: 10px;
-			overflow-x: hidden;
-		}}
+	private sealed class MineToTextColorConverter : IValueConverter
+	{
+		public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+			=> Colors.Black;
+		public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) => throw new NotSupportedException();
+	}
 
-		#messages {{
-			display: flex;
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 8px;
-			padding-bottom: 20px;
-		}}
+	private sealed class MineToAlignConverter : IValueConverter
+	{
+		public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+			=> value is true ? LayoutOptions.End : LayoutOptions.Start;
+		public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) => throw new NotSupportedException();
+	}
 
-		.message {{
-			display: flex;
-			flex-direction: column;
-			max-width: 75%;
-			word-wrap: break-word;
-			animation: fadeIn 0.3s ease-in;
-		}}
-
-		@keyframes fadeIn {{
-			from {{ opacity: 0; transform: translateY(10px); }}
-			to {{ opacity: 1; transform: translateY(0); }}
-		}}
-
-		.message.own {{
-			align-self: flex-end;
-		}}
-
-		.message.other {{
-			align-self: flex-start;
-		}}
-
-		.message-bubble {{
-			padding: 8px 12px;
-			border-radius: 8px;
-			position: relative;
-			box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-		}}
-
-		.message.own .message-bubble {{
-			background: {ownBubbleBg};
-			border-bottom-right-radius: 2px;
-		}}
-
-		.message.other .message-bubble {{
-			background: {otherBubbleBg};
-			border-bottom-left-radius: 2px;
-		}}
-
-		.message-user {{
-			font-size: 11px;
-			font-weight: bold;
-			color: {otherUserColor};
-			margin-bottom: 2px;
-		}}
-
-		.message.own .message-user {{
-			color: {ownUserColor};
-		}}
-
-		.message-text {{
-			font-size: 14px;
-			line-height: 1.4;
-			color: {msgText};
-			white-space: pre-wrap;
-			word-break: break-word;
-		}}
-
-		.message-time {{
-			font-size: 10px;
-			color: {timestampColor};
-			text-align: right;
-			margin-top: 4px;
-		}}
-
-		.loading {{
-			text-align: center;
-			color: {loadingColor};
-			font-size: 14px;
-			padding: 20px;
-		}}
-
-		.char-count {{
-			position: fixed;
-			bottom: 10px;
-			right: 10px;
-			background: rgba(0,0,0,0.7);
-			color: white;
-			padding: 5px 10px;
-			border-radius: 15px;
-			font-size: 11px;
-			display: none;
-		}}
-	</style>
-</head>
-<body>
-	<div id='messages'>
-		<div class='loading'>Loading messages...</div>
-	</div>
-	<div id='charCount' class='char-count'></div>
-
-	<!-- Firebase SDK v10 (Modular) -->
-	<script type='module'>
-		import {{ initializeApp }} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-		import {{ getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, getDocs, doc, getDoc, updateDoc, setDoc, arrayUnion }} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-		import {{ getAuth, signInAnonymously, onAuthStateChanged }} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-
-		// Must match Firebase project turf-timer apps (project number 846410659178).
-		const firebaseConfig = {{
-			apiKey: 'AIzaSyDAKivCFX5kYYZ6SkAQluBNdR92I320glk',
-			authDomain: 'turf-timer.firebaseapp.com',
-			projectId: 'turf-timer',
-			storageBucket: 'turf-timer.firebasestorage.app',
-			messagingSenderId: '846410659178',
-			appId: '1:846410659178:web:f26efa105cf06cd241a113'
-		}};
-
-		const TEAM_ID = '{safeTeamId}';
-		const LOCAL_DISPLAY_NAME = '{safeUserName}';
-
-		const app = initializeApp(firebaseConfig);
-		const db = getFirestore(app);
-		const auth = getAuth(app);
-
-		let currentUserId = null;
-		let memberNames = {{}};
-		let messagesContainer = document.getElementById('messages');
-
-		function isPlaceholderName(name) {{
-			if (!name || !String(name).trim()) return true;
-			const n = String(name).trim();
-			return n === 'Admin' || n === 'Member' || n === 'Someone' || n === 'Teammate';
-		}}
-
-		function resolveDisplayName(data) {{
-			if (data.userId === currentUserId) return 'You';
-			const sn = (data.senderName || '').trim();
-			const mn = (memberNames[data.userId] || '').trim();
-			if (sn && !isPlaceholderName(sn)) return sn;
-			if (mn && !isPlaceholderName(mn)) return mn;
-			if (sn) return sn;
-			if (mn) return mn;
-			return 'Teammate';
-		}}
-
-		async function loadMemberNames() {{
-			try {{
-				const snap = await getDocs(collection(db, 'teams', TEAM_ID, 'members'));
-				const map = {{}};
-				snap.forEach((d) => {{
-					const name = (d.data().displayName || '').trim();
-					if (name) map[d.id] = name;
-				}});
-				memberNames = map;
-				console.log('[Chat] Loaded', Object.keys(memberNames).length, 'member display names');
-			}} catch (err) {{
-				console.warn('[Chat] Could not load member names:', err);
-			}}
-		}}
-
-		// Expose uid + ID token for C# REST FCM registration (avoids WebView Promise races).
-		window.__chatAuthPayload = '';
-		window.refreshChatAuthPayload = async function() {{
-			try {{
-				window.__chatAuthPayload = 'pending';
-				const u = auth.currentUser;
-				if (!u) {{
-					window.__chatAuthPayload = '';
-					return 'no_user';
-				}}
-				const idToken = await u.getIdToken(/* forceRefresh */ false);
-				window.__chatAuthPayload = JSON.stringify({{ uid: u.uid, idToken: idToken }});
-				return 'ok';
-			}} catch (e) {{
-				console.error('[Chat] refreshChatAuthPayload', e);
-				window.__chatAuthPayload = '';
-				return 'error';
-			}}
-		}};
-
-		// Wait for Firebase to restore the persisted anonymous user from IndexedDB before
-		// calling signInAnonymously. Calling it eagerly races with IndexedDB restoration and
-		// produces a NEW uid on each page reload, breaking the own/other comparison.
-		onAuthStateChanged(auth, async (user) => {{
-			if (user) {{
-				currentUserId = user.uid;
-				window.__chatAuthReady = true;
-				window.__chatUserId = currentUserId;
-				console.log('[Chat] ✅ User authenticated:', currentUserId.substring(0, 8) + '...');
-				try {{ await window.refreshChatAuthPayload(); }} catch (_) {{}}
-
-				// If C# already injected an FCM token before auth finished, save it now.
-				if (window.__pendingFcmToken) {{
-					try {{
-						const r = await window.saveFcmToken(window.__pendingFcmToken);
-						window.__fcmSaveResult = r || 'ok';
-						console.log('[Chat] FCM token saved after auth:', window.__fcmSaveResult);
-					}} catch (err) {{
-						window.__fcmSaveResult = 'error';
-						console.error('[Chat] FCM token save after auth failed:', err);
-					}}
-				}}
-
-				if (!window._chatListenerStarted) {{
-					window._chatListenerStarted = true;
-					await loadMemberNames();
-					// Sync local name to member profile when we already know it
-					if (LOCAL_DISPLAY_NAME && !isPlaceholderName(LOCAL_DISPLAY_NAME)) {{
-						try {{ await window.updateMemberDisplayName(LOCAL_DISPLAY_NAME); }} catch (_) {{}}
-					}}
-					startChatListener();
-				}}
-			}} else {{
-				window.__chatAuthReady = false;
-				window.__chatAuthPayload = '';
-				// No persisted user — sign in anonymously once
-				console.log('[Chat] No existing user, signing in anonymously...');
-				signInAnonymously(auth).catch(err => console.error('[Chat] ❌ Auth error:', err));
-			}}
-		}});
-
-		// Listen to team-scoped chat messages in real-time
-		function startChatListener() {{
-			console.log('[Chat] 🔄 Starting message listener for team:', TEAM_ID);
-			const messagesRef = collection(db, 'teams', TEAM_ID, 'messages');
-			const q = query(messagesRef, orderBy('timestamp', 'asc'), limit(100));
-
-			onSnapshot(q, (snapshot) => {{
-				console.log(`[Chat] 📩 Received ${{snapshot.size}} messages`);
-				messagesContainer.innerHTML = '';
-
-				snapshot.forEach((docSnap) => {{
-					const data = docSnap.data();
-					displayMessage(data);
-				}});
-
-				window.scrollTo(0, document.body.scrollHeight);
-			}}, (error) => {{
-				console.error('[Chat] ❌ Snapshot error:', error);
-			}});
-		}}
-
-		// Display a message — prefer denormalized senderName, then member profile
-		function displayMessage(data) {{
-			const messageDiv = document.createElement('div');
-			messageDiv.className = `message ${{data.userId === currentUserId ? 'own' : 'other'}}`;
-
-			const bubble = document.createElement('div');
-			bubble.className = 'message-bubble';
-
-			const userSpan = document.createElement('div');
-			userSpan.className = 'message-user';
-			userSpan.textContent = resolveDisplayName(data);
-			bubble.appendChild(userSpan);
-
-			const textSpan = document.createElement('div');
-			textSpan.className = 'message-text';
-			textSpan.textContent = data.text;
-			bubble.appendChild(textSpan);
-
-			const timeSpan = document.createElement('div');
-			timeSpan.className = 'message-time';
-			if (data.timestamp) {{
-				timeSpan.textContent = formatTime(data.timestamp.toDate());
-			}} else {{
-				timeSpan.textContent = 'Sending...';
-			}}
-			bubble.appendChild(timeSpan);
-
-			messageDiv.appendChild(bubble);
-			messagesContainer.appendChild(messageDiv);
-		}}
-
-		function formatTime(date) {{
-			const now = new Date();
-			const timeStr = date.toLocaleTimeString('en-US', {{ hour: 'numeric', minute: '2-digit', hour12: true }});
-			if (date.toDateString() === now.toDateString()) return timeStr;
-			const dateStr = date.toLocaleDateString('en-US', {{ month: 'short', day: 'numeric' }});
-			return `${{dateStr}} ${{timeStr}}`;
-		}}
-
-		// Send a message (called from C#). Optional senderNameOverride wins over baked-in preference.
-		window.sendMessage = async function(text, senderNameOverride) {{
-			if (!text || !currentUserId) {{
-				console.error('[Chat] ❌ Cannot send - missing text or userId');
-				return;
-			}}
-
-			console.log('[Chat] 📤 Sending message to team:', TEAM_ID);
-			try {{
-				const raw = (senderNameOverride || LOCAL_DISPLAY_NAME || '').trim();
-				const senderName = (!isPlaceholderName(raw) ? raw : '') || 'Someone';
-				const docRef = await addDoc(collection(db, 'teams', TEAM_ID, 'messages'), {{
-					text: text.substring(0, 500),
-					userId: currentUserId,
-					senderName: senderName,
-					timestamp: serverTimestamp()
-				}});
-				console.log('[Chat] ✅ Message sent, ID:', docRef.id);
-			}} catch (error) {{
-				console.error('[Chat] ❌ Send error:', error);
-			}}
-		}};
-
-		// Upsert displayName on the authenticated member doc (does not wipe fcmTokens)
-		window.updateMemberDisplayName = async function(name) {{
-			if (!name || !currentUserId || !TEAM_ID) {{
-				console.warn('[Chat] ⚠️ updateMemberDisplayName: missing name, userId, or teamId');
-				return 'missing_params';
-			}}
-			const displayName = String(name).trim().substring(0, 40);
-			if (!displayName) return 'empty';
-			try {{
-				const memberRef = doc(db, 'teams', TEAM_ID, 'members', currentUserId);
-				const memberSnap = await getDoc(memberRef);
-				if (memberSnap.exists()) {{
-					await updateDoc(memberRef, {{ displayName: displayName }});
-				}} else {{
-					await setDoc(memberRef, {{ displayName: displayName, role: 'member' }}, {{ merge: true }});
-				}}
-				memberNames[currentUserId] = displayName;
-				console.log('[Chat] ✅ Member displayName updated:', displayName);
-				return 'ok';
-			}} catch (error) {{
-				console.error('[Chat] ❌ updateMemberDisplayName error:', error);
-				return 'error';
-			}}
-		}};
-
-		// Save FCM token to Firestore under the authenticated user's member document
-		// Called from C# after the native FCM token is acquired (or auto after auth if pending).
-		window.saveFcmToken = async function(token) {{
-			if (!token) {{
-				console.warn('[Chat] ⚠️ saveFcmToken: missing token');
-				window.__fcmSaveResult = 'empty';
-				return 'empty';
-			}}
-			window.__pendingFcmToken = token;
-			if (!currentUserId || !TEAM_ID) {{
-				console.warn('[Chat] ⚠️ saveFcmToken: auth not ready yet — token queued');
-				window.__fcmSaveResult = 'missing_params';
-				return 'missing_params';
-			}}
-			try {{
-				const memberRef = doc(db, 'teams', TEAM_ID, 'members', currentUserId);
-				const memberSnap = await getDoc(memberRef);
-				if (memberSnap.exists()) {{
-					await updateDoc(memberRef, {{ fcmTokens: arrayUnion(token), tokenUpdatedAt: new Date().toISOString() }});
-				}} else {{
-					await setDoc(memberRef, {{
-						fcmTokens: [token],
-						tokenUpdatedAt: new Date().toISOString(),
-						role: 'member'
-					}}, {{ merge: true }});
-				}}
-				console.log('[Chat] ✅ FCM token saved for user:', currentUserId.substring(0, 8), 'team:', TEAM_ID);
-				window.__fcmSaveResult = 'ok';
-				return 'ok';
-			}} catch (error) {{
-				console.error('[Chat] ❌ saveFcmToken error:', error);
-				window.__fcmSaveResult = 'error';
-				return 'error';
-			}}
-		}};
-
-		console.log('[Chat] Initialized for team:', TEAM_ID);
-	</script>
-</body>
-</html>
-";
+	private sealed class InvertBoolConverter : IValueConverter
+	{
+		public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+			=> value is not true;
+		public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture) => throw new NotSupportedException();
 	}
 }

@@ -3,6 +3,7 @@ using Microsoft.Maui.LifecycleEvents;
 using Plugin.Firebase.Auth;
 using Plugin.Firebase.Bundled.Shared;
 using Plugin.Firebase.CloudMessaging;
+using Plugin.Firebase.Firestore;
 using ZXing.Net.Maui;
 using ZXing.Net.Maui.Controls;
 #if ANDROID
@@ -76,9 +77,13 @@ namespace TurfTime2
 #endif
                 });
 
-            // Register Firebase services
+            // Plugin.Firebase singletons + app adapters (no Firestore REST)
             builder.Services.AddSingleton(_ => CrossFirebaseAuth.Current);
+            builder.Services.AddSingleton(_ => CrossFirebaseFirestore.Current);
             builder.Services.AddSingleton(_ => CrossFirebaseCloudMessaging.Current);
+            builder.Services.AddSingleton<Services.IFirebaseAuthService, Services.FirebaseAuthService>();
+            builder.Services.AddSingleton<Services.IChatService, Services.ChatService>();
+            builder.Services.AddSingleton<Services.ICloudTeamService, Services.CloudTeamService>();
 
             // Register native game services and view-model
             builder.Services.AddSingleton<Services.ISessionStorageService, Services.SessionStorageService>();
@@ -97,10 +102,11 @@ namespace TurfTime2
                     {
                         CrossFirebase.Initialize(activity, new CrossFirebaseSettings(
                             isAuthEnabled: true,
+                            isFirestoreEnabled: true,
                             isCloudMessagingEnabled: true,
                             isCrashlyticsEnabled: false));
 
-                        System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on Android (Crashlytics disabled)");
+                        System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on Android (Auth+Firestore+FCM, Crashlytics off)");
                     }));
 #elif IOS
                 events.AddiOS(iOS => iOS
@@ -132,6 +138,7 @@ namespace TurfTime2
 
                             CrossFirebase.Initialize(new CrossFirebaseSettings(
                                 isAuthEnabled: true,
+                                isFirestoreEnabled: true,
                                 isCloudMessagingEnabled: true,
                                 isCrashlyticsEnabled: false));
 
@@ -140,7 +147,7 @@ namespace TurfTime2
                             // will not offer a Notifications toggle for Turf Time.
                             FirebaseCloudMessagingImplementation.Initialize();
 
-                            System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on iOS (Crashlytics disabled + FCM ready)");
+                            System.Diagnostics.Debug.WriteLine("[Firebase] ✅ Initialized on iOS (Auth+Firestore+FCM, Crashlytics off)");
                         }
                         catch (Exception ex)
                         {

@@ -1,53 +1,40 @@
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
+using Plugin.Firebase.Firestore;
 using TurfTime2.Models;
 
 namespace TurfTime2.Services;
 
 /// <summary>
 /// Persists the roster snapshot to local <see cref="Preferences"/> and to
-/// Firestore via the REST API. Authentication uses Firebase anonymous sign-in.
+/// Firestore via Plugin.Firebase (no REST).
 /// </summary>
 public sealed class CloudRosterService : ICloudRosterService
 {
-    private const string FirebaseApiKey    = "AIzaSyDAKivCFX5kYYZ6SkAQluBNdR92I320glk";
-    private const string FirebaseProjectId = "turf-timer";
-    private const string FirestoreBase     =
-        $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
+    private readonly IFirebaseAuthService _auth;
+    private readonly IFirebaseFirestore _db;
 
-    private static readonly HttpClient _http = new();
-    private static string? _idToken;
-    private static string? _userId;
-
-    // Debounce: cloud save fires at most once per 2 s of silence
     private CancellationTokenSource? _debounceCts;
 
-    /// <summary>
-    /// Shares an already-authenticated token (e.g. from TeamDetailsPage) so roster
-    /// writes use the same Firebase identity as team create/join.
-    /// </summary>
-    public static void SetAuthToken(string idToken, string userId)
+    public CloudRosterService(IFirebaseAuthService auth, IFirebaseFirestore db)
     {
-        if (string.IsNullOrWhiteSpace(idToken)) return;
-        _idToken = idToken;
-        _userId  = userId;
-        System.Diagnostics.Debug.WriteLine("[CloudRosterService] Auth token received from host");
+        _auth = auth;
+        _db = db;
     }
 
-    // ── ICloudRosterService ───────────────────────────────────────────────
+    /// <summary>Legacy no-op — auth is owned by <see cref="IFirebaseAuthService"/>.</summary>
+    public static void SetAuthToken(string idToken, string userId)
+    {
+        // Kept so older call sites compile during migration; token sharing is no longer used.
+        System.Diagnostics.Debug.WriteLine("[CloudRosterService] SetAuthToken ignored (SDK auth)");
+    }
 
     public async Task SaveAsync(string teamId, RosterSnapshot snapshot, bool isAdmin)
     {
-        // Serialize and persist locally on a background thread — Preferences.Set
-        // calls SharedPreferences.commit() on Android which is synchronous disk I/O
-        // and blocks the UI thread if called directly.
         _ = Task.Run(() => SaveLocal(teamId, snapshot));
 
-        if (!isAdmin) return;                          // members never write to cloud
+        if (!isAdmin) return;
         if (IsLocalOnlyTeam(teamId)) return;
 
-        // Debounce the cloud write (2 s)
         _debounceCts?.Cancel();
         _debounceCts = new CancellationTokenSource();
         var token = _debounceCts.Token;
@@ -56,7 +43,7 @@ public sealed class CloudRosterService : ICloudRosterService
             await Task.Delay(2000, token).ConfigureAwait(false);
             await UploadToFirestoreAsync(teamId, snapshot).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) { /* superseded by newer save */ }
+        catch (OperationCanceledException) { /* superseded */ }
     }
 
     public async Task<RosterSnapshot?> LoadAsync(string teamId)
@@ -70,16 +57,12 @@ public sealed class CloudRosterService : ICloudRosterService
         {
             var cloud = await DownloadFromFirestoreAsync(teamId).ConfigureAwait(false);
             if (cloud is null) return local;
-
             if (local is null) return cloud;
-
-            // Timestamp-based conflict resolution: use whichever is newer
             return cloud.LastModifiedUtc > local.LastModifiedUtc ? cloud : local;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Load cloud failed: {ex.GetType().FullName}: {ex.Message}");
-            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Stack: {ex.StackTrace}");
             return local;
         }
     }
@@ -88,26 +71,20 @@ public sealed class CloudRosterService : ICloudRosterService
     {
         _debounceCts?.Cancel();
         SaveLocal(teamId, snapshot);
-
         if (IsLocalOnlyTeam(teamId)) return Task.CompletedTask;
-
         return UploadToFirestoreAsync(teamId, snapshot);
     }
 
-    /// <summary>Pre-warms the Firebase auth token on a background thread.</summary>
     public async Task WarmUpAsync()
     {
-        try { await Task.Run(GetAuthTokenAsync).ConfigureAwait(false); }
-        catch { /* warm-up is best-effort */ }
+        try { await _auth.EnsureSignedInAsync().ConfigureAwait(false); }
+        catch { /* best-effort */ }
     }
-
-    // ── Local storage ─────────────────────────────────────────────────────
 
     private static bool IsLocalOnlyTeam(string teamId)
     {
         if (string.IsNullOrWhiteSpace(teamId)) return true;
         if (teamId.StartsWith("local_", StringComparison.Ordinal)) return true;
-        // Prefer explicit team_mode when set; local_ prefix is authoritative for device teams.
         var mode = Preferences.Get("team_mode", string.Empty);
         return string.Equals(mode, "local", StringComparison.Ordinal);
     }
@@ -116,14 +93,8 @@ public sealed class CloudRosterService : ICloudRosterService
 
     private static void SaveLocal(string teamId, RosterSnapshot snapshot)
     {
-        try
-        {
-            Preferences.Set(LocalKey(teamId), JsonSerializer.Serialize(snapshot));
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Local save failed: {ex.Message}");
-        }
+        try { Preferences.Set(LocalKey(teamId), JsonSerializer.Serialize(snapshot)); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Local save failed: {ex.Message}"); }
     }
 
     private static RosterSnapshot? LoadLocal(string teamId)
@@ -140,190 +111,118 @@ public sealed class CloudRosterService : ICloudRosterService
         }
     }
 
-    // ── Firestore REST ────────────────────────────────────────────────────
-
-    private static async Task<string?> GetAuthTokenAsync()
+    private async Task UploadToFirestoreAsync(string teamId, RosterSnapshot snapshot)
     {
-        if (!string.IsNullOrEmpty(_idToken)) return _idToken;
-
-        try
-        {
-            var url  = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
-            var body = JsonSerializer.Serialize(new { returnSecureToken = true });
-            var resp = await _http.PostAsync(url,
-                new StringContent(body, Encoding.UTF8, "application/json")).ConfigureAwait(false);
-
-            if (!resp.IsSuccessStatusCode)
-            {
-                var err = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Auth token request failed: {resp.StatusCode} {err}");
-                return null;
-            }
-
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
-            _idToken = doc.RootElement.GetProperty("idToken").GetString();
-            _userId  = doc.RootElement.TryGetProperty("localId", out var lid) ? lid.GetString() : null;
-            return _idToken;
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] GetAuthTokenAsync exception: {ex.GetType().FullName}: {ex.Message}");
-            return null;
-        }
-    }
-
-    private static async Task UploadToFirestoreAsync(string teamId, RosterSnapshot snapshot)
-    {
-        var token = await GetAuthTokenAsync().ConfigureAwait(false);
-        if (token is null)
+        if (await _auth.EnsureSignedInAsync().ConfigureAwait(false) is null)
         {
             System.Diagnostics.Debug.WriteLine("[CloudRosterService] Auth failed — roster not saved to cloud");
             return;
         }
 
-        var url  = $"{FirestoreBase}/teams/{teamId}/roster/data";
-        var body = JsonSerializer.Serialize(ToFirestoreDocument(snapshot));
-
-        for (int attempt = 0; attempt < 2; attempt++)
+        try
         {
-            var req = new HttpRequestMessage(HttpMethod.Patch, url)
-            {
-                Content = new StringContent(body, Encoding.UTF8, "application/json")
-            };
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-            var resp = await _http.SendAsync(req).ConfigureAwait(false);
-            if (resp.IsSuccessStatusCode)
-            {
-                System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Saved to Firestore (team {teamId})");
-                return;
-            }
-
-            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized && attempt == 0)
-            {
-                // Token expired — force refresh
-                _idToken = null;
-                token    = await GetAuthTokenAsync().ConfigureAwait(false);
-                if (token is null) return;
-            }
-            else
-            {
-                var err = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Firestore error: {err}");
-                return;
-            }
+            var doc = _db.GetDocument($"teams/{teamId}/roster/data");
+            await doc.SetDataAsync(ToDictionary(snapshot), SetOptions.Merge()).ConfigureAwait(false);
+            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Saved to Firestore (team {teamId})");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Firestore upload: {ex.Message}");
         }
     }
 
-    private static async Task<RosterSnapshot?> DownloadFromFirestoreAsync(string teamId)
+    private async Task<RosterSnapshot?> DownloadFromFirestoreAsync(string teamId)
     {
-        var token = await GetAuthTokenAsync().ConfigureAwait(false);
-        if (token is null) return null;
+        if (await _auth.EnsureSignedInAsync().ConfigureAwait(false) is null)
+            return null;
 
-        var url = $"{FirestoreBase}/teams/{teamId}/roster/data";
-        var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-
-        var resp = await _http.SendAsync(req).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) return null;
-
-        var json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-        return FromFirestoreDocument(json);
+        try
+        {
+            var snap = await _db.GetDocument($"teams/{teamId}/roster/data")
+                .GetDocumentSnapshotAsync<Dictionary<object, object>>()
+                .ConfigureAwait(false);
+            if (snap?.Data is null)
+                return null;
+            return FromDictionary(snap.Data);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Firestore download: {ex.Message}");
+            return null;
+        }
     }
 
-    // ── Firestore document conversion ─────────────────────────────────────
-
-    /// <summary>Converts a <see cref="RosterSnapshot"/> to the Firestore REST wire format.</summary>
-    private static object ToFirestoreDocument(RosterSnapshot s)
+    private static Dictionary<object, object> ToDictionary(RosterSnapshot s)
     {
-        var playerValues = s.Players.Select(p => new
+        var players = s.Players.Select(p => (object)new Dictionary<object, object>
         {
-            mapValue = new
-            {
-                fields = new Dictionary<string, object>
-                {
-                    ["slotId"]         = new { integerValue = p.SlotId.ToString() },
-                    ["name"]           = new { stringValue  = p.Name },
-                    ["field"]          = new { booleanValue = p.Field },
-                    ["bench"]          = new { booleanValue = p.Bench },
-                    ["goalie"]         = new { booleanValue = p.Goalie },
-                    ["inactive"]       = new { booleanValue = p.Inactive },
-                    ["counterSeconds"] = new { integerValue = p.CounterSeconds.ToString() }
-                }
-            }
-        }).ToArray();
+            ["slotId"] = p.SlotId,
+            ["name"] = p.Name,
+            ["field"] = p.Field,
+            ["bench"] = p.Bench,
+            ["goalie"] = p.Goalie,
+            ["inactive"] = p.Inactive,
+            ["counterSeconds"] = p.CounterSeconds
+        }).ToList();
 
-        var utc = s.LastModifiedUtc.ToString("o");
-
-        // Canonical field names match RosterSnapshot. Dual keys for older bridge/JS writers.
-        return new
+        var utc = s.LastModifiedUtc;
+        return new Dictionary<object, object>
         {
-            fields = new Dictionary<string, object>
-            {
-                ["version"]                = new { integerValue = s.Version.ToString() },
-                ["lastModifiedUtc"]        = new { timestampValue = utc },
-                ["lastModified"]           = new { timestampValue = utc },
-                ["matchDurationSeconds"]   = new { integerValue = s.MatchDurationSeconds.ToString() },
-                ["halfDurationSeconds"]    = new { integerValue = s.HalfDurationSeconds.ToString() },
-                ["matchRemainingSeconds"]  = new { integerValue = s.MatchRemainingSeconds.ToString() },
-                ["currentHalf"]            = new { stringValue  = s.CurrentHalf },
-                ["timerRunning"]           = new { booleanValue = s.TimerRunning },
-                ["countdownPresetSeconds"] = new { integerValue = s.CountdownPresetSeconds.ToString() },
-                ["countdownPreset"]        = new { integerValue = s.CountdownPresetSeconds.ToString() },
-                ["viewMode"]               = new { integerValue = s.ViewMode.ToString() },
-                ["teamAScore"]             = new { integerValue = s.TeamAScore.ToString() },
-                ["teamBScore"]             = new { integerValue = s.TeamBScore.ToString() },
-                ["players"]                = new { arrayValue   = new { values = playerValues } }
-            }
+            ["version"] = s.Version,
+            ["lastModifiedUtc"] = utc,
+            ["lastModified"] = utc,
+            ["matchDurationSeconds"] = s.MatchDurationSeconds,
+            ["halfDurationSeconds"] = s.HalfDurationSeconds,
+            ["matchRemainingSeconds"] = s.MatchRemainingSeconds,
+            ["currentHalf"] = s.CurrentHalf,
+            ["timerRunning"] = s.TimerRunning,
+            ["countdownPresetSeconds"] = s.CountdownPresetSeconds,
+            ["countdownPreset"] = s.CountdownPresetSeconds,
+            ["viewMode"] = s.ViewMode,
+            ["teamAScore"] = s.TeamAScore,
+            ["teamBScore"] = s.TeamBScore,
+            ["players"] = players
         };
     }
 
-    /// <summary>Parses Firestore REST response JSON back to <see cref="RosterSnapshot"/>.</summary>
-    private static RosterSnapshot? FromFirestoreDocument(string json)
+    private static RosterSnapshot? FromDictionary(IDictionary<object, object> fields)
     {
         try
         {
-            using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("fields", out var fields))
-                return null;
-
-            const int defaultMatchDuration = 90 * 60;
-
+            const int defaultMatch = 90 * 60;
             var snapshot = new RosterSnapshot
             {
-                Version                = ReadInt(fields, "version", 2),
-                LastModifiedUtc        = ReadTimestamp(fields, "lastModifiedUtc", "lastModified"),
-                MatchDurationSeconds   = Math.Max(1, ReadInt(fields, "matchDurationSeconds", defaultMatchDuration)),
-                HalfDurationSeconds    = ReadInt(fields, "halfDurationSeconds", 0),
-                MatchRemainingSeconds  = ReadInt(fields, "matchRemainingSeconds", defaultMatchDuration),
-                CurrentHalf            = ReadString(fields, "currentHalf", "setup"),
-                TimerRunning           = ReadBool(fields, "timerRunning", false),
+                Version = ReadInt(fields, "version", 2),
+                LastModifiedUtc = ReadTimestamp(fields, "lastModifiedUtc", "lastModified"),
+                MatchDurationSeconds = Math.Max(1, ReadInt(fields, "matchDurationSeconds", defaultMatch)),
+                HalfDurationSeconds = ReadInt(fields, "halfDurationSeconds", 0),
+                MatchRemainingSeconds = ReadInt(fields, "matchRemainingSeconds", defaultMatch),
+                CurrentHalf = ReadString(fields, "currentHalf", "setup"),
+                TimerRunning = ReadBool(fields, "timerRunning", false),
                 CountdownPresetSeconds = ReadInt(fields, "countdownPresetSeconds",
-                                            ReadInt(fields, "countdownPreset", 120)),
-                ViewMode               = ReadInt(fields, "viewMode", 0),
-                TeamAScore             = ReadInt(fields, "teamAScore", 0),
-                TeamBScore             = ReadInt(fields, "teamBScore", 0)
+                    ReadInt(fields, "countdownPreset", 120)),
+                ViewMode = ReadInt(fields, "viewMode", 0),
+                TeamAScore = ReadInt(fields, "teamAScore", 0),
+                TeamBScore = ReadInt(fields, "teamBScore", 0)
             };
 
-            if (fields.TryGetProperty("players", out var playersEl)
-                && playersEl.TryGetProperty("arrayValue", out var arr)
-                && arr.TryGetProperty("values", out var values))
+            if (fields.TryGetValue("players", out var playersObj) && playersObj is IEnumerable<object> list)
             {
-                foreach (var pElem in values.EnumerateArray())
+                foreach (var item in list)
                 {
-                    if (!pElem.TryGetProperty("mapValue", out var map)
-                        || !map.TryGetProperty("fields", out var pf))
+                    if (item is not IDictionary<object, object> pf && item is not IDictionary<string, object>)
                         continue;
-
+                    var map = item as IDictionary<object, object>
+                              ?? ((IDictionary<string, object>)item).ToDictionary(kv => (object)kv.Key, kv => kv.Value);
                     snapshot.Players.Add(new PlayerSnapshot
                     {
-                        SlotId         = ReadInt(pf, "slotId", 0),
-                        Name           = ReadString(pf, "name", string.Empty),
-                        Field          = ReadBool(pf, "field", false),
-                        Bench          = ReadBool(pf, "bench", false),
-                        Goalie         = ReadBool(pf, "goalie", false),
-                        Inactive       = ReadBool(pf, "inactive", false),
-                        CounterSeconds = ReadInt(pf, "counterSeconds", 0)
+                        SlotId = ReadInt(map, "slotId", 0),
+                        Name = ReadString(map, "name", string.Empty),
+                        Field = ReadBool(map, "field", false),
+                        Bench = ReadBool(map, "bench", false),
+                        Goalie = ReadBool(map, "goalie", false),
+                        Inactive = ReadBool(map, "inactive", false),
+                        CounterSeconds = ReadInt(map, "counterSeconds", 0)
                     });
                 }
             }
@@ -332,52 +231,63 @@ public sealed class CloudRosterService : ICloudRosterService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] Parse failed: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[CloudRosterService] FromDictionary: {ex.Message}");
             return null;
         }
     }
 
-    private static string ReadString(JsonElement fields, string name, string fallback)
+    private static object? Get(IDictionary<object, object> d, string key)
     {
-        if (!fields.TryGetProperty(name, out var el)) return fallback;
-        if (el.TryGetProperty("stringValue", out var s)) return s.GetString() ?? fallback;
-        return fallback;
-    }
-
-    private static int ReadInt(JsonElement fields, string name, int fallback)
-    {
-        if (!fields.TryGetProperty(name, out var el)) return fallback;
-        if (el.TryGetProperty("integerValue", out var i)
-            && int.TryParse(i.GetString(), out var n))
-            return n;
-        if (el.TryGetProperty("doubleValue", out var d))
-            return (int)d.GetDouble();
-        return fallback;
-    }
-
-    private static bool ReadBool(JsonElement fields, string name, bool fallback)
-    {
-        if (!fields.TryGetProperty(name, out var el)) return fallback;
-        if (el.TryGetProperty("booleanValue", out var b)) return b.GetBoolean();
-        return fallback;
-    }
-
-    private static DateTimeOffset ReadTimestamp(JsonElement fields, string primary, string alternate)
-    {
-        foreach (var name in new[] { primary, alternate })
+        if (d.TryGetValue(key, out var v)) return v;
+        foreach (var kv in d)
         {
-            if (!fields.TryGetProperty(name, out var el)) continue;
-
-            string? raw = null;
-            if (el.TryGetProperty("timestampValue", out var ts))
-                raw = ts.GetString();
-            else if (el.TryGetProperty("stringValue", out var s))
-                raw = s.GetString();
-
-            if (!string.IsNullOrEmpty(raw) && DateTimeOffset.TryParse(raw, out var dto))
-                return dto;
+            if (kv.Key?.ToString() == key) return kv.Value;
         }
+        return null;
+    }
 
+    private static int ReadInt(IDictionary<object, object> d, string key, int fallback)
+    {
+        var v = Get(d, key);
+        return v switch
+        {
+            int i => i,
+            long l => (int)l,
+            double dbl => (int)dbl,
+            string s when int.TryParse(s, out var i) => i,
+            _ => fallback
+        };
+    }
+
+    private static bool ReadBool(IDictionary<object, object> d, string key, bool fallback)
+    {
+        var v = Get(d, key);
+        return v switch
+        {
+            bool b => b,
+            string s when bool.TryParse(s, out var b) => b,
+            _ => fallback
+        };
+    }
+
+    private static string ReadString(IDictionary<object, object> d, string key, string fallback)
+        => Get(d, key)?.ToString() ?? fallback;
+
+    private static DateTimeOffset ReadTimestamp(IDictionary<object, object> d, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            var v = Get(d, key);
+            switch (v)
+            {
+                case DateTimeOffset dto:
+                    return dto;
+                case DateTime dt:
+                    return new DateTimeOffset(dt.ToUniversalTime());
+                case string s when DateTimeOffset.TryParse(s, out var parsed):
+                    return parsed;
+            }
+        }
         return DateTimeOffset.UtcNow;
     }
 }

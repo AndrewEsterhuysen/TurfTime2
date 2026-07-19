@@ -4,15 +4,13 @@
              x:Class="TurfTime2.ChatPage"
              Title="Chat">
     <Grid RowDefinitions="*, Auto">
-        <!-- WebView for chat display -->
-        <WebView x:Name="ChatWebView" 
-                 Grid.Row="0"
-                 HorizontalOptions="FillAndExpand"
-                 VerticalOptions="FillAndExpand"/>
+        <CollectionView x:Name="MessagesList"
+                        Grid.Row="0"
+                        SelectionMode="None"
+                        Margin="8" />
 
-        <!-- Message input at bottom -->
         <Grid x:Name="InputBar"
-              Grid.Row="1" 
+              Grid.Row="1"
               ColumnDefinitions="*, Auto"
               Padding="10"
               BackgroundColor="#2e7d32">
@@ -24,7 +22,7 @@
                    MaxLength="500"
                    VerticalOptions="Center"
                    ReturnType="Send"
-                   ReturnCommand="{Binding SendCommand}"/>
+                   Completed="OnSendClicked" />
             <Button x:Name="SendButton"
                     Grid.Column="1"
                     Text="Send"
@@ -33,7 +31,7 @@
                     VerticalOptions="Center"
                     WidthRequest="80"
                     BackgroundColor="#FF6B35"
-                    TextColor="White"/>
+                    TextColor="White" />
         </Grid>
     </Grid>
 </ContentPage>

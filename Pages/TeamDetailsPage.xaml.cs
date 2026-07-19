@@ -1121,165 +1121,71 @@ private static string? _firebaseUserId;
 private const string FirebaseApiKey = "AIzaSyDAKivCFX5kYYZ6SkAQluBNdR92I320glk";
 private const string FirebaseProjectId = "turf-timer";
 
+private static Services.ICloudTeamService? ResolveCloudTeam()
+{
+	try
+	{
+		return Application.Current?.Handler?.MauiContext?.Services.GetService<Services.ICloudTeamService>();
+	}
+	catch { return null; }
+}
+
+private static Services.IFirebaseAuthService? ResolveAuth()
+{
+	try
+	{
+		return Application.Current?.Handler?.MauiContext?.Services.GetService<Services.IFirebaseAuthService>();
+	}
+	catch { return null; }
+}
+
 private async Task<bool> EnsureFirebaseAuthAsync()
 {
-if (!string.IsNullOrEmpty(_firebaseIdToken))
-return true;
+	if (Connectivity.NetworkAccess != NetworkAccess.Internet)
+	{
+		System.Diagnostics.Debug.WriteLine("[Firebase] No internet connection - skipping auth");
+		return false;
+	}
 
-if (Connectivity.NetworkAccess != NetworkAccess.Internet)
-{
-System.Diagnostics.Debug.WriteLine("[Firebase] No internet connection - skipping auth");
-return false;
-}
+	var auth = ResolveAuth();
+	if (auth is null)
+	{
+		System.Diagnostics.Debug.WriteLine("[Firebase] IFirebaseAuthService not available");
+		return false;
+	}
 
-try
-{
-System.Diagnostics.Debug.WriteLine("[Firebase] Signing in anonymously via REST API...");
-var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
-var body = System.Text.Json.JsonSerializer.Serialize(new { returnSecureToken = true });
-var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
-var response = await _httpClient.PostAsync(url, content);
-var json = await response.Content.ReadAsStringAsync();
-System.Diagnostics.Debug.WriteLine($"[Firebase] Auth response: {response.StatusCode}");
-if (!response.IsSuccessStatusCode)
-{
-System.Diagnostics.Debug.WriteLine($"[Firebase] Auth failed: {json}");
-return false;
-}
-var doc = System.Text.Json.JsonDocument.Parse(json);
-_firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
-_firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
-System.Diagnostics.Debug.WriteLine($"[Firebase] Authenticated as user: {_firebaseUserId?.Substring(0, 8)}...");
-FirebaseSaveBridge.SetAuthToken(_firebaseIdToken!, _firebaseUserId!);
-return true;
-}
-catch (Exception ex)
-{
-System.Diagnostics.Debug.WriteLine($"[Firebase] Auth exception: {ex.Message}");
-return false;
-}
+	var uid = await auth.EnsureSignedInAsync();
+	if (string.IsNullOrEmpty(uid))
+		return false;
+
+	_firebaseUserId = uid;
+	_firebaseIdToken = await auth.GetIdTokenAsync() ?? "";
+	// Bridges no longer need REST tokens; keep call for compatibility.
+	if (!string.IsNullOrEmpty(_firebaseIdToken))
+		FirebaseSaveBridge.SetAuthToken(_firebaseIdToken, uid);
+	return true;
 }
 
 private static async Task<bool> EnsureFirebaseAuthStaticAsync()
 {
-if (!string.IsNullOrEmpty(_firebaseIdToken))
-return true;
-
-try
-{
-System.Diagnostics.Debug.WriteLine("[Firebase] Static: signing in anonymously...");
-var url = $"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FirebaseApiKey}";
-var body = System.Text.Json.JsonSerializer.Serialize(new { returnSecureToken = true });
-var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
-var response = await _httpClient.PostAsync(url, content);
-if (!response.IsSuccessStatusCode) return false;
-var json = await response.Content.ReadAsStringAsync();
-var doc = System.Text.Json.JsonDocument.Parse(json);
-_firebaseIdToken = doc.RootElement.GetProperty("idToken").GetString();
-_firebaseUserId = doc.RootElement.GetProperty("localId").GetString();
-System.Diagnostics.Debug.WriteLine($"[Firebase] Static: authenticated");
-FirebaseSaveBridge.SetAuthToken(_firebaseIdToken!, _firebaseUserId!);
-return true;
-}
-catch (Exception ex)
-{
-System.Diagnostics.Debug.WriteLine($"[Firebase] Static auth exception: {ex.Message}");
-return false;
-}
+	var auth = ResolveAuth();
+	if (auth is null) return false;
+	var uid = await auth.EnsureSignedInAsync();
+	if (string.IsNullOrEmpty(uid)) return false;
+	_firebaseUserId = uid;
+	_firebaseIdToken = await auth.GetIdTokenAsync() ?? "";
+	if (!string.IsNullOrEmpty(_firebaseIdToken))
+		FirebaseSaveBridge.SetAuthToken(_firebaseIdToken, uid);
+	return true;
 }
 
 private async Task<string> CreateTeamInFirestore(string teamId, string teamName, string inviteCode, string adminCodeHash, string creatorEmail, string displayName)
 {
-System.Diagnostics.Debug.WriteLine($"[TeamDetails] CreateTeamInFirestore called for team: {teamName}");
-
-if (!await EnsureFirebaseAuthAsync())
-return "error: Could not authenticate with Firebase. Please check your internet connection.";
-
-try
-{
-var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents";
-_httpClient.DefaultRequestHeaders.Authorization =
-new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _firebaseIdToken);
-
-// 1. Create team metadata
-var metadataUrl = $"{baseUrl}/teams/{teamId}/metadata?documentId=info";
-var metadataBody = System.Text.Json.JsonSerializer.Serialize(new
-{
-fields = new
-{
-	teamName = new { stringValue = teamName },
-	inviteCode = new { stringValue = inviteCode },
-	adminCodeHash = new { stringValue = adminCodeHash },
-	creatorEmail = new { stringValue = creatorEmail },
-	createdBy = new { stringValue = _firebaseUserId },
-	isActive = new { booleanValue = true }
-}
-});
-var metadataResponse = await _httpClient.PostAsync(metadataUrl,
-new StringContent(metadataBody, System.Text.Encoding.UTF8, "application/json"));
-if (!metadataResponse.IsSuccessStatusCode)
-{
-var err = await metadataResponse.Content.ReadAsStringAsync();
-System.Diagnostics.Debug.WriteLine($"[Firebase] Metadata write failed: {err}");
-return $"error: {err}";
-}
-System.Diagnostics.Debug.WriteLine("[Firebase] Team metadata created");
-
-// 2. Add creator as admin member (displayName is the chat identity)
-var memberUrl = $"{baseUrl}/teams/{teamId}/members?documentId={_firebaseUserId}";
-var memberBody = System.Text.Json.JsonSerializer.Serialize(new
-{
-fields = new
-{
-role = new { stringValue = "admin" },
-displayName = new { stringValue = displayName }
-}
-});
-await _httpClient.PostAsync(memberUrl,
-new StringContent(memberBody, System.Text.Encoding.UTF8, "application/json"));
-System.Diagnostics.Debug.WriteLine("[Firebase] Admin member added");
-
-// 3. Initialize empty roster
-var rosterUrl = $"{baseUrl}/teams/{teamId}/roster?documentId=data";
-var rosterBody = System.Text.Json.JsonSerializer.Serialize(new
-{
-fields = new
-{
-version = new { integerValue = "2" },
-players = new { arrayValue = new { values = Array.Empty<object>() } }
-}
-});
-await _httpClient.PostAsync(rosterUrl,
-new StringContent(rosterBody, System.Text.Encoding.UTF8, "application/json"));
-System.Diagnostics.Debug.WriteLine("[Firebase] Empty roster initialized");
-
-// 4. Write invite code lookup document — enables O(1) GET lookup at join time
-// (avoids a collectionGroup query which requires special Firestore security rules)
-var inviteCodeLookupUrl = $"{baseUrl}/invite_codes?documentId={inviteCode}";
-var inviteCodeLookupBody = System.Text.Json.JsonSerializer.Serialize(new
-{
-	fields = new
-	{
-		teamId = new { stringValue = teamId },
-		teamName = new { stringValue = teamName },
-		createdBy = new { stringValue = _firebaseUserId }
-	}
-});
-var inviteCodeLookupResponse = await _httpClient.PostAsync(inviteCodeLookupUrl,
-	new StringContent(inviteCodeLookupBody, System.Text.Encoding.UTF8, "application/json"));
-if (inviteCodeLookupResponse.IsSuccessStatusCode)
-	System.Diagnostics.Debug.WriteLine("[Firebase] Invite code lookup document created");
-else
-	System.Diagnostics.Debug.WriteLine($"[Firebase] Invite code lookup write failed (non-fatal): {await inviteCodeLookupResponse.Content.ReadAsStringAsync()}");
-
-System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team '{teamName}' created successfully in Firestore");
-return "success";
-}
-catch (Exception ex)
-{
-System.Diagnostics.Debug.WriteLine($"[TeamDetails] Exception creating team: {ex.Message}");
-return $"error: {ex.Message}";
-}
+	System.Diagnostics.Debug.WriteLine($"[TeamDetails] CreateTeamInFirestore (SDK) for team: {teamName}");
+	var cloud = ResolveCloudTeam();
+	if (cloud is null)
+		return "error: Cloud team service not available";
+	return await cloud.CreateTeamAsync(teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
 }
 private void RegisterTeamId(string teamId)
 	{

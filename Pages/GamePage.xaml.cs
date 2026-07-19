@@ -99,11 +99,16 @@ public partial class GamePage : ContentPage
 
     private async Task CreateViewModelAsync(string teamId, string? userRole)
     {
-        var timer   = new GameTimerService();
-        var cloud   = new CloudRosterService();
-        var session = new SessionStorageService();
-        var logger  = new GameLoggerService(session);
-        _vm         = new GameViewModel(timer, logger, cloud);
+        var services = Handler?.MauiContext?.Services
+            ?? Application.Current?.Handler?.MauiContext?.Services;
+
+        var timer = services?.GetService<IGameTimerService>() ?? new GameTimerService();
+        var cloud = services?.GetService<ICloudRosterService>()
+            ?? throw new InvalidOperationException("ICloudRosterService is not registered");
+        var session = services?.GetService<ISessionStorageService>()
+            ?? throw new InvalidOperationException("ISessionStorageService is not registered");
+        var logger = services?.GetService<IGameLoggerService>() ?? new GameLoggerService(session);
+        _vm = new GameViewModel(timer, logger, cloud);
 
         BindingContext = _vm;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
