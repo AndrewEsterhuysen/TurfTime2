@@ -335,25 +335,22 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             {
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromSeconds(3), token).ConfigureAwait(false);
                     var snap = await _cloud.LoadAsync(teamId, preferCloud: true).ConfigureAwait(false);
-                    if (snap is null) continue;
-                    if (snap.LastModifiedUtc <= _lastAppliedCloudUtc
-                        && snap.Players.Count == 0) continue;
+                    if (snap is null || snap.Players.Count == 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[GameViewModel] Member poll: no cloud players yet for {teamId}");
+                        continue;
+                    }
 
                     MainThread.BeginInvokeOnMainThread(() =>
                     {
                         if (!IsMember) return;
-                        // Always apply when cloud has positioned players and we still don't.
-                        var havePositions = Players.Any(p =>
-                            p.Position is PlayerPosition.Field or PlayerPosition.Bench
-                                or PlayerPosition.Goalie or PlayerPosition.Inactive);
-                        if (snap.LastModifiedUtc > _lastAppliedCloudUtc
-                            || (!havePositions && snap.Players.Any(p =>
-                                    p.Field || p.Bench || p.Goalie || p.Inactive)))
-                        {
-                            ApplySnapshot(snap);
-                        }
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[GameViewModel] Member poll apply players={snap.Players.Count} " +
+                            $"lastMod={snap.LastModifiedUtc:o}");
+                        ApplySnapshot(snap);
                     });
                 }
                 catch (OperationCanceledException) { break; }
@@ -1031,7 +1028,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             HalfDurationSeconds    = _timer.HalfDurationSeconds,
             MatchRemainingSeconds  = _timer.MatchRemainingSeconds,
             CurrentHalf            = Phase.ToString().ToLowerInvariant(),
-            TimerRunning           = false, // never persist running state
+            // Persist running flag for members (display only); admin still owns control.
+            TimerRunning           = _timer.TimerRunning,
             CountdownPresetSeconds = _timer.CountdownPresetSeconds,
             ViewMode               = (int)_viewMode,
             TeamAScore             = TeamAScore,
@@ -1054,11 +1052,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (s.Players.Count == 0 && s.LastModifiedUtc <= _lastAppliedCloudUtc)
             return;
 
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] ApplySnapshot players={s.Players.Count} " +
+            $"scores={s.TeamAScore}-{s.TeamBScore} half={s.CurrentHalf} member={IsMember}");
+
         _timer.MatchDurationSeconds   = s.MatchDurationSeconds > 0 ? s.MatchDurationSeconds : 90 * 60;
         _timer.CountdownPresetSeconds = s.CountdownPresetSeconds;
         // Keep the explicit Preferences key in sync so the constructor's
         // early-restore path always reflects the most recent saved value.
-        if (s.CountdownPresetSeconds > 0)
+        // Do not stamp local prefs for members — admin cloud is source of truth.
+        if (s.CountdownPresetSeconds > 0 && !IsMember)
             Preferences.Set("game.countdownPresetSeconds", s.CountdownPresetSeconds);
         TeamAScore = s.TeamAScore;
         TeamBScore = s.TeamBScore;
@@ -1794,8 +1797,19 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(_currentTeamId)) return;
             var snapshot = ToSnapshot();
-            await _cloud.SaveAsync(_currentTeamId, snapshot, IsAdmin).ConfigureAwait(false);
+            // Shared-team admin: force immediate cloud write (REST) so members mirror quickly.
+            // Debounced path still used only for local-only convenience saves via SaveAsync.
+            if (IsAdmin && !_currentTeamId.StartsWith("local_", StringComparison.Ordinal)
+                && !string.Equals(Preferences.Get("team_mode", ""), "local", StringComparison.Ordinal))
+            {
+                await _cloud.ForceSyncAsync(_currentTeamId, snapshot).ConfigureAwait(false);
+            }
+            else
+            {
+                await _cloud.SaveAsync(_currentTeamId, snapshot, IsAdmin).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {

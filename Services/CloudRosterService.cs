@@ -209,89 +209,97 @@ public sealed class CloudRosterService : ICloudRosterService
             return;
         }
 
+        // PRIMARY: authenticated Firestore REST.
+        // Plugin.Firebase SetDataAsync on Android often reports success while writing an
+        // empty document (no fields) for nested player maps — verified against justinb-w14nvh
+        // where updateTime advanced but REST GET returned zero fields. REST writes fields
+        // correctly and is what members read.
         try
         {
-            // Dictionary<string, object?> is required so nested player maps convert
-            // via Plugin.Firebase's IDictionary<string, object?> ToHashMap path.
-            // Dictionary<object, object> inside a list throws ToJavaObject on Android.
+            await UploadViaRestAsync(teamId, snapshot).ConfigureAwait(false);
+            return;
+        }
+        catch (Exception restEx)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudRosterService] REST upload failed, trying SDK: {restEx.Message}");
+        }
+
+        try
+        {
             var payload = ToFirestorePayload(snapshot);
             var doc = _db.GetDocument($"teams/{teamId}/roster/data");
             await doc.SetDataAsync(payload).ConfigureAwait(false);
             System.Diagnostics.Debug.WriteLine(
-                $"[CloudRosterService] Saved to Firestore (team {teamId}, players={snapshot.Players.Count})");
+                $"[CloudRosterService] SDK SetDataAsync completed (team {teamId}, players={snapshot.Players.Count}) — verify via REST if members cannot see state");
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine(
-                $"[CloudRosterService] Firestore upload: {ex.Message}");
-            // REST fallback so members can still mirror when SDK write fails
-            try
-            {
-                await UploadViaRestAsync(teamId, snapshot).ConfigureAwait(false);
-            }
-            catch (Exception restEx)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CloudRosterService] REST upload failed: {restEx.Message}");
-            }
+                $"[CloudRosterService] Firestore SDK upload: {ex.Message}");
         }
     }
 
     private async Task UploadViaRestAsync(string teamId, RosterSnapshot snapshot)
     {
-        var idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(idToken)) return;
+        var idToken = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            throw new InvalidOperationException("No Firebase id token for roster upload");
 
         var url =
             $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/teams/{Uri.EscapeDataString(teamId)}/roster/data";
 
+        // RFC3339 UTC — Firestore timestampValue
+        var ts = snapshot.LastModifiedUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+
+        var playerValues = snapshot.Players.Select(p => new Dictionary<string, object>
+        {
+            ["mapValue"] = new Dictionary<string, object>
+            {
+                ["fields"] = new Dictionary<string, object>
+                {
+                    ["slotId"] = new Dictionary<string, object> { ["integerValue"] = p.SlotId.ToString() },
+                    ["name"] = new Dictionary<string, object> { ["stringValue"] = p.Name ?? "" },
+                    ["field"] = new Dictionary<string, object> { ["booleanValue"] = p.Field },
+                    ["bench"] = new Dictionary<string, object> { ["booleanValue"] = p.Bench },
+                    ["goalie"] = new Dictionary<string, object> { ["booleanValue"] = p.Goalie },
+                    ["inactive"] = new Dictionary<string, object> { ["booleanValue"] = p.Inactive },
+                    ["counterSeconds"] = new Dictionary<string, object> { ["integerValue"] = p.CounterSeconds.ToString() }
+                }
+            }
+        }).ToList();
+
         var fields = new Dictionary<string, object>
         {
-            ["version"] = new { integerValue = snapshot.Version.ToString() },
-            ["lastModifiedUtc"] = new { timestampValue = snapshot.LastModifiedUtc.UtcDateTime.ToString("o") },
-            ["lastModified"] = new { timestampValue = snapshot.LastModifiedUtc.UtcDateTime.ToString("o") },
-            ["matchDurationSeconds"] = new { integerValue = snapshot.MatchDurationSeconds.ToString() },
-            ["halfDurationSeconds"] = new { integerValue = snapshot.HalfDurationSeconds.ToString() },
-            ["matchRemainingSeconds"] = new { integerValue = snapshot.MatchRemainingSeconds.ToString() },
-            ["currentHalf"] = new { stringValue = snapshot.CurrentHalf ?? "setup" },
-            ["timerRunning"] = new { booleanValue = snapshot.TimerRunning },
-            ["countdownPresetSeconds"] = new { integerValue = snapshot.CountdownPresetSeconds.ToString() },
-            ["countdownPreset"] = new { integerValue = snapshot.CountdownPresetSeconds.ToString() },
-            ["viewMode"] = new { integerValue = snapshot.ViewMode.ToString() },
-            ["teamAScore"] = new { integerValue = snapshot.TeamAScore.ToString() },
-            ["teamBScore"] = new { integerValue = snapshot.TeamBScore.ToString() },
-            ["players"] = new
+            ["version"] = new Dictionary<string, object> { ["integerValue"] = snapshot.Version.ToString() },
+            ["lastModifiedUtc"] = new Dictionary<string, object> { ["timestampValue"] = ts },
+            ["lastModified"] = new Dictionary<string, object> { ["timestampValue"] = ts },
+            ["matchDurationSeconds"] = new Dictionary<string, object> { ["integerValue"] = snapshot.MatchDurationSeconds.ToString() },
+            ["halfDurationSeconds"] = new Dictionary<string, object> { ["integerValue"] = snapshot.HalfDurationSeconds.ToString() },
+            ["matchRemainingSeconds"] = new Dictionary<string, object> { ["integerValue"] = snapshot.MatchRemainingSeconds.ToString() },
+            ["currentHalf"] = new Dictionary<string, object> { ["stringValue"] = snapshot.CurrentHalf ?? "setup" },
+            ["timerRunning"] = new Dictionary<string, object> { ["booleanValue"] = snapshot.TimerRunning },
+            ["countdownPresetSeconds"] = new Dictionary<string, object> { ["integerValue"] = snapshot.CountdownPresetSeconds.ToString() },
+            ["countdownPreset"] = new Dictionary<string, object> { ["integerValue"] = snapshot.CountdownPresetSeconds.ToString() },
+            ["viewMode"] = new Dictionary<string, object> { ["integerValue"] = snapshot.ViewMode.ToString() },
+            ["teamAScore"] = new Dictionary<string, object> { ["integerValue"] = snapshot.TeamAScore.ToString() },
+            ["teamBScore"] = new Dictionary<string, object> { ["integerValue"] = snapshot.TeamBScore.ToString() },
+            ["players"] = new Dictionary<string, object>
             {
-                arrayValue = new
+                ["arrayValue"] = new Dictionary<string, object>
                 {
-                    values = snapshot.Players.Select(p => new
-                    {
-                        mapValue = new
-                        {
-                            fields = new Dictionary<string, object>
-                            {
-                                ["slotId"] = new { integerValue = p.SlotId.ToString() },
-                                ["name"] = new { stringValue = p.Name ?? "" },
-                                ["field"] = new { booleanValue = p.Field },
-                                ["bench"] = new { booleanValue = p.Bench },
-                                ["goalie"] = new { booleanValue = p.Goalie },
-                                ["inactive"] = new { booleanValue = p.Inactive },
-                                ["counterSeconds"] = new { integerValue = p.CounterSeconds.ToString() }
-                            }
-                        }
-                    }).ToList()
+                    ["values"] = playerValues
                 }
             }
         };
 
         var body = JsonSerializer.Serialize(new { fields });
-        using var req = new HttpRequestMessage(HttpMethod.Patch, url + "?currentDocument.exists=true")
+        using var req = new HttpRequestMessage(HttpMethod.Patch, url)
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
         };
-        // Upsert: try patch; if 404 create with POST to parent... use updateMask-less patch with allow missing via update
-        // Firestore REST: PATCH with updateMask optional; for create use PATCH without currentDocument
-        req.RequestUri = new Uri(url); // allow create
         req.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
@@ -299,13 +307,34 @@ public sealed class CloudRosterService : ICloudRosterService
         var respBody = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[CloudRosterService] REST upload {(int)resp.StatusCode}: {respBody[..Math.Min(200, respBody.Length)]}");
-            return;
+            throw new InvalidOperationException(
+                $"REST upload {(int)resp.StatusCode}: {respBody[..Math.Min(240, respBody.Length)]}");
         }
 
-        System.Diagnostics.Debug.WriteLine(
-            $"[CloudRosterService] REST upload OK (team {teamId}, players={snapshot.Players.Count})");
+        // Confirm players actually landed (guards against silent empty writes).
+        try
+        {
+            using var verify = JsonDocument.Parse(respBody);
+            var playerCount = 0;
+            if (verify.RootElement.TryGetProperty("fields", out var f)
+                && f.TryGetProperty("players", out var pl)
+                && pl.TryGetProperty("arrayValue", out var av)
+                && av.TryGetProperty("values", out var vals))
+            {
+                playerCount = vals.GetArrayLength();
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudRosterService] REST upload OK team={teamId} players={playerCount}/{snapshot.Players.Count}");
+            if (playerCount == 0 && snapshot.Players.Count > 0)
+                throw new InvalidOperationException("REST upload returned document with 0 players");
+        }
+        catch (InvalidOperationException) { throw; }
+        catch
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudRosterService] REST upload OK team={teamId} (response parse skipped)");
+        }
     }
 
     private async Task<RosterSnapshot?> DownloadFromFirestoreAsync(string teamId)
@@ -313,7 +342,30 @@ public sealed class CloudRosterService : ICloudRosterService
         if (await _auth.EnsureSignedInAsync().ConfigureAwait(false) is null)
             return null;
 
-        // 1) SDK dictionary path
+        // REST first: SDK snapshot.Data is often empty/null or offline-cached empty
+        // after failed/empty SetDataAsync writes.
+        try
+        {
+            var rest = await DownloadViaRestAsync(teamId).ConfigureAwait(false);
+            if (rest is not null && rest.Players.Count > 0)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudRosterService] REST download team={teamId} players={rest.Players.Count}");
+                return rest;
+            }
+
+            if (rest is not null)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudRosterService] REST download team={teamId} has 0 players — trying SDK");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudRosterService] REST download: {ex.Message}");
+        }
+
         try
         {
             var snap = await _db.GetDocument($"teams/{teamId}/roster/data")
@@ -324,28 +376,15 @@ public sealed class CloudRosterService : ICloudRosterService
                 var roster = FromDictionary(snap.Data);
                 if (roster is not null && roster.Players.Count > 0)
                     return roster;
-                // Empty players array from create-time doc — try REST for fuller parse, or return empty
-                if (roster is not null)
-                    return roster;
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine(
-                $"[CloudRosterService] Firestore download: {ex.Message}");
+                $"[CloudRosterService] Firestore SDK download: {ex.Message}");
         }
 
-        // 2) REST fallback (same pattern that fixed invite lookup)
-        try
-        {
-            return await DownloadViaRestAsync(teamId).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine(
-                $"[CloudRosterService] REST download: {ex.Message}");
-            return null;
-        }
+        return null;
     }
 
     private async Task<RosterSnapshot?> DownloadViaRestAsync(string teamId)

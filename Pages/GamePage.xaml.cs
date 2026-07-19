@@ -38,13 +38,17 @@ public partial class GamePage : ContentPage
         var teamId   = Preferences.Get("team_id",   string.Empty);
         var userRole = Preferences.Get("user_role", (string?)null);
         var isDemoTeam = string.Equals(teamId, DemoTeamId, StringComparison.Ordinal);
+        var isMember = string.Equals(userRole, "member", StringComparison.Ordinal);
+        var lastTeam = Preferences.Get("_gamepage_last_team", string.Empty);
 
         if (_vm is null)
         {
             await CreateViewModelAsync(teamId, userRole);
         }
-        else if (teamId != Preferences.Get("_gamepage_last_team", string.Empty))
+        else if (teamId != lastTeam || isMember)
         {
+            // Members always re-initialise on appear so they pick up admin cloud state
+            // after joining or returning from Team Details (same team_id, new role).
             Preferences.Set("_gamepage_last_team", teamId);
             await _vm.InitialiseAsync(teamId, userRole);
             ApplyViewMode(_vm.ViewMode);
@@ -59,7 +63,8 @@ public partial class GamePage : ContentPage
 
             // Re-apply timer settings in case they were changed in Settings → Timers.
             // Keep the seeded demo team values intact on first-run experience.
-            if (!isDemoTeam)
+            // Members must NOT overwrite cloud-mirrored timer/countdown with local prefs.
+            if (!isDemoTeam && !isMember)
             {
                 _vm.UpdateMatchDurationFromPreferences();
                 _vm.UpdateCountdownPresetFromPreferences();
