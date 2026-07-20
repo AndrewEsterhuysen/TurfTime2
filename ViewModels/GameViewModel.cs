@@ -65,10 +65,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     private string       _teamName      = string.Empty;
     private bool         _initialArrangementDone;
 
-    /// <summary>Live cloud roster listener (members) or poll backup.</summary>
+    /// <summary>Live cloud roster listener (members). Short recovery pulls only — no continuous poll.</summary>
     private IDisposable? _rosterWatch;
     private CancellationTokenSource? _memberPollCts;
     private DateTimeOffset _lastAppliedCloudUtc = DateTimeOffset.MinValue;
+    private bool _cloudMirrorActive;
 
     // ── Timer display properties (formatted strings for binding) ──────────
     private string _matchTimeDisplay    = "90 min";
@@ -312,43 +313,102 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// Members: listen + poll <c>teams/{id}/roster/data</c> so Game mirrors admin config.
+    /// Stop Firestore listener / recovery pulls (page hidden or app backgrounded).
+    /// Safe to call repeatedly.
+    /// </summary>
+    public void PauseCloudMirror() => StopCloudMirror();
+
+    /// <summary>
+    /// Re-attach live mirror after resume / re-appear. Forces one cloud load first so a
+    /// long-suspended iOS process does not stay stuck on a stale morning snapshot.
+    /// </summary>
+    public async Task ResumeCloudMirrorAsync()
+    {
+        if (!IsMember) return;
+        if (string.IsNullOrWhiteSpace(_currentTeamId)) return;
+        if (_currentTeamId.StartsWith("local_", StringComparison.Ordinal)) return;
+        if (string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal))
+            return;
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] ResumeCloudMirror team={_currentTeamId}");
+
+        StopCloudMirror();
+        try { await _cloud.WarmUpAsync().ConfigureAwait(false); }
+        catch { /* best-effort */ }
+
+        try
+        {
+            var snap = await _cloud.LoadAsync(_currentTeamId, preferCloud: true).ConfigureAwait(false);
+            if (snap is not null && snap.Players.Count > 0)
+            {
+                await MainThread.InvokeOnMainThreadAsync(() => ApplySnapshot(snap));
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameViewModel] ResumeCloudMirror load: {ex.Message}");
+        }
+
+        StartCloudMirror(_currentTeamId);
+    }
+
+    /// <summary>
+    /// Members: Firestore snapshot listener on <c>teams/{id}/roster/data</c>.
+    /// A few one-shot recovery pulls cover cold-start / empty SDK Data; no continuous poll.
     /// </summary>
     private void StartCloudMirror(string teamId)
     {
+        if (_cloudMirrorActive && _rosterWatch is not null)
+            return;
+
+        StopCloudMirror();
+        _cloudMirrorActive = true;
+
         _rosterWatch = _cloud.WatchRoster(teamId, snap =>
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 if (!IsMember) return;
-                if (snap.LastModifiedUtc <= _lastAppliedCloudUtc) return;
+                // Skip only strictly older snapshots. Equal timestamps re-apply after resume.
+                // MinValue (unparseable timestamp) is never treated as "newer than everything".
+                if (snap.LastModifiedUtc != DateTimeOffset.MinValue
+                    && snap.LastModifiedUtc < _lastAppliedCloudUtc)
+                    return;
                 ApplySnapshot(snap);
             });
         });
 
-        // Polling backup if snapshot listener is flaky or Data cast is empty.
+        // Short recovery series only (not a forever loop): immediate + a few spaced pulls
+        // while the listener attaches or until we have applied cloud data.
         _memberPollCts = new CancellationTokenSource();
         var token = _memberPollCts.Token;
         _ = Task.Run(async () =>
         {
-            while (!token.IsCancellationRequested)
+            // Delays: 0s (immediate), then 5s, 15s, 30s — then stop. Listener owns ongoing sync.
+            int[] delaysSeconds = [0, 5, 15, 30];
+            foreach (var delay in delaysSeconds)
             {
+                if (token.IsCancellationRequested) break;
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(3), token).ConfigureAwait(false);
+                    if (delay > 0)
+                        await Task.Delay(TimeSpan.FromSeconds(delay), token).ConfigureAwait(false);
+
                     var snap = await _cloud.LoadAsync(teamId, preferCloud: true).ConfigureAwait(false);
                     if (snap is null || snap.Players.Count == 0)
                     {
                         System.Diagnostics.Debug.WriteLine(
-                            $"[GameViewModel] Member poll: no cloud players yet for {teamId}");
+                            $"[GameViewModel] Recovery pull: no cloud players yet for {teamId}");
                         continue;
                     }
 
-                    MainThread.BeginInvokeOnMainThread(() =>
+                    await MainThread.InvokeOnMainThreadAsync(() =>
                     {
                         if (!IsMember) return;
                         System.Diagnostics.Debug.WriteLine(
-                            $"[GameViewModel] Member poll apply players={snap.Players.Count} " +
+                            $"[GameViewModel] Recovery pull apply players={snap.Players.Count} " +
                             $"lastMod={snap.LastModifiedUtc:o}");
                         ApplySnapshot(snap);
                     });
@@ -357,14 +417,18 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine(
-                        $"[GameViewModel] Member poll: {ex.Message}");
+                        $"[GameViewModel] Recovery pull: {ex.Message}");
                 }
             }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameViewModel] Recovery pulls finished for {teamId} — listener-only thereafter");
         }, token);
     }
 
     private void StopCloudMirror()
     {
+        _cloudMirrorActive = false;
         try { _rosterWatch?.Dispose(); } catch { /* ignore */ }
         _rosterWatch = null;
         try { _memberPollCts?.Cancel(); } catch { /* ignore */ }

@@ -35,6 +35,10 @@ public partial class GamePage : ContentPage
         base.OnAppearing();
         SetKeepScreenOn(true);
 
+        // App-level sleep/resume: listener dies after long iOS suspend; re-attach on resume.
+        App.Sleeping += OnAppSleeping;
+        App.Resumed  += OnAppResumed;
+
         var teamId   = Preferences.Get("team_id",   string.Empty);
         var userRole = Preferences.Get("user_role", (string?)null);
         var isDemoTeam = string.Equals(teamId, DemoTeamId, StringComparison.Ordinal);
@@ -49,6 +53,7 @@ public partial class GamePage : ContentPage
         {
             // Members always re-initialise on appear so they pick up admin cloud state
             // after joining or returning from Team Details (same team_id, new role).
+            // Also restarts the cloud mirror after OnDisappearing paused it.
             Preferences.Set("_gamepage_last_team", teamId);
             await _vm.InitialiseAsync(teamId, userRole);
             ApplyViewMode(_vm.ViewMode);
@@ -86,12 +91,43 @@ public partial class GamePage : ContentPage
     {
         base.OnDisappearing();
         SetKeepScreenOn(false);
+
+        App.Sleeping -= OnAppSleeping;
+        App.Resumed  -= OnAppResumed;
+
+        // Stop Firestore listener / recovery pulls while Game is not visible.
+        _vm?.PauseCloudMirror();
+
         if (_vm is not null)
             _vm.PropertyChanged -= OnViewModelPropertyChanged;
         RotationStylePage.RotationStyleChanged -= OnRotationStyleChanged;
         DragState.NativeSwipeReleased -= OnNativeSwipeReleased;
         DragState.NativeLongPressBegan -= OnNativeLongPressBegan;
         DragState.NativeLongPressEnded -= OnNativeLongPressEnded;
+    }
+
+    private void OnAppSleeping(object? sender, EventArgs e)
+    {
+        // Backgrounding does not always fire OnDisappearing while still on Game.
+        _vm?.PauseCloudMirror();
+        System.Diagnostics.Debug.WriteLine("[GamePage] App sleeping — cloud mirror paused");
+    }
+
+    private async void OnAppResumed(object? sender, EventArgs e)
+    {
+        if (_vm is null) return;
+        var userRole = Preferences.Get("user_role", (string?)null);
+        if (!string.Equals(userRole, "member", StringComparison.Ordinal)) return;
+
+        System.Diagnostics.Debug.WriteLine("[GamePage] App resumed — re-attaching cloud mirror");
+        try
+        {
+            await _vm.ResumeCloudMirrorAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GamePage] Resume cloud mirror failed: {ex.Message}");
+        }
     }
 
     // ── ViewModel factory ─────────────────────────────────────────────────

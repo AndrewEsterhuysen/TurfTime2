@@ -159,18 +159,13 @@ public partial class ChatPage : ContentPage
 			return;
 		try
 		{
-			var ok = await FcmService.Instance.InitializeAsync();
+			// Full pipeline: permission → token → Firestore member.fcmTokens
+			await FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
 			var token = await FcmService.Instance.GetTokenAsync();
-			if (string.IsNullOrEmpty(token) || _chat is null)
-			{
-				System.Diagnostics.Debug.WriteLine($"[Chat] FCM register skip initOk={ok} token={(token != null)}");
-				return;
-			}
-
-			var saved = await _chat.RegisterFcmTokenAsync(_teamId, token);
-			System.Diagnostics.Debug.WriteLine(saved
-				? "[Chat] ✅ FCM token registered via ChatService"
-				: "[Chat] ❌ FCM token registration failed");
+			System.Diagnostics.Debug.WriteLine(
+				string.IsNullOrEmpty(token)
+					? "[Chat] ❌ FCM still has no token after EnsureRegistered"
+					: $"[Chat] ✅ FCM ready token={token[..Math.Min(16, token.Length)]}…");
 		}
 		catch (Exception ex)
 		{
@@ -211,38 +206,62 @@ public partial class ChatPage : ContentPage
 			await _chat.UpdateDisplayNameAsync(_teamId, displayName);
 		}
 
+		// Optimistic local bubble so send feels instant even before listener/REST refresh.
+		var optimisticId = $"local-{Guid.NewGuid():N}";
+		var optimistic = new ChatMessage
+		{
+			Id = optimisticId,
+			Text = message,
+			UserId = Preferences.Get("user_id", string.Empty),
+			SenderName = "You",
+			Timestamp = DateTimeOffset.Now,
+			IsMine = true
+		};
+		_messages.Add(optimistic);
+		MessageEntry.Text = string.Empty;
+		MessagesList.ScrollTo(optimistic, position: ScrollToPosition.End, animate: true);
+
 		try
 		{
 			await _chat.SendAsync(_teamId, message, displayName);
-			MessageEntry.Text = string.Empty;
 			_ = RegisterFcmTokenAsync();
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[Chat] Send failed: {ex.Message}");
+			// Roll back optimistic bubble on failure.
+			var doomed = _messages.FirstOrDefault(m => m.Id == optimisticId);
+			if (doomed is not null)
+				_messages.Remove(doomed);
+			MessageEntry.Text = message;
+
+			System.Diagnostics.Debug.WriteLine(
+				$"[Chat] Send failed: {ex.GetType().FullName}: {ex.Message}");
+			if (ex.InnerException != null)
+				System.Diagnostics.Debug.WriteLine($"[Chat] Inner: {ex.InnerException.Message}");
 			await DisplayAlert("Chat", "Could not send message. Check your connection.", "OK");
 		}
 	}
 
 	private void ApplyThemeToInputBar()
 	{
+		// Input field stays high-contrast white (readable on iOS); only chrome is themed.
 		var theme = Preferences.Get("AppTheme", "classic");
 		if (theme == "modern")
 		{
 			InputBar.BackgroundColor = Color.FromArgb("#1b263b");
-			MessageEntry.TextColor = Color.FromArgb("#e0e0e0");
-			MessageEntry.PlaceholderColor = Color.FromArgb("#6688aa");
 			SendButton.BackgroundColor = Color.FromArgb("#00d9ff");
 			SendButton.TextColor = Color.FromArgb("#0d1b2a");
 		}
 		else
 		{
 			InputBar.BackgroundColor = Color.FromArgb("#2e7d32");
-			MessageEntry.TextColor = Colors.White;
-			MessageEntry.PlaceholderColor = Color.FromArgb("#AAFFAA");
 			SendButton.BackgroundColor = Color.FromArgb("#FF6B35");
 			SendButton.TextColor = Colors.White;
 		}
+
+		MessageEntry.TextColor = Color.FromArgb("#111111");
+		MessageEntry.PlaceholderColor = Color.FromArgb("#888888");
+		MessageEntry.BackgroundColor = Colors.Transparent;
 	}
 
 	private sealed class MineToColorConverter : IValueConverter

@@ -23,17 +23,19 @@
 			android:name="com.google.firebase.components:com.google.firebase.crashlytics.CrashlyticsRegistrar"
 			tools:node="remove" />
 
+		<!-- Small (status bar) icon: white silhouette. Full-color app art is LargeIcon in FcmService. -->
 		<meta-data
 			android:name="com.google.firebase.messaging.default_notification_icon"
-			android:resource="@mipmap/appicon" />
+			android:resource="@drawable/ic_stat_turftime" />
 
 		<meta-data
 			android:name="com.google.firebase.messaging.default_notification_color"
-			android:resource="@android:color/holo_blue_light" />
+			android:resource="@color/turftime_notification" />
 
+		<!-- Must match FcmService.ChatChannelId and Cloud Function android.notification.channelId -->
 		<meta-data
 			android:name="com.google.firebase.messaging.default_notification_channel_id"
-			android:value="general" />
+			android:value="turftime_chat" />
 
 		
 	</application>

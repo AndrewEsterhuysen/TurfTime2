@@ -19,12 +19,36 @@ namespace TurfTime2
         private const int DEMO_ROTATION_SECONDS = 20;
         private static int _importCounter;
 
+        /// <summary>Raised when the app is backgrounded (process may be suspended).</summary>
+        public static event EventHandler? Sleeping;
+
+        /// <summary>Raised when the app returns to the foreground after sleep.</summary>
+        public static event EventHandler? Resumed;
+
         public App()
         {
             InitializeComponent();
 
             // Initialize FCM
             _ = InitializeFcmAsync();
+        }
+
+        protected override void OnSleep()
+        {
+            base.OnSleep();
+            Sleeping?.Invoke(this, EventArgs.Empty);
+        }
+
+        protected override void OnResume()
+        {
+            base.OnResume();
+            Resumed?.Invoke(this, EventArgs.Empty);
+#if IOS
+            // Keep banner presentation delegate installed (Plugin.Firebase can overwrite it).
+            FcmService.InstallIosNotificationDelegate();
+#endif
+            // Re-save FCM token after resume (token/permission may have changed; team may have been joined).
+            _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
         }
 
         protected override Window CreateWindow(IActivationState? activationState)

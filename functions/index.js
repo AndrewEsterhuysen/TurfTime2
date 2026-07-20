@@ -116,8 +116,10 @@ exports.sendChatNotification = onDocumentCreated('teams/{teamId}/messages/{messa
             }
         });
 
+        const tokenPreview = tokens.map((t) => String(t).substring(0, 14) + '…').join(', ');
         console.log(
-            `[sendChatNotification] Members=${memberCount}, skippedSender=${skippedSender}, tokens=${tokens.length}`
+            `[sendChatNotification] Members=${memberCount}, skippedSender=${skippedSender}, ` +
+            `tokens=${tokens.length} [${tokenPreview}]`
         );
 
         if (tokens.length === 0) {
@@ -128,28 +130,33 @@ exports.sendChatNotification = onDocumentCreated('teams/{teamId}/messages/{messa
         const title = `💬 ${teamName}`;
         const body = `${senderLabel}: ${textPreview}`.substring(0, 180);
 
-        // FCM multicast (max 500 tokens per call; team chat is far smaller)
+        // FCM multicast (max 500 tokens per call).
+        //
+        // No top-level `notification` block: that would force Android's system tray to
+        // render without our full-color LargeIcon. Instead:
+        //   - Android: high-priority *data* message → app posts notification with app icon
+        //   - iOS:     APNs alert payload (system shows app icon automatically)
         const response = await getMessaging().sendEachForMulticast({
             tokens,
-            notification: {
-                title,
-                body
-            },
             data: {
                 teamId: String(teamId),
                 messageId: String(messageId),
-                type: 'chat_message'
+                type: 'chat_message',
+                title: String(title),
+                body: String(body)
             },
             android: {
                 priority: 'high',
-                notification: {
-                    sound: 'default',
-                    channelId: 'general'
-                }
+                ttl: 3600 * 1000
+                // intentionally no android.notification — client builds it with LargeIcon
             },
+            // APNs: pure user-visible alert. Do NOT set content-available/mutable-content
+            // unless we have a Notification Service Extension — those flags make iOS prefer
+            // Notification Center delivery without a banner on many builds.
             apns: {
                 headers: {
-                    'apns-priority': '10'
+                    'apns-priority': '10',
+                    'apns-push-type': 'alert'
                 },
                 payload: {
                     aps: {
@@ -158,7 +165,9 @@ exports.sendChatNotification = onDocumentCreated('teams/{teamId}/messages/{messa
                             body
                         },
                         sound: 'default',
-                        badge: 1
+                        badge: 1,
+                        // iOS 15+: normal banner interruption (not passive/quiet)
+                        'interruption-level': 'active'
                     }
                 }
             }

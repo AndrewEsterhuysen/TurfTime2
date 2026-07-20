@@ -116,9 +116,21 @@ public sealed class CloudRosterService : ICloudRosterService
                     try
                     {
                         var data = snap?.Data;
-                        if (data is null) return;
-                        var roster = FromDictionary(data);
-                        if (roster is null) return;
+                        RosterSnapshot? roster = null;
+                        if (data is not null)
+                            roster = FromDictionary(data);
+
+                        // Plugin.Firebase on iOS often delivers change events with null/empty
+                        // Data after long suspend, or fails nested map casts. Fall back to REST
+                        // so members still mirror the admin without continuous polling.
+                        if (roster is null || roster.Players.Count == 0)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[CloudRosterService] Watch empty/null Data for {teamId} — REST fallback");
+                            _ = DeliverViaRestAsync(teamId, onUpdate);
+                            return;
+                        }
+
                         SaveLocal(teamId, roster);
                         onUpdate(roster);
                     }
@@ -126,12 +138,14 @@ public sealed class CloudRosterService : ICloudRosterService
                     {
                         System.Diagnostics.Debug.WriteLine(
                             $"[CloudRosterService] Watch callback: {ex.Message}");
+                        _ = DeliverViaRestAsync(teamId, onUpdate);
                     }
                 },
                 error =>
                 {
                     System.Diagnostics.Debug.WriteLine(
                         $"[CloudRosterService] Watch error: {error.Message}");
+                    _ = DeliverViaRestAsync(teamId, onUpdate);
                 });
 
             System.Diagnostics.Debug.WriteLine(
@@ -143,6 +157,35 @@ public sealed class CloudRosterService : ICloudRosterService
             System.Diagnostics.Debug.WriteLine(
                 $"[CloudRosterService] WatchRoster failed: {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// One-shot REST pull used when the SDK snapshot listener has no usable Data.
+    /// Does not loop — only runs when the listener fires (or errors).
+    /// </summary>
+    private async Task DeliverViaRestAsync(string teamId, Action<RosterSnapshot> onUpdate)
+    {
+        // Ignore stale callbacks after the watch was stopped / swapped.
+        if (!string.Equals(_watchTeamId, teamId, StringComparison.Ordinal))
+            return;
+
+        try
+        {
+            var rest = await DownloadFromFirestoreAsync(teamId).ConfigureAwait(false);
+            if (rest is null || rest.Players.Count == 0) return;
+            if (!string.Equals(_watchTeamId, teamId, StringComparison.Ordinal))
+                return;
+
+            SaveLocal(teamId, rest);
+            onUpdate(rest);
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudRosterService] REST fallback delivered players={rest.Players.Count} for {teamId}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudRosterService] REST fallback failed: {ex.Message}");
         }
     }
 
@@ -389,7 +432,10 @@ public sealed class CloudRosterService : ICloudRosterService
 
     private async Task<RosterSnapshot?> DownloadViaRestAsync(string teamId)
     {
-        var idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        // Prefer cached token; force-refresh only if missing (avoids thrashing Auth on every pull).
+        var idToken = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
         if (string.IsNullOrEmpty(idToken)) return null;
 
         var url =
@@ -627,17 +673,86 @@ public sealed class CloudRosterService : ICloudRosterService
         foreach (var key in keys)
         {
             var v = Get(d, key);
+            if (v is null) continue;
+
             switch (v)
             {
                 case DateTimeOffset dto:
-                    return dto;
+                    return dto.ToUniversalTime();
                 case DateTime dt:
-                    return new DateTimeOffset(dt.ToUniversalTime());
-                case string s when DateTimeOffset.TryParse(s, out var parsed):
-                    return parsed;
+                    return new DateTimeOffset(
+                        dt.Kind == DateTimeKind.Unspecified
+                            ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+                            : dt.ToUniversalTime());
+                case string s when DateTimeOffset.TryParse(s,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out var parsed):
+                    return parsed.ToUniversalTime();
+            }
+
+            // Plugin.Firebase / native Firestore Timestamp (Seconds + Nanoseconds, or ToDateTime).
+            var parsedNative = TryParseFirestoreTimestamp(v);
+            if (parsedNative.HasValue)
+                return parsedNative.Value;
+        }
+
+        // Do NOT use UtcNow: that stamps "now" onto incomplete parses and then blocks
+        // real admin updates whose lastModifiedUtc is older than that synthetic stamp.
+        return DateTimeOffset.MinValue;
+    }
+
+    private static DateTimeOffset? TryParseFirestoreTimestamp(object v)
+    {
+        try
+        {
+            var t = v.GetType();
+
+            // Timestamp.ToDateTime() / ToDateTimeOffset()
+            foreach (var name in new[] { "ToDateTimeOffset", "ToDateTime", "ToDate" })
+            {
+                var m = t.GetMethod(name, Type.EmptyTypes);
+                if (m is null) continue;
+                var result = m.Invoke(v, null);
+                switch (result)
+                {
+                    case DateTimeOffset dto:
+                        return dto.ToUniversalTime();
+                    case DateTime dt:
+                        return new DateTimeOffset(
+                            dt.Kind == DateTimeKind.Unspecified
+                                ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+                                : dt.ToUniversalTime());
+                }
+            }
+
+            // Seconds / Nanoseconds (Firestore Timestamp)
+            var secProp = t.GetProperty("Seconds") ?? t.GetProperty("seconds");
+            if (secProp?.GetValue(v) is long secL)
+            {
+                var nanoProp = t.GetProperty("Nanoseconds")
+                    ?? t.GetProperty("nanoseconds")
+                    ?? t.GetProperty("Nanos")
+                    ?? t.GetProperty("nanos");
+                var nanos = nanoProp?.GetValue(v) switch
+                {
+                    int n => n,
+                    long nl => (int)nl,
+                    _ => 0
+                };
+                return DateTimeOffset.FromUnixTimeSeconds(secL).AddTicks(nanos / 100);
+            }
+            if (secProp?.GetValue(v) is int secI)
+            {
+                return DateTimeOffset.FromUnixTimeSeconds(secI);
             }
         }
-        return DateTimeOffset.UtcNow;
+        catch
+        {
+            /* ignore */
+        }
+
+        return null;
     }
 
     private static int ReadRestInt(JsonElement fields, string name, int fallback)
@@ -669,12 +784,19 @@ public sealed class CloudRosterService : ICloudRosterService
         {
             if (!fields.TryGetProperty(name, out var f)) continue;
             if (f.TryGetProperty("timestampValue", out var tv)
-                && DateTimeOffset.TryParse(tv.GetString(), out var dto))
-                return dto;
+                && DateTimeOffset.TryParse(tv.GetString(),
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out var dto))
+                return dto.ToUniversalTime();
             if (f.TryGetProperty("stringValue", out var sv)
-                && DateTimeOffset.TryParse(sv.GetString(), out var dto2))
-                return dto2;
+                && DateTimeOffset.TryParse(sv.GetString(),
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind,
+                    out var dto2))
+                return dto2.ToUniversalTime();
         }
-        return DateTimeOffset.UtcNow;
+        // Same rationale as ReadTimestamp: never invent "now".
+        return DateTimeOffset.MinValue;
     }
 }

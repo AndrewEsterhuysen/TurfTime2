@@ -32,6 +32,8 @@ public interface ICloudRosterService
 
     /// <summary>
     /// Live-watch the cloud roster for a shared team (members mirror admin).
+    /// Uses a Firestore snapshot listener; when SDK Data is empty/unusable (common on iOS
+    /// after long suspend), performs a one-shot REST fetch for that event only.
     /// Returns a disposable that stops the listener, or null for local-only teams.
     /// </summary>
     IDisposable? WatchRoster(string teamId, Action<RosterSnapshot> onUpdate);

@@ -3,4 +3,6 @@
     <color name="colorPrimary">#512BD4</color>
     <color name="colorPrimaryDark">#2B0B98</color>
     <color name="colorAccent">#2B0B98</color>
+    <!-- Brand green used to tint the monochrome status-bar notification icon -->
+    <color name="turftime_notification">#2E7D32</color>
 </resources>

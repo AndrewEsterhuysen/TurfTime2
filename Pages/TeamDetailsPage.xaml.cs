@@ -923,6 +923,9 @@ public partial class TeamDetailsPage : ContentPage
 					RefreshAppShellMenu();
 					LoadCurrentTeam();
 
+					// Persist FCM token on the new admin member doc so others can notify this device.
+					_ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+
 					// Clear inputs
 					ClubEntry.Text = string.Empty;
 					TeamEntry.Text = string.Empty;
@@ -1085,6 +1088,8 @@ private void RegisterTeamId(string teamId)
 						SyncTeamIdToLocalStorage(teamId);
 						RefreshAppShellMenu();
 						LoadCurrentTeam();
+						// Save this device's FCM token so chat pushes can reach it.
+						_ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
 						InviteCodeEntry.Text = string.Empty;
 						return;
 				}
