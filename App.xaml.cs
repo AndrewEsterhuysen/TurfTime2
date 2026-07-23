@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
+using TurfTime2.Helpers;
 using TurfTime2.Models;
 using TurfTime2.Services;
 
@@ -12,7 +13,6 @@ namespace TurfTime2
         private const string TEAM_ID_KEY = "team_id";
         private const string TEAM_NAME_KEY = "team_name";
         private const string USER_ROLE_KEY = "user_role";
-        private const string UPDATES_SEEN_MARKER_KEY = "updates_seen_marker";
         private const string DEMO_TEAM_SEEDED_KEY = "demo_team_seeded_v1";
         private const string DEMO_TEAM_ID = "local_demo_team";
         private const string DEMO_TEAM_NAME = "Demo Team";
@@ -64,17 +64,8 @@ namespace TurfTime2
                 var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
                 var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 
-                var showWelcome = !Preferences.Get("welcome_dont_show", false);
-                var currentMarker = $"{AppInfo.VersionString}:{AppInfo.BuildString}";
-                var seenMarker = Preferences.Get(UPDATES_SEEN_MARKER_KEY, string.Empty);
-                var showUpdates = !string.Equals(currentMarker, seenMarker, StringComparison.Ordinal);
-
-                // Show updates first (once per install/update), then welcome.
-                if (showUpdates)
-                {
-                    await appShell.Navigation.PushModalAsync(new UpdatesPage(showWelcomeAfterClose: showWelcome), animated: true);
-                }
-                else if (showWelcome)
+                // First-run / optional welcome modal (user can opt out permanently).
+                if (!Preferences.Get("welcome_dont_show", false))
                 {
                     await appShell.Navigation.PushModalAsync(new WelcomePage(), animated: true);
                 }
@@ -254,6 +245,12 @@ namespace TurfTime2
                         return;
                     }
 
+                    if (teamData.IsSharedJoin)
+                    {
+                        await HandleSharedJoinAppLinkAsync(teamData.InviteCode);
+                        return;
+                    }
+
                     var importedTeamId = QrCodeService.ImportTeamToLocal(teamData);
                     await ShowAlertAsync("Team Imported", $"Imported '{teamData.TeamName}' and switched to that team.");
 
@@ -262,7 +259,7 @@ namespace TurfTime2
                         await Shell.Current.GoToAsync(AppShell.TeamDetailsRoute);
                     }
 
-                    System.Diagnostics.Debug.WriteLine($"[App] ✅ Imported shared team via app link. TeamId={importedTeamId}");
+                    System.Diagnostics.Debug.WriteLine($"[App] ✅ Imported local team via app link. TeamId={importedTeamId}");
                 }
                 catch (Exception ex)
                 {
@@ -270,6 +267,58 @@ namespace TurfTime2
                     await ShowAlertAsync("Import Failed", "Could not import team from link.");
                 }
             });
+        }
+
+        private async Task HandleSharedJoinAppLinkAsync(string inviteCode)
+        {
+            var code = QrCodeService.NormalizeInviteCode(inviteCode);
+            if (string.IsNullOrEmpty(code))
+            {
+                await ShowAlertAsync("Invalid QR Link", "Shared-team link is missing an invite code.");
+                return;
+            }
+
+            var displayName = UserDisplayName.Get();
+            if (!UserDisplayName.TryValidate(displayName, out displayName, out _))
+            {
+                await ShowAlertAsync(
+                    "Display Name Required",
+                    "Open Team Details → set your display name, then scan the invite QR again (or join with the invite code).");
+                if (Shell.Current is not null)
+                    await Shell.Current.GoToAsync(AppShell.TeamDetailsRoute);
+                return;
+            }
+
+            var cloud = Handler?.MauiContext?.Services?.GetService<ICloudTeamService>()
+                ?? Current?.Handler?.MauiContext?.Services?.GetService<ICloudTeamService>();
+            if (cloud is null)
+            {
+                await ShowAlertAsync("Unavailable", "Cloud team service is not available.");
+                return;
+            }
+
+            var result = await cloud.JoinByInviteCodeAsync(code, displayName);
+            if (result.StartsWith("success:", StringComparison.Ordinal) ||
+                result.StartsWith("already_member:", StringComparison.Ordinal))
+            {
+                var parts = result.Split(':', 3);
+                if (parts.Length >= 3)
+                {
+                    QrCodeService.ApplySharedJoinLocalState(parts[1], parts[2], displayName);
+                    _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+                    await ShowAlertAsync(
+                        result.StartsWith("success:", StringComparison.Ordinal) ? "Joined Team!" : "Already a Member",
+                        $"Team: {parts[2]}\nChat name: {displayName}");
+                    if (Shell.Current is not null)
+                        await Shell.Current.GoToAsync(AppShell.TeamDetailsRoute);
+                    return;
+                }
+            }
+
+            var msg = result.StartsWith("error:", StringComparison.Ordinal)
+                ? result["error:".Length..].Trim()
+                : result;
+            await ShowAlertAsync("Join Failed", string.IsNullOrWhiteSpace(msg) ? "Could not join team." : msg);
         }
 
         private static bool TryExtractImportPayload(Uri uri, out string payload)

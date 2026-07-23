@@ -20,9 +20,7 @@
                VerticalOptions="Center"
                HorizontalOptions="Center"
                WidthRequest="420"
-               HeightRequest="420">
-            <!-- Desaturate via a colour filter overlay rendered beneath text -->
-        </Image>
+               HeightRequest="420" />
 
         <!-- Desaturate overlay: semi-transparent white layer over the image to wash colour further -->
         <BoxView Color="White"
@@ -35,7 +33,7 @@
             <VerticalStackLayout Padding="24,48,24,32" Spacing="0">
 
                 <!-- App logo / title line -->
-                <Label Text="⏱ TurfTimer"
+                <Label Text="⏱ Turf Time"
                        FontSize="32"
                        FontAttributes="Bold"
                        TextColor="#E8E8E8"
@@ -52,7 +50,7 @@
                 <BoxView HeightRequest="1" Color="#333333" Margin="0,0,0,28" />
 
                 <!-- Welcome heading -->
-                <Label Text="Welcome to TurfTimer!"
+                <Label Text="Welcome to Turf Time!"
                        FontSize="22"
                        FontAttributes="Bold"
                        TextColor="#FFFFFF"
@@ -67,7 +65,7 @@
                        Margin="0,0,0,24">
                     <Label.FormattedText>
                         <FormattedString>
-                            <Span Text="We're thrilled to have you on the pitch with us. TurfTimer is built for parents, coaches and managers alike — designed to take the stress off your shoulders so you can focus on the game." />
+                            <Span Text="Built for parents, coaches, and managers — run fair rotations, keep rosters tidy, and share the game with your team. Local play always works offline; cloud features are optional when you want multi-device teams." />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>
@@ -85,15 +83,27 @@
                        Margin="0,0,0,24">
                     <Label.FormattedText>
                         <FormattedString>
-                            <Span Text="🏆  " /><Span Text="Multiple Team Support" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — manage as many teams as you need, all stored locally on your device." />
+                            <Span Text="🎬  " /><Span Text="Demo Team quick start" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — first launch includes a ready-to-play demo team so you can press Start and try the full game flow immediately." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="💾  " /><Span Text="Local Data Retention" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — your rosters, game history, and settings are saved on-device so you're never caught without your data." />
+                            <Span Text="🏆  " /><Span Text="Multiple teams" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — create and switch between as many teams as you need from Team Details." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="📲  " /><Span Text="Team sharing via QR code" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — quickly share your team to another device by scanning a QR code from Team Details." />
+                            <Span Text="💾  " /><Span Text="On-device storage" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — rosters, game history, and settings stay on your phone so you're never without your data." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="🔄  " /><Span Text="Easy Substitution Management" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — built for moms, dads, coaches and volunteers supporting youth soccer and fast-five games, where fun and equal field time matter most. Set up your team in the order they'll sub on/off, choose the number of players and the rotation interval, and let the app handle the rest. No more spreadsheets, lists or guesswork — just easy, reliable and fair subbing, with a full end-of-game report." />
+                            <Span Text="🔄  " /><Span Text="Match timer &amp; fair rotations" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — set players on the field, rotation order, and interval; the app drives sub-on / sub-off so equal game time is easy for youth and social sides." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="📋  " /><Span Text="Game Reports" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — generate a clear post-game summary for each match, ready to share with your team." />
+                            <Span Text="⚽  " /><Span Text="Goals with scorer &amp; assist" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — log goals and pick who scored and assisted for cleaner match reports." />
+                            <Span Text="&#10;&#10;" />
+                            <Span Text="📋  " /><Span Text="Game reports" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — post-game summaries from your session history, ready to review and share." />
+                            <Span Text="&#10;&#10;" />
+                            <Span Text="📲  " /><Span Text="QR team share &amp; import" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — share a team to another device offline from Team Details, or import by scanning a code." />
+                            <Span Text="&#10;&#10;" />
+                            <Span Text="☁️  " /><Span Text="Shared cloud teams" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — create or join a multi-device team, sync roster state, and keep session history when you're in shared mode." />
+                            <Span Text="&#10;&#10;" />
+                            <Span Text="💬  " /><Span Text="Team chat" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — message your shared team from the Chat tab using your display name." />
+                            <Span Text="&#10;&#10;" />
+                            <Span Text="📍  " /><Span Text="Match location" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — set venue details, GPS, and map links under the Details tab for shared teams." />
+                            <Span Text="&#10;&#10;" />
+                            <Span Text="🔔  " /><Span Text="Team push alerts" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — stay in the loop with notifications for team events when permissions allow." />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>
@@ -114,17 +124,13 @@
                        Margin="0,0,0,24">
                     <Label.FormattedText>
                         <FormattedString>
-                            <Span Text="☁️  " /><Span Text="Online Team Data Storage" FontAttributes="Bold" TextColor="#D0D0D0" /><Span Text=" — sync your rosters and game data securely to the cloud. Access from any device, anytime." />
+                            <Span Text="👕  " /><Span Text="Kit &amp; colours" FontAttributes="Bold" TextColor="#D0D0D0" /><Span Text=" — team kit details under Details." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="👥  " /><Span Text="Multi-User Access Control" FontAttributes="Bold" TextColor="#D0D0D0" /><Span Text=" — dedicated roles for clubs and coaches (admin) and member parents (view-only), so everyone has the right level of visibility." />
+                            <Span Text="✅  " /><Span Text="Match-day duties" FontAttributes="Bold" TextColor="#D0D0D0" /><Span Text=" — assign roles like setup, drinks, and first aid." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="📡  " /><Span Text="Live Game Updates" FontAttributes="Bold" TextColor="#D0D0D0" /><Span Text=" — family and supporters follow the action in real time from the sidelines or from home." />
+                            <Span Text="🗳️  " /><Span Text="Nominations" FontAttributes="Bold" TextColor="#D0D0D0" /><Span Text=" — player nominations and related Details tools." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="💬  " /><Span Text="Team-Specific Integrated Chat" FontAttributes="Bold" TextColor="#D0D0D0" /><Span Text=" — keep all your team communication in one place, right inside the app." />
-                            <Span Text="&#10;&#10;" />
-                            <Span Text="📍  " /><Span Text="Live Location Sharing" FontAttributes="Bold" TextColor="#D0D0D0" /><Span Text=" — share venue locations with team members so no one gets lost on match day." />
-                            <Span Text="&#10;&#10;" />
-                            <Span Text="…and much more!" TextColor="#888888" FontAttributes="Italic" />
+                            <Span Text="…and more as we keep building with your feedback." TextColor="#888888" FontAttributes="Italic" />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>
@@ -147,9 +153,9 @@
                        Margin="0,0,0,36">
                     <Label.FormattedText>
                         <FormattedString>
-                            <Span Text="TurfTimer is actively growing, and your experience on the pitch shapes every feature we build. You're not just using an app — " />
+                            <Span Text="Turf Time is actively growing, and your experience on the pitch shapes every feature we build. You're not just using an app — " />
                             <Span Text="you're part of its story." FontAttributes="Bold" TextColor="#FFFFFF" />
-                            <Span Text=" We can't wait to deliver everything that's coming, and we're grateful to have you with us every step of the way. Please share your feedback, suggestions, and feature requests — your input helps us build what truly adds value. Game on! 🎉" />
+                            <Span Text=" Share feedback and ideas anytime — they help us prioritise what truly adds value. Game on! 🎉" />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>

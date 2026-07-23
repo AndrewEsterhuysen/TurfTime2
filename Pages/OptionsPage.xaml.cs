@@ -10,6 +10,7 @@ public partial class OptionsPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+        DetailsPage.ApplyPageTeamTitle(this, "Options");
 
         var enabled = GoalScoringOptions.IsScorerAssistEnabled();
         EnableGoalDetailsSwitch.IsToggled = enabled;

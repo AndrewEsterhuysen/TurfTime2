@@ -7,6 +7,12 @@ public partial class SettingsPage : ContentPage
         InitializeComponent();
     }
 
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        DetailsPage.ApplyPageTeamTitle(this, "Settings");
+    }
+
     private async void OnTeamDetailsTapped(object sender, EventArgs e)
     {
         try
@@ -16,7 +22,7 @@ public partial class SettingsPage : ContentPage
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
-            await DisplayAlert("Error", "Could not navigate to Team Details page.", "OK");
+            await DisplayAlert("Error", "Could not open Team Selection.", "OK");
         }
     }
 

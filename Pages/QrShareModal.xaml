@@ -12,7 +12,7 @@
     <VerticalStackLayout Padding="20" Spacing="15">
 
         <Label
-            Text="Share Team via QR Code"
+            Text="Share via QR Code"
             FontSize="24"
             FontAttributes="Bold"
             HorizontalOptions="Center" />
@@ -20,8 +20,8 @@
         <Frame BorderColor="#E0E0E0" CornerRadius="10" Padding="15" HasShadow="True">
             <VerticalStackLayout Spacing="8">
                 <Label Text="{Binding TeamName}" FontSize="18" FontAttributes="Bold" />
-                <Label Text="{Binding PlayerCount, StringFormat='Players: {0}'}" FontSize="14" />
-                <Label Text="{Binding EncodedSize, StringFormat='QR Size: {0} bytes'}" FontSize="12" TextColor="#666" />
+                <Label Text="{Binding SubtitleLine}" FontSize="14" />
+                <Label Text="{Binding DetailLine}" FontSize="12" TextColor="#666" />
             </VerticalStackLayout>
         </Frame>
 
@@ -34,7 +34,7 @@
         </Frame>
 
         <Label
-            Text="Send this QR code image to another phone. In Turf Time, the recipient uses Team Import to scan the QR (camera or photo)."
+            Text="{Binding Instructions}"
             FontSize="12"
             TextColor="#666"
             HorizontalTextAlignment="Center"

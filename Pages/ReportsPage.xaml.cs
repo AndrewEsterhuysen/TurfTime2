@@ -19,6 +19,7 @@ public partial class ReportsPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+        DetailsPage.ApplyPageTeamTitle(this, "Match Reports");
         await LoadReportsAsync();
     }
 

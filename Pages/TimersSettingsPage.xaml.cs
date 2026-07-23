@@ -24,6 +24,7 @@ public partial class TimersSettingsPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
+        DetailsPage.ApplyPageTeamTitle(this, "Timers");
         LoadValues();
     }
 

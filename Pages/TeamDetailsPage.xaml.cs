@@ -27,6 +27,7 @@ public partial class TeamDetailsPage : ContentPage
 	protected override void OnAppearing()
 	{
 		base.OnAppearing();
+		DetailsPage.ApplyPageTeamTitle(this, "Team");
 		LoadCurrentTeam();
 
 		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
@@ -57,37 +58,41 @@ public partial class TeamDetailsPage : ContentPage
 				AdminRejoinDisplayNameEntry.Text = savedDisplayName;
 		}
 
-		if (string.IsNullOrEmpty(teamMode))
+		var isShared = teamMode == "shared";
+		var isLocal = teamMode == "local";
+		var hasTeam = !string.IsNullOrEmpty(teamMode) && !string.IsNullOrEmpty(Preferences.Get(TEAM_ID_KEY, string.Empty));
+
+		if (!hasTeam)
 		{
 			CurrentTeamLabel.Text = "No team selected";
 			TeamModeLabel.Text = "Mode: Not configured";
-			AdminPanel.IsVisible = false;
-			LeaveTeamButton.IsVisible = false;
 			DisplayNameSection.IsVisible = false;
+			SharedAdminTools.IsVisible = false;
+			LeaveTeamButton.IsVisible = false;
+			DeleteLocalTeamButton.IsVisible = false;
+			ShareTeamButton.IsVisible = false;
 		}
 		else
 		{
-			CurrentTeamLabel.Text = teamName;
-			TeamModeLabel.Text = $"Mode: {(teamMode == "shared" ? "Shared (Cloud)" : "Local (Device only)")}";
+			CurrentTeamLabel.Text = string.IsNullOrEmpty(teamName) ? "(unnamed team)" : teamName;
+			TeamModeLabel.Text = $"Mode: {(isShared ? "Shared (Cloud)" : "Local (Device only)")}";
+			ShareTeamButton.IsVisible = true;
 
-			if (teamMode == "shared" && userRole == "admin")
-			{
-				AdminPanel.IsVisible = true;
+			DisplayNameSection.IsVisible = isShared;
+			if (isShared)
+				CurrentDisplayNameEntry.Text = savedDisplayName;
+
+			var isAdmin = isShared && userRole == "admin";
+			SharedAdminTools.IsVisible = isAdmin;
+			if (isAdmin)
 				LoadInviteCode();
-			}
-			else
-			{
-				AdminPanel.IsVisible = false;
-			}
 
-			// Only show Leave Team button for shared mode (makes sense to leave a cloud team)
-			// For local mode, just switch to another team instead
-			LeaveTeamButton.IsVisible = teamMode == "shared";
-
-			// Display name is a cloud-team identity (chat + member profile)
-			DisplayNameSection.IsVisible = teamMode == "shared";
-			CurrentDisplayNameEntry.Text = savedDisplayName;
+			LeaveTeamButton.IsVisible = isShared;
+			DeleteLocalTeamButton.IsVisible = isLocal;
 		}
+
+		// Nav: "Team: {name}"
+		DetailsPage.ApplyPageTeamTitle(this, "Team");
 	}
 
 	private async void OnSaveDisplayNameClicked(object sender, EventArgs e)
@@ -134,8 +139,60 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
-	private bool _createTeamExpanded = false;
-	private bool _recoverAdminExpanded = false;
+	private bool _teamAdminExpanded;
+	private bool _changeTeamExpanded;
+	private bool _joinTeamExpanded;
+	private bool _createTeamExpanded;
+	private bool _recoverAdminExpanded;
+
+	private void OnTeamAdminHeaderTapped(object sender, EventArgs e)
+	{
+		SetTeamAdminExpanded(!_teamAdminExpanded);
+		// Mutual exclusive with Change Team
+		if (_teamAdminExpanded)
+			SetChangeTeamExpanded(false);
+	}
+
+	private void OnChangeTeamHeaderTapped(object sender, EventArgs e)
+	{
+		SetChangeTeamExpanded(!_changeTeamExpanded);
+		// Mutual exclusive with Team Admin Panel
+		if (_changeTeamExpanded)
+			SetTeamAdminExpanded(false);
+	}
+
+	private void SetTeamAdminExpanded(bool expanded)
+	{
+		_teamAdminExpanded = expanded;
+		TeamAdminContent.IsVisible = expanded;
+		TeamAdminToggleIcon.Text = expanded ? "▲" : "▼";
+		TeamAdminHint.IsVisible = !expanded;
+	}
+
+	private void SetChangeTeamExpanded(bool expanded)
+	{
+		_changeTeamExpanded = expanded;
+		ChangeTeamContent.IsVisible = expanded;
+		ChangeTeamToggleIcon.Text = expanded ? "▲" : "▼";
+		ChangeTeamHint.IsVisible = !expanded;
+	}
+
+	/// <summary>Join expands above Create; opening Join closes Create (and vice versa).</summary>
+	private void OnJoinTeamHeaderTapped(object sender, EventArgs e)
+	{
+		SetJoinTeamExpanded(!_joinTeamExpanded);
+		if (_joinTeamExpanded)
+			SetCreateTeamExpanded(false);
+	}
+
+	private void OnCreateTeamHeaderTapped(object sender, EventArgs e)
+	{
+		SetCreateTeamExpanded(!_createTeamExpanded);
+		if (_createTeamExpanded)
+			SetJoinTeamExpanded(false);
+		if (_createTeamExpanded)
+			UpdateCreateTeamSubSections();
+	}
 
 	private void OnSharedCheckboxChanged(object sender, CheckedChangedEventArgs e)
 	{
@@ -143,17 +200,27 @@ public partial class TeamDetailsPage : ContentPage
 		{
 			LocalCheckbox.IsChecked = false;
 			SharedTeamSection.IsVisible = true;
-			JoinTeamSection.IsVisible = true;
-			RejoinAdminSection.IsVisible = true;
 			LocalTeamSection.IsVisible = false;
-			// Keep recovery form collapsed when Shared is (re)selected.
+			RejoinAdminSection.IsVisible = true;
+			ChangeTeamModeHint.IsVisible = false;
+			AcquireTeamSection.IsVisible = true;
+			JoinSubsection.IsVisible = true;
+			CreateSubsectionTitle.Text = "Create new shared team";
+			SetJoinTeamExpanded(false);
+			SetCreateTeamExpanded(false);
 			SetRecoverAdminExpanded(false);
 			_ = LoadSharedTeamsAsync();
+		}
+		else if (!LocalCheckbox.IsChecked)
+		{
+			SharedTeamSection.IsVisible = false;
+			RejoinAdminSection.IsVisible = false;
+			ChangeTeamModeHint.IsVisible = true;
+			AcquireTeamSection.IsVisible = false;
 		}
 		else
 		{
 			SharedTeamSection.IsVisible = false;
-			JoinTeamSection.IsVisible = false;
 			RejoinAdminSection.IsVisible = false;
 		}
 		UpdateCreateTeamSubSections();
@@ -165,9 +232,23 @@ public partial class TeamDetailsPage : ContentPage
 		{
 			SharedCheckbox.IsChecked = false;
 			LocalTeamSection.IsVisible = true;
-			JoinTeamSection.IsVisible = false;
+			SharedTeamSection.IsVisible = false;
 			RejoinAdminSection.IsVisible = false;
+			ChangeTeamModeHint.IsVisible = false;
+			AcquireTeamSection.IsVisible = true;
+			JoinSubsection.IsVisible = false; // parents join shared teams, not local
+			CreateSubsectionTitle.Text = "Create new local team";
+			SetJoinTeamExpanded(false);
+			SetCreateTeamExpanded(false);
 			_ = LoadLocalTeamsAsync();
+		}
+		else if (!SharedCheckbox.IsChecked)
+		{
+			LocalTeamSection.IsVisible = false;
+			LocalTeamsCollection.IsVisible = false;
+			LocalTeamSwitcherLabel.IsVisible = false;
+			ChangeTeamModeHint.IsVisible = true;
+			AcquireTeamSection.IsVisible = false;
 		}
 		else
 		{
@@ -178,19 +259,27 @@ public partial class TeamDetailsPage : ContentPage
 		UpdateCreateTeamSubSections();
 	}
 
-	private void OnCreateTeamHeaderTapped(object sender, EventArgs e)
-	{
-		_createTeamExpanded = !_createTeamExpanded;
-		CreateTeamContent.IsVisible = _createTeamExpanded;
-		CreateTeamToggleIcon.Text = _createTeamExpanded ? "▲" : "▼";
-		CreateTeamHint.IsVisible = !_createTeamExpanded;
-		if (_createTeamExpanded)
-			UpdateCreateTeamSubSections();
-	}
-
 	private void OnRecoverAdminHeaderTapped(object sender, EventArgs e)
 	{
 		SetRecoverAdminExpanded(!_recoverAdminExpanded);
+	}
+
+	private void SetJoinTeamExpanded(bool expanded)
+	{
+		_joinTeamExpanded = expanded;
+		JoinTeamContent.IsVisible = expanded;
+		JoinTeamToggleIcon.Text = expanded ? "▲" : "▼";
+		JoinTeamHint.IsVisible = !expanded;
+	}
+
+	private void SetCreateTeamExpanded(bool expanded)
+	{
+		_createTeamExpanded = expanded;
+		CreateTeamContent.IsVisible = expanded;
+		CreateTeamToggleIcon.Text = expanded ? "▲" : "▼";
+		CreateTeamHint.IsVisible = !expanded;
+		if (expanded)
+			UpdateCreateTeamSubSections();
 	}
 
 	private void SetRecoverAdminExpanded(bool expanded)
@@ -206,9 +295,77 @@ public partial class TeamDetailsPage : ContentPage
 		if (!_createTeamExpanded) return;
 		bool isShared = SharedCheckbox.IsChecked;
 		bool isLocal  = LocalCheckbox.IsChecked;
-		CreateTeamNoModeLabel.IsVisible = !isShared && !isLocal;
-		CreateSharedSection.IsVisible   = isShared;
-		CreateLocalSection.IsVisible    = isLocal;
+		CreateSharedSection.IsVisible = isShared;
+		CreateLocalSection.IsVisible  = isLocal;
+	}
+
+	private async void OnLeaveTeamButtonClicked(object sender, EventArgs e)
+	{
+		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		var teamName = Preferences.Get(TEAM_NAME_KEY, "this team");
+		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+		if (teamMode != "shared" || string.IsNullOrEmpty(teamId))
+		{
+			await DisplayAlert("No Shared Team", "Select a shared team first.", "OK");
+			return;
+		}
+
+		var role = Preferences.Get($"{teamId}_role", Preferences.Get(USER_ROLE_KEY, "member"));
+		var item = new SharedTeamItem
+		{
+			TeamId = teamId,
+			TeamName = teamName,
+			IsActive = true,
+			Role = string.IsNullOrEmpty(role) ? "Member" : char.ToUpperInvariant(role[0]) + role[1..]
+		};
+
+		var confirm = await DisplayAlert(
+			"Leave Team?",
+			$"Are you sure you want to leave '{teamName}'?\n\n" +
+			"This removes the team from this device. You will need an invite code (or admin recovery) to rejoin.\n\n" +
+			"(You can also swipe left on the team under Change Team.)",
+			"Leave",
+			"Cancel");
+		if (!confirm)
+			return;
+
+		await LeaveSharedTeamAsync(item);
+	}
+
+	private async void OnDeleteLocalTeamButtonClicked(object sender, EventArgs e)
+	{
+		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		var teamName = Preferences.Get(TEAM_NAME_KEY, "this team");
+		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+		if (teamMode != "local" || string.IsNullOrEmpty(teamId))
+		{
+			await DisplayAlert("No Local Team", "Select a local team first.", "OK");
+			return;
+		}
+
+		var item = new LocalTeamItem
+		{
+			TeamId = teamId,
+			TeamName = teamName,
+			IsActive = true
+		};
+
+		var confirm = await DisplayAlert(
+			"Delete Team?",
+			$"Are you sure you want to delete '{teamName}'?\n\n" +
+			"⚠️ This will permanently delete:\n" +
+			"  • Team information\n" +
+			"  • Roster data\n" +
+			"  • Game logs\n" +
+			"  • All associated settings\n\n" +
+			"This action cannot be undone.\n\n" +
+			"(You can also swipe left on the team under Change Team.)",
+			"Delete",
+			"Cancel");
+		if (!confirm)
+			return;
+
+		await DeleteLocalTeam(item);
 	}
 
 	private async Task LoadLocalTeamsAsync()
@@ -786,9 +943,12 @@ public partial class TeamDetailsPage : ContentPage
 				$"{teamId}_roster",         // Roster data (if stored per-team)
 				$"{teamId}_logs",           // Game logs (if stored per-team)
 				$"{teamId}_invite_code",    // Invite code (for shared teams)
+				$"{teamId}_role",           // Local role cache for shared teams
 				$"{teamId}_settings",       // Team-specific settings
 				$"{teamId}_history",        // Match history
-				$"{teamId}_stats"           // Team statistics
+				$"{teamId}_stats",          // Team statistics
+				$"team_mode_{teamId}",
+				$"user_role_{teamId}",
 			};
 
 			// Remove all known team-associated data
@@ -857,12 +1017,13 @@ public partial class TeamDetailsPage : ContentPage
 		{
 			var club = ClubEntry.Text.Trim();
 			var team = TeamEntry.Text.Trim();
-			teamName = $"{club} - {team}";
-			teamId = GenerateTeamId(club, team);
+			// Single display string: Team first so truncation still shows which side (e.g. "U17 Boys - Manchester…")
+			teamName = $"{team} - {club}";
+			teamId = GenerateTeamId(team, club);
 		}
 		else
 		{
-			await DisplayAlert("Invalid Input", "Please enter either Club + Team or a Nickname.", "OK");
+			await DisplayAlert("Invalid Input", "Please enter either Team + Club or a Nickname.", "OK");
 			return;
 		}
 
@@ -1576,6 +1737,32 @@ private void RegisterTeamId(string teamId)
 				return;
 			}
 
+			// Shared (cloud) team: QR carries only kind + invite code — roster/metadata come from Firestore.
+			if (teamMode == "shared")
+			{
+				var inviteCode = Preferences.Get($"{teamId}_invite_code", string.Empty);
+				if (string.IsNullOrWhiteSpace(inviteCode) || inviteCode == "N/A")
+				{
+					await DisplayAlert(
+						"No Invite Code",
+						"This shared team has no invite code on this device. Open Admin Panel (as admin) or regenerate the invite code, then try again.",
+						"OK");
+					return;
+				}
+
+				// Best-effort: ensure invite index exists so scanners can join immediately
+				var cloud = ResolveCloudTeam();
+				if (cloud is not null)
+				{
+					_ = cloud.EnsureInviteCodePublishedAsync(teamId, inviteCode, teamName);
+				}
+
+				var sharedData = QrCodeService.CreateSharedJoinInvite(inviteCode, teamName);
+				await Navigation.PushModalAsync(new QrShareModal(sharedData));
+				return;
+			}
+
+			// Local team: encode full roster for offline import
 			var players = new List<Player>();
 			var playersJson = Preferences.Get($"{teamId}_players", string.Empty);
 			if (!string.IsNullOrEmpty(playersJson))
@@ -1599,8 +1786,7 @@ private void RegisterTeamId(string teamId)
 			}
 
 			var teamData = QrCodeService.CreateFromCurrentTeam(teamName, teamId, players);
-			var modal = new QrShareModal(teamData);
-			await Navigation.PushModalAsync(modal);
+			await Navigation.PushModalAsync(new QrShareModal(teamData));
 		}
 		catch (Exception ex)
 		{
@@ -1622,24 +1808,81 @@ private void RegisterTeamId(string teamId)
 		}
 	}
 
-	private async void OnLeaveTeamClicked(object sender, EventArgs e)
+	/// <summary>
+	/// Swipe left on a shared team row — leave that team (device-side). Same on iOS and Android.
+	/// </summary>
+	private async void OnLeaveSharedTeamSwipe(object sender, EventArgs e)
 	{
-		var teamName = Preferences.Get(TEAM_NAME_KEY, "this team");
-		var confirm = await DisplayAlert("Leave Team?", 
-			$"Are you sure you want to leave '{teamName}'?\n\n" +
-			"You will need an invite code to rejoin.", 
-			"Leave", "Cancel");
+		if (sender is not SwipeItem swipeItem || swipeItem.CommandParameter is not SharedTeamItem teamToLeave)
+			return;
 
-		if (confirm)
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] Leave swipe triggered for: {teamToLeave.TeamName}");
+
+		var confirm = await DisplayAlert(
+			"Leave Team?",
+			$"Are you sure you want to leave '{teamToLeave.TeamName}'?\n\n" +
+			"This removes the team from this device. You will need an invite code (or admin recovery) to rejoin.",
+			"Leave",
+			"Cancel");
+
+		if (!confirm)
 		{
-			Preferences.Remove(TEAM_MODE_KEY);
-			Preferences.Remove(TEAM_ID_KEY);
-			Preferences.Remove(TEAM_NAME_KEY);
-			Preferences.Remove(USER_ROLE_KEY);
+			System.Diagnostics.Debug.WriteLine("[TeamDetails] Leave cancelled by user");
+			return;
+		}
 
-			await DisplayAlert("Left Team", "You have left the team.", "OK");
+		await LeaveSharedTeamAsync(teamToLeave);
+	}
+
+	private async Task LeaveSharedTeamAsync(SharedTeamItem team)
+	{
+		try
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Leaving shared team: {team.TeamName} ({team.TeamId})");
+
+			var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var isCurrentTeam = currentTeamId == team.TeamId;
+
+			// Remove from shared team ID list
+			var teamListJson = Preferences.Get("team_id_list", "[]");
+			var teamIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(teamListJson) ?? new List<string>();
+			if (teamIds.Remove(team.TeamId))
+			{
+				Preferences.Set("team_id_list", System.Text.Json.JsonSerializer.Serialize(teamIds));
+			}
+
+			// Local cleanup for this team (cloud membership docs are not deleted here)
+			DeleteAllTeamData(team.TeamId);
+			Preferences.Remove($"{team.TeamId}_role");
+			Preferences.Remove($"team_mode_{team.TeamId}");
+			Preferences.Remove($"user_role_{team.TeamId}");
+
+			if (isCurrentTeam)
+			{
+				Preferences.Remove(TEAM_MODE_KEY);
+				Preferences.Remove(TEAM_ID_KEY);
+				Preferences.Remove(TEAM_NAME_KEY);
+				Preferences.Remove(USER_ROLE_KEY);
+
+				await DisplayAlert(
+					"Left Team",
+					$"You have left '{team.TeamName}'.\n\n" +
+					"No team is selected. Join or select another shared team to continue.",
+					"OK");
+			}
+			else
+			{
+				await DisplayAlert("Left Team", $"You have left '{team.TeamName}'.", "OK");
+			}
+
 			LoadCurrentTeam();
+			_ = LoadSharedTeamsAsync();
 			RefreshAppShellMenu();
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ❌ Leave team error: {ex.Message}");
+			await DisplayAlert("Error", $"Failed to leave team: {ex.Message}", "OK");
 		}
 	}
 

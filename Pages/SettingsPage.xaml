@@ -26,11 +26,11 @@
                     <HorizontalStackLayout Padding="20" Spacing="15">
                         <Label Text="👥" FontSize="32" VerticalOptions="Center" />
                         <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Team Details" 
+                            <Label Text="Team Selection" 
                                    FontSize="20"
                                    FontAttributes="Bold"
                                    TextColor="White" />
-                            <Label Text="Manage team, invite codes, and collaboration" 
+                            <Label Text="Switch teams, invites, QR share, and admin tools" 
                                    FontSize="14"
                                    TextColor="#E0E0E0" />
                         </VerticalStackLayout>

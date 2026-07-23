@@ -51,6 +51,7 @@ public partial class ChatPage : ContentPage
 	protected override async void OnAppearing()
 	{
 		base.OnAppearing();
+		DetailsPage.ApplyPageTeamTitle(this, "Chat");
 		ResolveServices();
 		ApplyThemeToInputBar();
 

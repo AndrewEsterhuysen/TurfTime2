@@ -11,6 +11,10 @@ set -euo pipefail
 # Note:
 # Combined `dotnet build -t:Run` can fail on a clean tree because no simulator
 # .app exists yet. Build first, then install + launch via simctl.
+#
+# Modern .NET iOS SDK places the installable .app under
+# bin/.../iossimulator-arm64/device-builds/<model-os>/TurfTime2.app
+# (not at the RID root). We prefer that path, then fall back to any .app.
 
 TARGET="${1:-}"
 RID="iossimulator-arm64"
@@ -69,23 +73,28 @@ xcrun simctl bootstatus "$UDID" -b >/dev/null 2>&1 || true
 echo "Building TurfTime2 for $RID ..."
 dotnet build "$PROJECT_FILE" -f "$TFM" -c "$CONFIG" -p:RuntimeIdentifier="$RID"
 
-# Prefer the RID-root .app; skip stale device-builds copies if present.
+# Prefer device-builds .app (current .NET iOS layout); fall back to any newest .app under RID.
+# macOS-safe: handle spaces in paths (e.g. "UTM Shared"); avoid xargs.
 APP=""
-if [[ -d "$REPO_ROOT/bin/$CONFIG/$TFM/$RID" ]]; then
-  while IFS= read -r candidate; do
-    case "$candidate" in
-      */device-builds/*) continue ;;
-      *) APP="$candidate"; break ;;
-    esac
-  done < <(find "$REPO_ROOT/bin/$CONFIG/$TFM/$RID" -type d -name '*.app' -maxdepth 4 | sort)
+SEARCH_ROOT="$REPO_ROOT/bin/$CONFIG/$TFM/$RID"
+if [[ -d "$SEARCH_ROOT" ]]; then
+  APP="$(find "$SEARCH_ROOT/device-builds" -type d -name '*.app' 2>/dev/null \
+    | while IFS= read -r p; do printf '%s\t%s\n' "$(stat -f '%m' "$p" 2>/dev/null || echo 0)" "$p"; done \
+    | sort -nr | head -1 | cut -f2- || true)"
+  if [[ -z "$APP" || ! -d "$APP" ]]; then
+    APP="$(find "$SEARCH_ROOT" -type d -name '*.app' 2>/dev/null \
+      | while IFS= read -r p; do printf '%s\t%s\n' "$(stat -f '%m' "$p" 2>/dev/null || echo 0)" "$p"; done \
+      | sort -nr | head -1 | cut -f2- || true)"
+  fi
 fi
 
-if [[ -z "$APP" ]]; then
-  echo "Build succeeded but no .app bundle was found under bin/$CONFIG/$TFM/$RID." >&2
+if [[ -z "$APP" || ! -d "$APP" ]]; then
+  echo "ERROR: Build succeeded but no .app was found under $SEARCH_ROOT" >&2
+  find "$SEARCH_ROOT" -type d -name '*.app' 2>/dev/null | head -20 >&2 || true
   exit 1
 fi
 
-BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
+BID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" 2>/dev/null || echo "com.andrewestherhuysen.turftime")"
 VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" 2>/dev/null || true)"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist" 2>/dev/null || true)"
 echo "App bundle: $APP"

@@ -1,7 +1,9 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using TurfTime2.Helpers;
 using TurfTime2.Models;
 using ZXing;
 using ZXing.Common;
@@ -17,6 +19,12 @@ public static class QrCodeService
     private const string UserRoleKey = "user_role";
     private static int _importCounter;
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
     public static TeamShareData CreateFromCurrentTeam(string teamName, string teamId, IEnumerable<Player> players)
     {
         var sharePlayers = players
@@ -29,15 +37,42 @@ public static class QrCodeService
 
         return new TeamShareData
         {
+            Kind = TeamShareData.KindLocal,
             TeamName = teamName,
             TeamId = teamId,
             Players = sharePlayers,
-            CreatedAtUtc = DateTime.UtcNow
+            CreatedAtUtc = DateTime.UtcNow,
+            DisplayTitle = teamName
+        };
+    }
+
+    /// <summary>
+    /// Minimal shared-team QR payload: kind indicator + invite code only (cloud holds the rest).
+    /// </summary>
+    public static TeamShareData CreateSharedJoinInvite(string inviteCode, string? displayTitle = null)
+    {
+        var code = NormalizeInviteCode(inviteCode);
+        return new TeamShareData
+        {
+            Kind = TeamShareData.KindShared,
+            InviteCode = code,
+            TeamName = string.Empty,
+            TeamId = string.Empty,
+            Players = [],
+            CreatedAtUtc = DateTime.UtcNow,
+            DisplayTitle = string.IsNullOrWhiteSpace(displayTitle) ? "Shared team" : displayTitle.Trim()
         };
     }
 
     public static string GenerateDeepLink(TeamShareData teamData)
     {
+        if (teamData.IsSharedJoin)
+        {
+            var code = NormalizeInviteCode(teamData.InviteCode);
+            // Compact join URL — no roster payload
+            return $"turf://v1/join?invite={Uri.EscapeDataString(code)}";
+        }
+
         var payload = EncodePayload(teamData);
         return $"turf://v1/import?team={payload}";
     }
@@ -69,12 +104,34 @@ public static class QrCodeService
 
     public static int GetApproximateEncodedSize(TeamShareData teamData)
     {
-        return Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(teamData));
+        return Encoding.UTF8.GetByteCount(GenerateDeepLink(teamData));
+    }
+
+    /// <summary>Wire-format for shared joins: only kind + inviteCode (plus empty locals for schema stability).</summary>
+    private static object BuildWirePayload(TeamShareData teamData)
+    {
+        if (teamData.IsSharedJoin)
+        {
+            return new
+            {
+                kind = TeamShareData.KindShared,
+                inviteCode = NormalizeInviteCode(teamData.InviteCode)
+            };
+        }
+
+        return new
+        {
+            kind = TeamShareData.KindLocal,
+            teamName = teamData.TeamName,
+            teamId = teamData.TeamId,
+            players = teamData.Players,
+            createdAtUtc = teamData.CreatedAtUtc
+        };
     }
 
     private static string EncodePayload(TeamShareData teamData)
     {
-        var json = JsonSerializer.Serialize(teamData);
+        var json = JsonSerializer.Serialize(BuildWirePayload(teamData), JsonOptions);
         var bytes = Encoding.UTF8.GetBytes(json);
         return Convert.ToBase64String(bytes)
             .TrimEnd('=')
@@ -107,18 +164,134 @@ public static class QrCodeService
         teamData = null;
         error = string.Empty;
 
-        if (!TryExtractPayload(raw, out var payload) || string.IsNullOrWhiteSpace(payload))
+        if (string.IsNullOrWhiteSpace(raw))
         {
-            error = "No team payload in QR content.";
+            error = "Empty QR content.";
             return false;
         }
 
-        if (TryDecodeTeamSharePayload(payload, out teamData, out error))
+        raw = raw.Trim();
+
+        // Compact shared join: turf://v1/join?invite=CODE (or code=)
+        if (TryParseSharedJoinUri(raw, out var inviteFromUri, out error))
         {
+            teamData = CreateSharedJoinInvite(inviteFromUri);
+            return true;
+        }
+
+        if (!TryExtractPayload(raw, out var payload) || string.IsNullOrWhiteSpace(payload))
+        {
+            if (string.IsNullOrWhiteSpace(error))
+                error = "No team payload in QR content.";
+            return false;
+        }
+
+        // Payload itself might be a bare invite code (8+ alnum with optional dash)
+        if (LooksLikeBareInviteCode(payload))
+        {
+            teamData = CreateSharedJoinInvite(payload);
+            return true;
+        }
+
+        if (TryDecodeTeamSharePayload(payload, out teamData, out error))
+            return true;
+
+        return false;
+    }
+
+    private static bool TryParseSharedJoinUri(string raw, out string inviteCode, out string error)
+    {
+        inviteCode = string.Empty;
+        error = string.Empty;
+
+        if (!raw.StartsWith("turf://", StringComparison.OrdinalIgnoreCase) &&
+            !raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri))
+            return false;
+
+        var path = (uri.AbsolutePath ?? string.Empty).Trim('/').ToLowerInvariant();
+        var host = (uri.Host ?? string.Empty).ToLowerInvariant();
+        // turf://v1/join  → Host=v1, AbsolutePath=/join
+        var isJoin = path.Contains("join", StringComparison.Ordinal) ||
+                     host.Equals("join", StringComparison.OrdinalIgnoreCase) ||
+                     path.EndsWith("join", StringComparison.Ordinal);
+
+        if (!isJoin && !QueryHasInviteKey(uri.Query))
+            return false;
+
+        if (TryGetQueryValue(uri.Query, out var code, "invite", "code", "inviteCode") &&
+            !string.IsNullOrWhiteSpace(code))
+        {
+            inviteCode = NormalizeInviteCode(code);
+            if (string.IsNullOrEmpty(inviteCode))
+            {
+                error = "Invite code in QR is empty.";
+                return false;
+            }
+            return true;
+        }
+
+        if (isJoin)
+        {
+            error = "Shared-team QR is missing an invite code.";
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool QueryHasInviteKey(string query)
+    {
+        return TryGetQueryValue(query, out _, "invite", "code", "inviteCode");
+    }
+
+    private static bool TryGetQueryValue(string query, out string value, params string[] keys)
+    {
+        value = string.Empty;
+        if (string.IsNullOrWhiteSpace(query))
+            return false;
+
+        if (query.StartsWith('?'))
+            query = query[1..];
+
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var idx = pair.IndexOf('=');
+            if (idx <= 0)
+                continue;
+
+            var key = Uri.UnescapeDataString(pair[..idx]);
+            if (!keys.Any(k => key.Equals(k, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            value = idx < pair.Length - 1
+                ? Uri.UnescapeDataString(pair[(idx + 1)..]).Trim()
+                : string.Empty;
             return true;
         }
 
         return false;
+    }
+
+    private static bool LooksLikeBareInviteCode(string payload)
+    {
+        var code = NormalizeInviteCode(payload);
+        // Typical app codes: 8 alphanumerics with optional dash mid (e.g. ABCD-EFGH)
+        if (code.Length is < 6 or > 20)
+            return false;
+        return code.All(c => char.IsLetterOrDigit(c) || c == '-');
+    }
+
+    public static string NormalizeInviteCode(string? inviteCode)
+    {
+        if (string.IsNullOrWhiteSpace(inviteCode))
+            return string.Empty;
+
+        var raw = inviteCode.Trim().ToUpperInvariant().Replace(" ", "", StringComparison.Ordinal);
+        return raw;
     }
 
     private static bool TryExtractPayload(string raw, out string payload)
@@ -206,17 +379,44 @@ public static class QrCodeService
 
         try
         {
-            teamData = JsonSerializer.Deserialize<TeamShareData>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            teamData = JsonSerializer.Deserialize<TeamShareData>(json, JsonOptions);
 
-            if (teamData is null || string.IsNullOrWhiteSpace(teamData.TeamName) || teamData.Players.Count == 0)
+            if (teamData is null)
             {
                 error = "Invalid team data.";
                 return false;
             }
 
+            // Infer kind for older local QRs (no Kind field)
+            if (string.IsNullOrWhiteSpace(teamData.Kind))
+            {
+                teamData.Kind = !string.IsNullOrWhiteSpace(teamData.InviteCode) && teamData.Players.Count == 0
+                    ? TeamShareData.KindShared
+                    : TeamShareData.KindLocal;
+            }
+
+            if (teamData.IsSharedJoin)
+            {
+                teamData.InviteCode = NormalizeInviteCode(teamData.InviteCode);
+                if (string.IsNullOrEmpty(teamData.InviteCode))
+                {
+                    error = "Shared-team QR is missing an invite code.";
+                    return false;
+                }
+
+                teamData.DisplayTitle = "Shared team";
+                return true;
+            }
+
+            // Local roster share
+            teamData.Kind = TeamShareData.KindLocal;
+            if (string.IsNullOrWhiteSpace(teamData.TeamName) || teamData.Players.Count == 0)
+            {
+                error = "Invalid team data.";
+                return false;
+            }
+
+            teamData.DisplayTitle = teamData.TeamName;
             return true;
         }
         catch (JsonException ex)
@@ -256,6 +456,9 @@ public static class QrCodeService
 
     public static string ImportTeamToLocal(TeamShareData teamData)
     {
+        if (teamData.IsSharedJoin)
+            throw new InvalidOperationException("Shared-team QR must be joined via invite code, not imported as a local roster.");
+
         var teamId = BuildUniqueImportedTeamId(teamData.TeamId);
         var teamName = string.IsNullOrWhiteSpace(teamData.TeamName) ? "Imported Team" : teamData.TeamName.Trim();
 
@@ -323,6 +526,41 @@ public static class QrCodeService
         Preferences.Set(UserRoleKey, "admin");
 
         return teamId;
+    }
+
+    /// <summary>
+    /// Apply local prefs after a successful cloud join (member role).
+    /// </summary>
+    public static void ApplySharedJoinLocalState(string teamId, string teamName, string displayName)
+    {
+        Preferences.Set(TeamModeKey, "shared");
+        Preferences.Set(TeamIdKey, teamId);
+        Preferences.Set(TeamNameKey, teamName);
+        Preferences.Set(UserRoleKey, "member");
+        Preferences.Set($"{teamId}_role", "member");
+        Preferences.Set($"{teamId}_name", teamName);
+        Preferences.Set($"team_mode_{teamId}", "shared");
+        Preferences.Set($"user_role_{teamId}", "member");
+        UserDisplayName.Set(displayName);
+        RegisterSharedTeamId(teamId);
+    }
+
+    private static void RegisterSharedTeamId(string teamId)
+    {
+        var teamListJson = Preferences.Get("team_id_list", "[]");
+        try
+        {
+            var teamIds = JsonSerializer.Deserialize<List<string>>(teamListJson) ?? [];
+            if (!teamIds.Contains(teamId))
+            {
+                teamIds.Add(teamId);
+                Preferences.Set("team_id_list", JsonSerializer.Serialize(teamIds));
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[QrCodeService] Failed to register shared team id: {ex.Message}");
+        }
     }
 
     private static PlayerPosition ParsePosition(string? position)

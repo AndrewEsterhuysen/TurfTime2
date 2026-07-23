@@ -6,18 +6,12 @@
              BackgroundColor="#1b5e20">
     <ScrollView>
         <VerticalStackLayout Padding="20" Spacing="15">
-            <Label Text="📋 Details"
-                   FontSize="28"
-                   FontAttributes="Bold"
-                   HorizontalOptions="Center"
-                   TextColor="White"
-                   Margin="0,10,0,20" />
-
             <!-- Location -->
             <Frame BackgroundColor="#2e7d32"
                    CornerRadius="10"
                    Padding="0"
-                   HasShadow="True">
+                   HasShadow="True"
+                   Margin="0,8,0,0">
                 <Grid>
                     <Grid.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnLocationTapped" />

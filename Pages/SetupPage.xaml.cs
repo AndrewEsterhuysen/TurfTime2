@@ -22,6 +22,7 @@ public partial class SetupPage : ContentPage
 	protected override void OnAppearing()
 	{
 		base.OnAppearing();
+		DetailsPage.ApplyPageTeamTitle(this, "Location");
 		// Check if returning from maps with coordinates
 		CheckForPickedLocation();
 		// Reload data in case it was updated elsewhere

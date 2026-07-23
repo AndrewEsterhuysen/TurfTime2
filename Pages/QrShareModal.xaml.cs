@@ -10,20 +10,41 @@ public partial class QrShareModal : ContentPage
     public ICommand CloseCommand { get; }
 
     public string TeamName { get; set; } = string.Empty;
-    public int PlayerCount { get; set; }
-    public int EncodedSize { get; set; }
+    public string SubtitleLine { get; set; } = string.Empty;
+    public string DetailLine { get; set; } = string.Empty;
+    public string Instructions { get; set; } = string.Empty;
     public ImageSource? QrImage { get; set; }
 
     private readonly string _shareLink;
     private readonly byte[] _qrPngBytes;
+    private readonly bool _isSharedJoin;
 
     public QrShareModal(TeamShareData teamData)
     {
         InitializeComponent();
 
-        TeamName = teamData.TeamName;
-        PlayerCount = teamData.Players.Count;
-        EncodedSize = QrCodeService.GetApproximateEncodedSize(teamData);
+        _isSharedJoin = teamData.IsSharedJoin;
+        TeamName = string.IsNullOrWhiteSpace(teamData.DisplayTitle)
+            ? (string.IsNullOrWhiteSpace(teamData.TeamName) ? "Team" : teamData.TeamName)
+            : teamData.DisplayTitle;
+
+        if (_isSharedJoin)
+        {
+            Title = "Share Invite QR";
+            SubtitleLine = "Shared team — invite only";
+            DetailLine = $"Invite: {teamData.InviteCode}";
+            Instructions =
+                "Send this QR to another phone. In Turf Time they use Import Team (camera or photo) to scan it and join the cloud team with this invite code. No roster is encoded — data loads from the cloud.";
+        }
+        else
+        {
+            Title = "Share Team";
+            SubtitleLine = $"Players: {teamData.Players.Count}";
+            DetailLine = $"QR size: ~{QrCodeService.GetApproximateEncodedSize(teamData)} bytes";
+            Instructions =
+                "Send this QR code image to another phone. In Turf Time, the recipient uses Team Import to scan the QR (camera or photo) and import a local copy of the roster.";
+        }
+
         _shareLink = QrCodeService.GenerateQrLink(teamData);
         _qrPngBytes = QrCodeService.GenerateQrPng(_shareLink);
 
@@ -44,12 +65,13 @@ public partial class QrShareModal : ContentPage
     {
         try
         {
-            var filePath = Path.Combine(FileSystem.CacheDirectory, $"turftime-team-{DateTime.UtcNow:yyyyMMddHHmmss}.png");
+            var prefix = _isSharedJoin ? "turftime-invite" : "turftime-team";
+            var filePath = Path.Combine(FileSystem.CacheDirectory, $"{prefix}-{DateTime.UtcNow:yyyyMMddHHmmss}.png");
             await File.WriteAllBytesAsync(filePath, _qrPngBytes);
 
             await Share.RequestAsync(new ShareFileRequest
             {
-                Title = $"Share Team QR - {TeamName}",
+                Title = _isSharedJoin ? $"Join team QR - {TeamName}" : $"Share Team QR - {TeamName}",
                 File = new ShareFile(filePath)
             });
         }

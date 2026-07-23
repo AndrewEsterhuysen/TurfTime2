@@ -1,3 +1,4 @@
+using TurfTime2.Helpers;
 using TurfTime2.Services;
 using ZXing.Net.Maui;
 
@@ -70,7 +71,7 @@ public partial class QrImportPage : ContentPage
         try
         {
             System.Diagnostics.Debug.WriteLine("[QrImportPage] ========== CAMERA SETUP STARTING ==========");
-            
+
             var cameras = await CameraView.GetAvailableCameras();
             if (cameras is null || cameras.Count == 0)
             {
@@ -119,7 +120,7 @@ public partial class QrImportPage : ContentPage
             return;
 
         System.Diagnostics.Debug.WriteLine($"\n[QrImportPage] ✅✅✅ QR CODE DETECTED! ✅✅✅");
-        
+
         _isProcessing = true;
         MainThread.BeginInvokeOnMainThread(async () => await ImportFromRawContentAsync(value));
     }
@@ -164,8 +165,16 @@ public partial class QrImportPage : ContentPage
                 return;
             }
 
+            if (teamData.IsSharedJoin)
+            {
+                var joined = await JoinSharedTeamFromInviteAsync(teamData.InviteCode);
+                if (joined)
+                    await CloseAndOpenTeamViewAsync();
+                return;
+            }
+
             QrCodeService.ImportTeamToLocal(teamData);
-            System.Diagnostics.Debug.WriteLine($"[QrImportPage] ✅ Team '{teamData.TeamName}' imported successfully");
+            System.Diagnostics.Debug.WriteLine($"[QrImportPage] ✅ Local team '{teamData.TeamName}' imported successfully");
             await DisplayAlert("Team Imported", $"Imported '{teamData.TeamName}' successfully.", "OK");
             await CloseAndOpenTeamViewAsync();
         }
@@ -178,6 +187,122 @@ public partial class QrImportPage : ContentPage
         {
             _isProcessing = false;
             CameraView.IsDetecting = true;
+        }
+    }
+
+    /// <returns>True if join completed and navigation to Team Details should follow.</returns>
+    private async Task<bool> JoinSharedTeamFromInviteAsync(string inviteCode)
+    {
+        var code = QrCodeService.NormalizeInviteCode(inviteCode);
+        if (string.IsNullOrEmpty(code))
+        {
+            await DisplayAlert("Invalid QR", "Shared-team QR has no invite code.", "OK");
+            return false;
+        }
+
+        var displayName = await ResolveDisplayNameAsync();
+        if (displayName is null)
+            return false;
+
+        var cloud = ResolveCloudTeam();
+        if (cloud is null)
+        {
+            await DisplayAlert("Unavailable", "Cloud team service is not available. Check your connection and try again.", "OK");
+            return false;
+        }
+
+        var result = await cloud.JoinByInviteCodeAsync(code, displayName);
+        System.Diagnostics.Debug.WriteLine($"[QrImportPage] JoinByInviteCode result: {result}");
+
+        if (result.StartsWith("success:", StringComparison.Ordinal))
+        {
+            var parts = result.Split(':', 3);
+            if (parts.Length >= 3)
+            {
+                var teamId = parts[1];
+                var teamName = parts[2];
+                QrCodeService.ApplySharedJoinLocalState(teamId, teamName, displayName);
+                RefreshAppShellMenu();
+                _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+
+                await DisplayAlert(
+                    "Joined Team!",
+                    $"Successfully joined: {teamName}\n\nRole: Member\nChat name: {displayName}\n\nTeam data will load from the cloud.",
+                    "OK");
+                return true;
+            }
+        }
+
+        if (result.StartsWith("already_member:", StringComparison.Ordinal))
+        {
+            var parts = result.Split(':', 3);
+            if (parts.Length >= 3)
+            {
+                var teamId = parts[1];
+                var teamName = parts[2];
+                UserDisplayName.Set(displayName);
+                QrCodeService.ApplySharedJoinLocalState(teamId, teamName, displayName);
+                RefreshAppShellMenu();
+                await DisplayAlert(
+                    "Already a Member",
+                    $"You are already a member of '{teamName}'. Switched to that team and updated your display name.",
+                    "OK");
+                return true;
+            }
+        }
+
+        var message = result.StartsWith("error:", StringComparison.Ordinal)
+            ? result["error:".Length..].Trim()
+            : result;
+        await DisplayAlert("Join Failed", string.IsNullOrWhiteSpace(message) ? "Could not join team." : message, "OK");
+        return false;
+    }
+
+    /// <returns>Validated display name, or null if cancelled / invalid.</returns>
+    private async Task<string?> ResolveDisplayNameAsync()
+    {
+        var existing = UserDisplayName.Get();
+        if (UserDisplayName.TryValidate(existing, out var valid, out _))
+            return valid;
+
+        var entered = await DisplayPromptAsync(
+            "Display Name",
+            "Enter the name teammates will see in Chat (required to join a shared team):",
+            accept: "Join",
+            cancel: "Cancel",
+            maxLength: UserDisplayName.MaxLength,
+            keyboard: Keyboard.Text,
+            initialValue: existing);
+
+        if (entered is null)
+            return null;
+
+        if (!UserDisplayName.TryValidate(entered, out var displayName, out var nameError))
+        {
+            await DisplayAlert("Display Name Required", nameError ?? "Invalid name.", "OK");
+            return null;
+        }
+
+        return displayName;
+    }
+
+    private static ICloudTeamService? ResolveCloudTeam()
+    {
+        return Application.Current?.Handler?.MauiContext?.Services?.GetService<ICloudTeamService>();
+    }
+
+    private static void RefreshAppShellMenu()
+    {
+        try
+        {
+            if (Application.Current?.Windows.FirstOrDefault()?.Page is AppShell shell)
+                shell.RefreshMenu();
+            else if (Shell.Current is AppShell appShell)
+                appShell.RefreshMenu();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[QrImportPage] Menu refresh: {ex.Message}");
         }
     }
 
