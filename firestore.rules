@@ -29,6 +29,13 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role == 'admin';
     }
 
+    // Club manager / creator (metadata.createdBy) — only they may hard-delete the whole team.
+    function isTeamOwner(teamId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/teams/$(teamId)/metadata/info)
+        && get(/databases/$(database)/documents/teams/$(teamId)/metadata/info).data.createdBy == request.auth.uid;
+    }
+
     // O(1) invite lookup (root collection)
     match /invite_codes/{inviteCode} {
       allow read: if signedIn();
@@ -39,11 +46,17 @@ service cloud.firestore {
         && resource.data.createdBy == request.auth.uid;
     }
 
-    // Team metadata — any signed-in user may create a new team; only admin updates
+    // Team metadata — any signed-in user may create a new team; only admin updates.
+    // createdBy (ownership) may only change when the current owner initiates transfer.
     match /teams/{teamId}/metadata/info {
       allow read: if signedIn();
       allow create: if signedIn();
-      allow update, delete: if isTeamAdmin(teamId);
+      allow update: if isTeamAdmin(teamId)
+        && (
+          request.resource.data.createdBy == resource.data.createdBy
+          || isTeamOwner(teamId)
+        );
+      allow delete: if isTeamAdmin(teamId);
     }
 
     // Optional public invite doc under the team (for collection-group join)
@@ -92,7 +105,9 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.text is string
         && request.resource.data.text.size() <= 500;
-      allow update, delete: if false;
+      allow update: if false;
+      // Owner cascade-delete only (club manager wiping a team at season end)
+      allow delete: if isTeamOwner(teamId) || isTeamAdmin(teamId);
     }
 
     // Game sessions (reports)

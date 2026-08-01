@@ -4,99 +4,133 @@
              x:Class="TurfTime2.SetupPage"
              Title="Location">
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="10">
-            
-            <!-- Match Details Section -->
-            <Frame Padding="15" Margin="0,10,0,10">
-                <VerticalStackLayout Spacing="15">
-                    <Label Text="Match Details" 
-                           Style="{StaticResource SubHeadline}"
-                           HorizontalOptions="Start" />
-                    
-                    <!-- Team Entry -->
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="Team" />
-                        <Entry x:Name="TeamEntry" 
-                               Placeholder="Enter team name"
-                               TextChanged="OnFieldChanged" />
-                    </VerticalStackLayout>
-                    
-                    <!-- Match Start Date/Time -->
+        <VerticalStackLayout Padding="20" Spacing="14">
+
+            <!-- View-only banner (shared members) -->
+            <Border x:Name="ViewOnlyBanner"
+                    IsVisible="False"
+                    BackgroundColor="#ffc107"
+                    Padding="10,6"
+                    StrokeShape="RoundRectangle 6"
+                    Margin="0,4,0,0">
+                <Label Text="📖 VIEW-ONLY — Only the team Admin can edit match location"
+                       TextColor="Black"
+                       FontAttributes="Bold"
+                       FontSize="12"
+                       HorizontalOptions="Center"
+                       HorizontalTextAlignment="Center" />
+            </Border>
+
+            <!-- Group 1: Match Start + Arrive Time -->
+            <Frame Padding="14"
+                   CornerRadius="8"
+                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
+                   HasShadow="False">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Schedule"
+                           FontAttributes="Bold"
+                           FontSize="15" />
+
                     <VerticalStackLayout Spacing="5">
                         <Label Text="Match Start" />
                         <HorizontalStackLayout Spacing="10">
-                            <DatePicker x:Name="MatchDatePicker" 
+                            <DatePicker x:Name="MatchDatePicker"
                                         HorizontalOptions="FillAndExpand"
                                         DateSelected="OnFieldChanged" />
-                            <TimePicker x:Name="MatchTimePicker" 
+                            <TimePicker x:Name="MatchTimePicker"
                                         HorizontalOptions="FillAndExpand"
                                         PropertyChanged="OnFieldChanged" />
                         </HorizontalStackLayout>
                     </VerticalStackLayout>
-                    
-                    <!-- Match Duration (FYI) -->
+
                     <VerticalStackLayout Spacing="5">
-                        <Label Text="Match Duration (minutes)" />
-                        <Entry x:Name="DurationEntry" 
-                               Placeholder="Set on Game page (long-press timer)" 
-                               Keyboard="Numeric"
-                               IsReadOnly="True"
-                               BackgroundColor="{AppThemeBinding Light=#f5f5f5, Dark=#2a2a2a}" />
+                        <Label Text="Arrive Time" />
+                        <Label Text="When to be at the ground for warm-up (not kickoff)"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <TimePicker x:Name="ArriveTimePicker"
+                                    HorizontalOptions="Fill"
+                                    PropertyChanged="OnFieldChanged" />
                     </VerticalStackLayout>
-                    
-                    <!-- Match Location Name -->
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="Match Location" />
-                        <Entry x:Name="LocationNameEntry" 
-                               Placeholder="Enter location name"
-                               TextChanged="OnFieldChanged" />
-                        <Button x:Name="SearchLocationButton"
-                                Text="Search in Google Maps"
-                                Clicked="OnSearchLocationClicked"
-                                Margin="0,5,0,0" />
-                    </VerticalStackLayout>
-                    
-                    <!-- GPS Location -->
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="GPS Coordinates (Optional)" />
-                        <HorizontalStackLayout Spacing="10">
-                            <Entry x:Name="LatitudeEntry" 
-                                   Placeholder="Latitude"
-                                   Keyboard="Numeric"
-                                   HorizontalOptions="FillAndExpand"
-                                   TextChanged="OnFieldChanged" />
-                            <Entry x:Name="LongitudeEntry" 
-                                   Placeholder="Longitude"
-                                   Keyboard="Numeric"
-                                   HorizontalOptions="FillAndExpand"
-                                   TextChanged="OnFieldChanged" />
-                        </HorizontalStackLayout>
-                        <Button x:Name="GetLocationButton"
-                                Text="Get Current Location"
-                                Clicked="OnGetLocationClicked"
-                                Margin="0,5,0,0" />
-                        <Button x:Name="PickLocationButton"
-                                Text="Pick Location from Maps"
-                                Clicked="OnPickLocationClicked"
-                                Margin="0,5,0,0" />
-                    </VerticalStackLayout>
-                    
-                    <!-- Google Maps Link -->
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="Link (Google Maps)" />
-                        <Entry x:Name="MapsLinkEntry" 
-                               Placeholder="Paste Google Maps link here"
-                               Keyboard="Url"
-                               TextChanged="OnFieldChanged" />
-                        <Button x:Name="OpenLinkButton"
-                                Text="Open in Maps"
-                                Clicked="OnOpenLinkClicked"
-                                Margin="0,5,0,0" />
-                    </VerticalStackLayout>
-                    
                 </VerticalStackLayout>
             </Frame>
-            
+
+            <!-- Group 2: Match Location + Search -->
+            <Frame Padding="14"
+                   CornerRadius="8"
+                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
+                   HasShadow="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="Match Location"
+                           FontAttributes="Bold"
+                           FontSize="15" />
+                    <Entry x:Name="LocationNameEntry"
+                           Placeholder="Venue or ground name"
+                           TextChanged="OnFieldChanged" />
+                    <Button x:Name="SearchLocationButton"
+                            Text="Search in Google Maps"
+                            Clicked="OnSearchLocationClicked" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Group 3: GPS + Get Current Location -->
+            <Frame Padding="14"
+                   CornerRadius="8"
+                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
+                   HasShadow="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="GPS Coordinates"
+                           FontAttributes="Bold"
+                           FontSize="15" />
+                    <Label Text="Optional"
+                           FontSize="11"
+                           TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                    <HorizontalStackLayout Spacing="10">
+                        <Entry x:Name="LatitudeEntry"
+                               Placeholder="Latitude"
+                               Keyboard="Numeric"
+                               HorizontalOptions="FillAndExpand"
+                               TextChanged="OnFieldChanged" />
+                        <Entry x:Name="LongitudeEntry"
+                               Placeholder="Longitude"
+                               Keyboard="Numeric"
+                               HorizontalOptions="FillAndExpand"
+                               TextChanged="OnFieldChanged" />
+                    </HorizontalStackLayout>
+                    <Button x:Name="GetLocationButton"
+                            Text="Get Current Location"
+                            Clicked="OnGetLocationClicked" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Group 4: Maps link + Pick Location + Open in Maps -->
+            <Frame Padding="14"
+                   CornerRadius="8"
+                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
+                   HasShadow="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="Maps Link"
+                           FontAttributes="Bold"
+                           FontSize="15" />
+                    <Label Text="Link (Google Maps)"
+                           FontSize="12" />
+                    <Entry x:Name="MapsLinkEntry"
+                           Placeholder="Paste Google Maps link here"
+                           Keyboard="Url"
+                           TextChanged="OnFieldChanged" />
+                    <Button x:Name="PickLocationButton"
+                            Text="Pick Location from Maps"
+                            Clicked="OnPickLocationClicked" />
+                    <Button x:Name="OpenLinkButton"
+                            Text="Open in Maps"
+                            Clicked="OnOpenLinkClicked" />
+                </VerticalStackLayout>
+            </Frame>
+
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

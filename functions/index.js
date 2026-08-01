@@ -1,10 +1,21 @@
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { initializeApp } = require('firebase-admin/app');
-const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 
 initializeApp();
+
+/** Teams with no activity for this many days are hard-deleted (owner left / abandoned). */
+const DORMANT_TEAM_DAYS = 365;
+
+/**
+ * Single-controller lock: if the controlling Admin's heartbeat is older than this,
+ * the scheduled function clears the lock so another Admin can take over.
+ * Must be greater than the client heartbeat interval (currently ~45s).
+ */
+const CONTROLLER_STALE_MS = 90 * 1000;
 
 /**
  * Resolve a human-readable team name for notification titles.
@@ -249,7 +260,8 @@ exports.sendChatNotification = onDocumentCreated('teams/{teamId}/messages/{messa
 console.log('💬 Chat notification function loaded successfully (2nd Gen)');
 
 /**
- * Callable function: requestAdminCodeEmail
+ * Callable function: requestAdminRecoveryEmail
+ * (renamed from requestAdminCodeEmail to avoid a stuck Cloud Run name collision)
  *
  * Called by a team creator to trigger an email with their admin recovery reminder.
  * The plain-text admin code is NEVER stored in Firestore — only its SHA-256 hash is.
@@ -257,7 +269,7 @@ console.log('💬 Chat notification function loaded successfully (2nd Gen)');
  * Request payload: { teamId: string }
  * Returns: { status: "sent" | "not_found" | "error", teamName?: string }
  */
-exports.requestAdminCodeEmail = onCall(async (request) => {
+exports.requestAdminRecoveryEmail = onCall(async (request) => {
     const teamId = request.data?.teamId;
 
     if (!teamId || typeof teamId !== 'string') {
@@ -282,10 +294,10 @@ exports.requestAdminCodeEmail = onCall(async (request) => {
         const creatorEmail = metadata.creatorEmail || null;
         const createdBy = metadata.createdBy || null;
 
-        console.log(`[requestAdminCodeEmail] Recovery reminder requested for team ${teamId} (${teamName}) by uid ${createdBy}`);
+        console.log(`[requestAdminRecoveryEmail] Recovery reminder requested for team ${teamId} (${teamName}) by uid ${createdBy}`);
 
         if (!creatorEmail) {
-            console.log(`[requestAdminCodeEmail] No creatorEmail stored for team ${teamId} — skipping email`);
+            console.log(`[requestAdminRecoveryEmail] No creatorEmail stored for team ${teamId} — skipping email`);
             return { status: 'sent', teamName };
         }
 
@@ -315,10 +327,302 @@ exports.requestAdminCodeEmail = onCall(async (request) => {
             }
         });
 
-        console.log(`[requestAdminCodeEmail] Mail document created for ${creatorEmail}`);
+        console.log(`[requestAdminRecoveryEmail] Mail document created for ${creatorEmail}`);
         return { status: 'sent', teamName };
     } catch (error) {
-        console.error('[requestAdminCodeEmail] Error:', error);
+        console.error('[requestAdminRecoveryEmail] Error:', error);
         throw new HttpsError('internal', 'Could not process request.');
     }
 });
+
+// ── Dormant team cleanup ─────────────────────────────────────────────────────
+
+/**
+ * Best-effort last activity timestamp (ms since epoch) for a team.
+ * Uses explicit lastActivityUtc / createdAt when present, else Firestore updateTime
+ * on metadata + roster (covers games without extra client fields).
+ */
+async function resolveLastActivityMs(db, teamId, metaSnap) {
+    let latest = 0;
+    const meta = metaSnap.exists ? (metaSnap.data() || {}) : {};
+
+    const asMs = (v) => {
+        if (!v) return 0;
+        if (typeof v.toMillis === 'function') return v.toMillis();
+        if (v instanceof Date) return v.getTime();
+        if (typeof v === 'string') {
+            const t = Date.parse(v);
+            return Number.isFinite(t) ? t : 0;
+        }
+        if (typeof v === 'number' && Number.isFinite(v)) return v;
+        return 0;
+    };
+
+    latest = Math.max(latest, asMs(meta.lastActivityUtc), asMs(meta.lastActivityAt), asMs(meta.createdAt));
+    if (metaSnap.exists && metaSnap.updateTime) {
+        latest = Math.max(latest, metaSnap.updateTime.toMillis());
+    }
+
+    try {
+        const rosterSnap = await db
+            .collection('teams')
+            .doc(teamId)
+            .collection('roster')
+            .doc('data')
+            .get();
+        if (rosterSnap.exists) {
+            const r = rosterSnap.data() || {};
+            latest = Math.max(latest, asMs(r.lastModifiedUtc), asMs(r.lastModified));
+            if (rosterSnap.updateTime) {
+                latest = Math.max(latest, rosterSnap.updateTime.toMillis());
+            }
+        }
+    } catch (err) {
+        console.warn(`[cleanupDormantTeams] roster read ${teamId}:`, err.message);
+    }
+
+    // No signal at all → treat as ancient so orphans get cleaned
+    return latest > 0 ? latest : 0;
+}
+
+/** Delete all docs in a subcollection (batched). */
+async function deleteSubcollection(db, teamId, subName) {
+    const col = db.collection('teams').doc(teamId).collection(subName);
+    let deleted = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const page = await col.limit(200).get();
+        if (page.empty) break;
+        const batch = db.batch();
+        page.docs.forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+        deleted += page.size;
+        if (page.size < 200) break;
+    }
+    return deleted;
+}
+
+/**
+ * Hard-delete a team tree (admin SDK — bypasses client security rules).
+ * Mirrors client owner-delete: invite indexes + members/messages/sessions/logs/public/roster/metadata.
+ */
+async function hardDeleteTeam(db, teamId, meta) {
+    const inviteCode = (meta.inviteCode && String(meta.inviteCode).trim().toUpperCase()) || '';
+    const compact = inviteCode.replace(/[^A-Z0-9]/g, '');
+
+    for (const code of [compact, inviteCode]) {
+        if (!code) continue;
+        try {
+            await db.collection('invite_codes').doc(code).delete();
+        } catch (err) {
+            console.warn(`[cleanupDormantTeams] invite_codes/${code}:`, err.message);
+        }
+    }
+
+    for (const sub of ['members', 'messages', 'sessions', 'logs', 'public', 'roster', 'metadata']) {
+        try {
+            const n = await deleteSubcollection(db, teamId, sub);
+            if (n > 0) {
+                console.log(`[cleanupDormantTeams] ${teamId}/${sub}: deleted ${n} docs`);
+            }
+        } catch (err) {
+            console.warn(`[cleanupDormantTeams] ${teamId}/${sub}:`, err.message);
+        }
+    }
+
+    // Known singleton paths (if any remain)
+    for (const path of [
+        ['roster', 'data'],
+        ['public', 'invite'],
+        ['metadata', 'info'],
+    ]) {
+        try {
+            await db.collection('teams').doc(teamId).collection(path[0]).doc(path[1]).delete();
+        } catch (_) {
+            /* ignore */
+        }
+    }
+
+    try {
+        await db.collection('teams').doc(teamId).delete();
+    } catch (_) {
+        /* root teams/{id} often does not exist */
+    }
+}
+
+/**
+ * Scheduled: release stale match controllers (multi-admin single-controller lock).
+ *
+ * Clients write controllerHeartbeatUtc while holding control. The server — not peers —
+ * is authoritative for auto-release so:
+ *   - lock clears even if no other Admin app is open
+ *   - clients do not need to poll/patch release themselves (less traffic)
+ *
+ * Schedule: every 1 minute.
+ * Deploy: firebase deploy --only functions:releaseStaleGameControllers --project turf-timer
+ */
+exports.releaseStaleGameControllers = onSchedule(
+    {
+        schedule: 'every 1 minutes',
+        timeZone: 'UTC',
+        memory: '256MiB',
+        timeoutSeconds: 120,
+        retryCount: 0,
+    },
+    async () => {
+        const db = getFirestore();
+        const cutoffMs = Date.now() - CONTROLLER_STALE_MS;
+        console.log(
+            `[releaseStaleGameControllers] Start cutoff=${new Date(cutoffMs).toISOString()} ` +
+                `(stale=${CONTROLLER_STALE_MS / 1000}s)`
+        );
+
+        // teams/{teamId}/roster/data documents (collection group "roster")
+        const rosterGroup = await db.collectionGroup('roster').get();
+        let scanned = 0;
+        let withController = 0;
+        let released = 0;
+        let errors = 0;
+
+        for (const doc of rosterGroup.docs) {
+            // App stores live state at roster/data only
+            if (doc.id !== 'data') continue;
+            scanned += 1;
+
+            try {
+                const data = doc.data() || {};
+                const controllerUid = String(data.controllerUid || '').trim();
+                if (!controllerUid) continue;
+                withController += 1;
+
+                const hbMs = resolveControllerHeartbeatMs(data);
+                if (hbMs > cutoffMs) continue;
+
+                const teamId = doc.ref.parent.parent ? doc.ref.parent.parent.id : '?';
+                console.log(
+                    `[releaseStaleGameControllers] Releasing team=${teamId} ` +
+                        `controller=${controllerUid.substring(0, 8)}… ` +
+                        `heartbeat=${hbMs ? new Date(hbMs).toISOString() : 'missing'}`
+                );
+
+                await doc.ref.update({
+                    controllerUid: '',
+                    controllerDisplayName: '',
+                    controlRequestUid: '',
+                    controlRequestDisplayName: '',
+                    controlRequestId: '',
+                    controllerHeartbeatUtc: Timestamp.fromMillis(0),
+                    lastModifiedUtc: FieldValue.serverTimestamp(),
+                });
+                released += 1;
+            } catch (err) {
+                errors += 1;
+                console.error(`[releaseStaleGameControllers] Failed ${doc.ref.path}:`, err);
+            }
+        }
+
+        console.log(
+            `[releaseStaleGameControllers] Done scanned=${scanned} withController=${withController} ` +
+                `released=${released} errors=${errors}`
+        );
+        return null;
+    }
+);
+
+/**
+ * Prefer controllerHeartbeatUtc; fall back to lastModifiedUtc for older clients.
+ * @returns {number} epoch ms, or 0 if unknown (treated as stale)
+ */
+function resolveControllerHeartbeatMs(data) {
+    const hb = data.controllerHeartbeatUtc;
+    if (hb && typeof hb.toMillis === 'function') {
+        const ms = hb.toMillis();
+        if (ms > 0) return ms;
+    }
+    if (hb && typeof hb.seconds === 'number') {
+        const ms = hb.seconds * 1000;
+        if (ms > 0) return ms;
+    }
+    const lm = data.lastModifiedUtc;
+    if (lm && typeof lm.toMillis === 'function') {
+        const ms = lm.toMillis();
+        if (ms > 0) return ms;
+    }
+    if (lm && typeof lm.seconds === 'number') {
+        const ms = lm.seconds * 1000;
+        if (ms > 0) return ms;
+    }
+    return 0;
+}
+
+/**
+ * Scheduled: delete shared teams with no roster/metadata activity for 12 months.
+ *
+ * Covers the case where the owner left without Delete: orphaned cloud teams
+ * are removed after a long dormancy window so Firestore does not grow forever.
+ *
+ * Schedule: daily 03:15 Australia/Sydney (adjust if needed).
+ * Deploy: firebase deploy --only functions:cleanupDormantTeams --project turf-timer
+ */
+exports.cleanupDormantTeams = onSchedule(
+
+    {
+        schedule: 'every day 03:15',
+        timeZone: 'Australia/Sydney',
+        memory: '512MiB',
+        timeoutSeconds: 540,
+        retryCount: 1,
+    },
+    async () => {
+        const db = getFirestore();
+        const cutoffMs = Date.now() - DORMANT_TEAM_DAYS * 24 * 60 * 60 * 1000;
+        console.log(
+            `[cleanupDormantTeams] Start cutoff=${new Date(cutoffMs).toISOString()} (${DORMANT_TEAM_DAYS} days)`
+        );
+
+        // All team metadata/info docs (no root teams/{id} document required)
+        const metaGroup = await db.collectionGroup('metadata').get();
+        let scanned = 0;
+        let dormant = 0;
+        let deleted = 0;
+        let skipped = 0;
+        let errors = 0;
+
+        for (const doc of metaGroup.docs) {
+            if (doc.id !== 'info') continue;
+            const teamRef = doc.ref.parent.parent;
+            if (!teamRef) continue;
+            const teamId = teamRef.id;
+            scanned += 1;
+
+            try {
+                const meta = doc.data() || {};
+                if (meta.retainForever === true || meta.skipDormantCleanup === true) {
+                    skipped += 1;
+                    continue;
+                }
+
+                const lastMs = await resolveLastActivityMs(db, teamId, doc);
+                if (lastMs > cutoffMs) continue;
+
+                dormant += 1;
+                const teamName = meta.teamName || teamId;
+                console.log(
+                    `[cleanupDormantTeams] Deleting dormant team ${teamId} (${teamName}) ` +
+                        `lastActivity=${lastMs ? new Date(lastMs).toISOString() : 'unknown'}`
+                );
+                await hardDeleteTeam(db, teamId, meta);
+                deleted += 1;
+            } catch (err) {
+                errors += 1;
+                console.error(`[cleanupDormantTeams] Failed ${teamId}:`, err);
+            }
+        }
+
+        console.log(
+            `[cleanupDormantTeams] Done scanned=${scanned} dormant=${dormant} ` +
+                `deleted=${deleted} skipped=${skipped} errors=${errors}`
+        );
+        return null;
+    }
+);

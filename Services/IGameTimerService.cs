@@ -51,4 +51,17 @@ public interface IGameTimerService
     void Reset();
 
     void ResetCountdown(bool continueRunning);
+
+    /// <summary>
+    /// Apply admin/cloud timer control state for view-only mirrors.
+    /// Client then ticks locally until the next Start/Pause/Reset (or remaining) signal.
+    /// </summary>
+    void ApplySyncedState(
+        int matchDurationSeconds,
+        int halfDurationSeconds,
+        int matchRemainingSeconds,
+        int countdownPresetSeconds,
+        int countdownRemainingSeconds,
+        GamePhase phase,
+        bool timerRunning);
 }

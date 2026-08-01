@@ -14,9 +14,52 @@ public sealed class RosterSnapshot
     public string CurrentHalf { get; set; } = "setup";
     public bool TimerRunning { get; set; }
     public int CountdownPresetSeconds { get; set; } = 2 * 60;
+    /// <summary>Rotation countdown remaining (seconds). Shared so view-only clients tick locally after Start/Pause/Reset signals.</summary>
+    public int CountdownRemainingSeconds { get; set; } = 2 * 60;
     public int ViewMode { get; set; }
     public int TeamAScore { get; set; }
     public int TeamBScore { get; set; }
+
+    /// <summary>How many field/bench pairs rotate each cycle (admin-controlled).</summary>
+    public int RotationCount { get; set; } = 1;
+
+    /// <summary>
+    /// Next field players to come OFF, as <see cref="PlayerSnapshot.SlotId"/> values (FIFO order).
+    /// 0 = empty/deselected queue slot. View-only clients use this for blue “next” highlights.
+    /// </summary>
+    public List<int> NextFieldSlotIds { get; set; } = [];
+
+    /// <summary>Next bench players to come ON (SlotIds). 0 = empty/deselected slot.</summary>
+    public List<int> NextBenchSlotIds { get; set; } = [];
+
+    /// <summary>Last field player rotated (SlotId); 0 = none. Used when queues are empty.</summary>
+    public int LastFieldSlotId { get; set; }
+
+    /// <summary>Last bench player rotated (SlotId); 0 = none.</summary>
+    public int LastBenchSlotId { get; set; }
+
+    // ── Single-controller lock (shared teams, multi-admin) ────────────────
+    /// <summary>Firebase uid of the Admin currently allowed to control the match.</summary>
+    public string ControllerUid { get; set; } = "";
+
+    /// <summary>Chat display name of the controlling Admin (banner text).</summary>
+    public string ControllerDisplayName { get; set; } = "";
+
+    /// <summary>Firebase uid of an Admin requesting control (empty if none).</summary>
+    public string ControlRequestUid { get; set; } = "";
+
+    /// <summary>Display name of the Admin requesting control.</summary>
+    public string ControlRequestDisplayName { get; set; } = "";
+
+    /// <summary>Opaque id for the pending request (detect new requests / avoid duplicate popups).</summary>
+    public string ControlRequestId { get; set; } = "";
+
+    /// <summary>
+    /// Last time the controlling Admin confirmed they are still online.
+    /// Stale heartbeats trigger auto-release so another Admin can take over.
+    /// </summary>
+    public DateTimeOffset ControllerHeartbeatUtc { get; set; } = DateTimeOffset.MinValue;
+
     public List<PlayerSnapshot> Players { get; set; } = [];
 }
 

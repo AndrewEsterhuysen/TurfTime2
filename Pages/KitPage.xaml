@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.KitPage"
+             Title="Kit">
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="14">
+
+            <!-- View-only banner (shared members) -->
+            <Border x:Name="ViewOnlyBanner"
+                    IsVisible="False"
+                    BackgroundColor="#ffc107"
+                    Padding="10,6"
+                    StrokeShape="RoundRectangle 6"
+                    Margin="0,4,0,0">
+                <Label Text="📖 VIEW-ONLY — Only the team Admin can edit kit"
+                       TextColor="Black"
+                       FontAttributes="Bold"
+                       FontSize="12"
+                       HorizontalOptions="Center"
+                       HorizontalTextAlignment="Center" />
+            </Border>
+
+            <!-- Match-day kit phases -->
+            <Frame Padding="14"
+                   CornerRadius="8"
+                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
+                   HasShadow="False">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Match Day"
+                           FontAttributes="Bold"
+                           FontSize="15" />
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Arrive" />
+                        <Label Text="Kit to be worn when arriving at the venue"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="ArriveEntry"
+                               Placeholder="e.g. Club tracksuit"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Warm-Up" />
+                        <Label Text="Kit to be worn during warm-up"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="WarmUpEntry"
+                               Placeholder="e.g. Training kit / bibs"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Game" />
+                        <Label Text="Kit to be worn during the game"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="GameEntry"
+                               Placeholder="e.g. Home strip / Away strip"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Departure" />
+                        <Label Text="Kit to be worn when departing the venue"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="DepartureEntry"
+                               Placeholder="e.g. Club tracksuit"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Other kit guidance -->
+            <Frame Padding="14"
+                   CornerRadius="8"
+                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
+                   HasShadow="False">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Other"
+                           FontAttributes="Bold"
+                           FontSize="15" />
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Attendance as non-playing player" />
+                        <Label Text="e.g. due to injury or other reasons"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="NonPlayingEntry"
+                               Placeholder="e.g. Club polo / casual"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Special Event" />
+                        <Label Text="Prize giving, year end, etc."
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="SpecialEventEntry"
+                               Placeholder="e.g. Formal / club blazer"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

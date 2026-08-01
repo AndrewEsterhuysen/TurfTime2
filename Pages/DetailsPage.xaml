@@ -51,7 +51,7 @@
                                    FontSize="20"
                                    FontAttributes="Bold"
                                    TextColor="White" />
-                            <Label Text="Team kit and colours"
+                            <Label Text="Arrive, warm-up, game, and event kit"
                                    FontSize="14"
                                    TextColor="#E0E0E0" />
                         </VerticalStackLayout>
@@ -79,7 +79,7 @@
                                    FontSize="20"
                                    FontAttributes="Bold"
                                    TextColor="White" />
-                            <Label Text="Match-day roles and assignments"
+                            <Label Text="Duty officer, canteen, grounds, other"
                                    FontSize="14"
                                    TextColor="#E0E0E0" />
                         </VerticalStackLayout>

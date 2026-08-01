@@ -304,9 +304,10 @@
             <Grid Grid.Row="3"
                   ColumnDefinitions="*,*,*,*"
                   Margin="0,0,0,2">
-                <!-- Us score — full cell is the tap target -->
+                <!-- Us score — full cell is the tap target (controller only) -->
                 <Grid Grid.Column="0"
-                      IsVisible="{Binding ScoresVisible}">
+                      IsVisible="{Binding ScoresVisible}"
+                      InputTransparent="{Binding IsMember}">
                     <Grid.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnTeamAScoreTapped" />
                     </Grid.GestureRecognizers>
@@ -315,35 +316,47 @@
                            FontSize="24"
                            FontAttributes="Bold"
                            HorizontalOptions="Center"
-                           VerticalOptions="Center" />
+                           VerticalOptions="Center"
+                           InputTransparent="True" />
                 </Grid>
-                <!-- Match timer -->
+                <!-- Match timer: bright white high-contrast (Style null so app Label theme cannot dull it on Android) -->
                 <Label Grid.Column="1"
                        x:Name="MatchTimerLabel"
                        Text="{Binding MatchTimeDisplay}"
-                       TextColor="White"
-                       FontSize="24"
+                       Style="{x:Null}"
+                       TextColor="#FFFFFF"
+                       FontSize="26"
                        FontAttributes="Bold"
-                       HorizontalOptions="Center">
+                       FontFamily="OpenSansSemibold"
+                       HorizontalOptions="Center"
+                       HorizontalTextAlignment="Center"
+                       VerticalOptions="Center"
+                       Opacity="1">
                     <Label.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnMatchTimerTapped" />
                     </Label.GestureRecognizers>
                 </Label>
-                <!-- Rotation countdown -->
+                <!-- Rotation countdown: same bright white, slightly smaller than match timer -->
                 <Label Grid.Column="2"
                        x:Name="CountdownLabel"
                        Text="{Binding CountdownDisplay}"
-                       TextColor="White"
-                       FontSize="20"
+                       Style="{x:Null}"
+                       TextColor="#FFFFFF"
+                       FontSize="22"
                        FontAttributes="Bold"
-                       HorizontalOptions="Center">
+                       FontFamily="OpenSansSemibold"
+                       HorizontalOptions="Center"
+                       HorizontalTextAlignment="Center"
+                       VerticalOptions="Center"
+                       Opacity="1">
                     <Label.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnCountdownTimerTapped" />
                     </Label.GestureRecognizers>
                 </Label>
-                <!-- Them score — full cell is the tap target -->
+                <!-- Them score — full cell is the tap target (controller only) -->
                 <Grid Grid.Column="3"
-                      IsVisible="{Binding ScoresVisible}">
+                      IsVisible="{Binding ScoresVisible}"
+                      InputTransparent="{Binding IsMember}">
                     <Grid.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnTeamBScoreTapped" />
                     </Grid.GestureRecognizers>
@@ -352,25 +365,41 @@
                            FontSize="24"
                            FontAttributes="Bold"
                            HorizontalOptions="Center"
-                           VerticalOptions="Center" />
+                           VerticalOptions="Center"
+                           InputTransparent="True" />
                 </Grid>
             </Grid>
 
         </Grid>
 
-        <!-- ══ Member read-only banner ══ -->
-        <Border Grid.Row="1"
-                BackgroundColor="#ffc107"
-                Padding="8,4"
-                StrokeShape="RoundRectangle 4"
-                IsVisible="{Binding IsMember}"
-                Margin="4,2,4,2">
-            <Label Text="📖 VIEW-ONLY MODE — Team Admin controls the game"
-                   TextColor="Black"
-                   FontAttributes="Bold"
-                   FontSize="12"
-                   HorizontalOptions="Center" />
-        </Border>
+        <!-- ══ View-only / controller lock banner + optional voluntary Watch Only ══ -->
+        <VerticalStackLayout Grid.Row="1" Spacing="4" Margin="4,2,4,2">
+            <Border BackgroundColor="#ffc107"
+                    Padding="8,4"
+                    StrokeShape="RoundRectangle 4"
+                    IsVisible="{Binding IsMember}">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnViewOnlyBannerTapped" />
+                </Border.GestureRecognizers>
+                <Label Text="{Binding ViewOnlyBannerText}"
+                       TextColor="Black"
+                       FontAttributes="Bold"
+                       FontSize="12"
+                       HorizontalOptions="Center"
+                       HorizontalTextAlignment="Center" />
+            </Border>
+            <!-- Setup only: voluntary Watch Only when no match controller is active -->
+            <Button x:Name="SessionViewOnlyBtn"
+                    Text="{Binding SessionViewOnlyToggleText}"
+                    IsVisible="{Binding CanUseSessionViewOnly}"
+                    BackgroundColor="#37474F"
+                    TextColor="White"
+                    FontSize="13"
+                    FontAttributes="Bold"
+                    HeightRequest="36"
+                    Padding="8,0"
+                    Clicked="OnSessionViewOnlyToggleClicked" />
+        </VerticalStackLayout>
 
         <!-- ══ CONTENT AREA ══ -->
         <Grid Grid.Row="2">
@@ -398,7 +427,8 @@
                 <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
                       x:Name="TeamAScoreBtn"
                       BackgroundColor="{StaticResource FieldColor}"
-                      IsVisible="{Binding ScoresVisible}">
+                      IsVisible="{Binding ScoresVisible}"
+                      InputTransparent="{Binding IsMember}">
                     <Grid.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnTeamAScoreTapped" />
                     </Grid.GestureRecognizers>
@@ -426,59 +456,77 @@
                        VerticalOptions="Center"
                        Margin="8,0" />
 
-                <Grid Grid.Row="1" Grid.Column="1"
-                      BackgroundColor="#141414"
-                      Padding="8,4">
-                    <Grid.GestureRecognizers>
+                <!-- Tap-to-rotate zone: next sub-on / sub-off pairs -->
+                <Border Grid.Row="1" Grid.Column="1"
+                        BackgroundColor="#2a2a2a"
+                        Stroke="#555555"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 8"
+                        Padding="10,8"
+                        Margin="4,2,4,4">
+                    <Border.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnRotationLowerHalfTapped" />
-                    </Grid.GestureRecognizers>
-                    <CollectionView x:Name="RotationPairsView"
-                                    ItemsSource="{Binding RotationPairs}"
-                                    SelectionMode="None"
-                                    InputTransparent="True">
-                        <CollectionView.ItemTemplate>
-                            <DataTemplate x:DataType="models:RotationPair">
-                                <VerticalStackLayout Spacing="0" Margin="4,4,4,8">
-                                    <!-- Bench player coming ON — left aligned -->
-                                    <Label TextColor="#bbdefb"
-                                           FontSize="20"
-                                           FontAttributes="Bold"
-                                           HorizontalOptions="Start">
-                                        <Label.FormattedText>
-                                            <FormattedString>
-                                                <Span Text="&#x1FA91; " />
-                                                <Span Text="{Binding BenchPlayerName}" />
-                                                <Span Text="  on" />
-                                            </FormattedString>
-                                        </Label.FormattedText>
-                                    </Label>
-                                    <!-- Field player coming OFF — right aligned -->
-                                    <Label TextColor="#ffccbc"
-                                           FontSize="20"
-                                           HorizontalOptions="End">
-                                        <Label.FormattedText>
-                                            <FormattedString>
-                                                <Span Text="off  " />
-                                                <Span Text="&#x26BD; " />
-                                                <Span Text="{Binding FieldPlayerName}" />
-                                            </FormattedString>
-                                        </Label.FormattedText>
-                                    </Label>
-                                </VerticalStackLayout>
-                            </DataTemplate>
-                        </CollectionView.ItemTemplate>
-                        <CollectionView.EmptyView>
-                            <Label Text="Assign field and bench players first"
-                                   TextColor="#aaa"
-                                   HorizontalOptions="Center" />
-                        </CollectionView.EmptyView>
-                    </CollectionView>
-                </Grid>
+                    </Border.GestureRecognizers>
+                    <Grid RowDefinitions="Auto,*"
+                          RowSpacing="4"
+                          InputTransparent="True">
+                        <Label Grid.Row="0"
+                               Text="Tap to Rotate"
+                               TextColor="#b0b0b0"
+                               FontSize="13"
+                               FontAttributes="Bold"
+                               HorizontalOptions="Center"
+                               HorizontalTextAlignment="Center" />
+                        <CollectionView Grid.Row="1"
+                                        x:Name="RotationPairsView"
+                                        ItemsSource="{Binding RotationPairs}"
+                                        SelectionMode="None"
+                                        InputTransparent="True">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="models:RotationPair">
+                                    <VerticalStackLayout Spacing="0" Margin="4,4,4,8">
+                                        <!-- Bench player coming ON — left aligned -->
+                                        <Label TextColor="#bbdefb"
+                                               FontSize="20"
+                                               FontAttributes="Bold"
+                                               HorizontalOptions="Start">
+                                            <Label.FormattedText>
+                                                <FormattedString>
+                                                    <Span Text="&#x1FA91; " />
+                                                    <Span Text="{Binding BenchPlayerName}" />
+                                                    <Span Text="  on" />
+                                                </FormattedString>
+                                            </Label.FormattedText>
+                                        </Label>
+                                        <!-- Field player coming OFF — right aligned -->
+                                        <Label TextColor="#ffccbc"
+                                               FontSize="20"
+                                               HorizontalOptions="End">
+                                            <Label.FormattedText>
+                                                <FormattedString>
+                                                    <Span Text="off  " />
+                                                    <Span Text="&#x26BD; " />
+                                                    <Span Text="{Binding FieldPlayerName}" />
+                                                </FormattedString>
+                                            </Label.FormattedText>
+                                        </Label>
+                                    </VerticalStackLayout>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                            <CollectionView.EmptyView>
+                                <Label Text="Assign field and bench players first"
+                                       TextColor="#aaa"
+                                       HorizontalOptions="Center" />
+                            </CollectionView.EmptyView>
+                        </CollectionView>
+                    </Grid>
+                </Border>
 
                 <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="2"
                       x:Name="TeamBScoreBtn"
                       BackgroundColor="#c62828"
-                      IsVisible="{Binding ScoresVisible}">
+                      IsVisible="{Binding ScoresVisible}"
+                      InputTransparent="{Binding IsMember}">
                     <Grid.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnTeamBScoreTapped" />
                     </Grid.GestureRecognizers>
@@ -500,12 +548,13 @@
 
         </Grid>
 
-        <!-- ══ BOTTOM CONTROLS ══ -->
+        <!-- ══ BOTTOM CONTROLS (admin only — view-only members hide these) ══ -->
         <Grid Grid.Row="3"
               ColumnDefinitions="*,*,*"
               Padding="4,6,4,6"
               ColumnSpacing="6"
-              BackgroundColor="Black">
+              BackgroundColor="Black"
+              IsVisible="{Binding IsAdmin}">
 
             <Button Grid.Column="0"
                     x:Name="StartBtn"

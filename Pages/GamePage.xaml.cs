@@ -7,10 +7,14 @@ namespace TurfTime2;
 public partial class GamePage : ContentPage
 {
     private const string DemoTeamId = "local_demo_team";
+    /// <summary>How often to re-check cloud role while Game is open (Promote to Admin without leaving tab).</summary>
+    private static readonly TimeSpan RolePollInterval = TimeSpan.FromSeconds(8);
+
     private GameViewModel? _vm;
 
     private CancellationTokenSource? _startLongPressCts;
     private CancellationTokenSource? _rotateLongPressCts;
+    private CancellationTokenSource? _rolePollCts;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -39,26 +43,12 @@ public partial class GamePage : ContentPage
         App.Sleeping += OnAppSleeping;
         App.Resumed  += OnAppResumed;
 
-        var teamId   = Preferences.Get("team_id",   string.Empty);
+        var teamId = Preferences.Get("team_id", string.Empty);
         var userRole = Preferences.Get("user_role", (string?)null);
-        var isDemoTeam = string.Equals(teamId, DemoTeamId, StringComparison.Ordinal);
-        var isMember = string.Equals(userRole, "member", StringComparison.Ordinal);
-        var lastTeam = Preferences.Get("_gamepage_last_team", string.Empty);
 
-        if (_vm is null)
-        {
-            await CreateViewModelAsync(teamId, userRole);
-        }
-        else if (teamId != lastTeam || isMember)
-        {
-            // Members always re-initialise on appear so they pick up admin cloud state
-            // after joining or returning from Team Details (same team_id, new role).
-            // Also restarts the cloud mirror after OnDisappearing paused it.
-            Preferences.Set("_gamepage_last_team", teamId);
-            await _vm.InitialiseAsync(teamId, userRole);
-            ApplyViewMode(_vm.ViewMode);
-            await WarmUpRosterRowsAsync();
-        }
+        // Shared teams: refresh role from cloud (Promote to Admin) without leave/rejoin.
+        userRole = await RefreshCloudRoleAsync(teamId, userRole);
+        await ApplyTeamAndRoleToViewModelAsync(teamId, userRole, forceFromAppear: true);
 
         // Re-read rotation style preference whenever the page appears
         if (_vm is not null)
@@ -68,8 +58,9 @@ public partial class GamePage : ContentPage
 
             // Re-apply timer settings in case they were changed in Settings → Timers.
             // Keep the seeded demo team values intact on first-run experience.
-            // Members must NOT overwrite cloud-mirrored timer/countdown with local prefs.
-            if (!isDemoTeam && !isMember)
+            // Members / Watch Only must NOT overwrite cloud-mirrored timer/countdown with local prefs.
+            var isDemoTeam = string.Equals(teamId, DemoTeamId, StringComparison.Ordinal);
+            if (!isDemoTeam && !_vm.IsMember)
             {
                 _vm.UpdateMatchDurationFromPreferences();
                 _vm.UpdateCountdownPresetFromPreferences();
@@ -84,13 +75,23 @@ public partial class GamePage : ContentPage
 
         // Re-subscribe every time the page appears (OnDisappearing unsubscribes).
         if (_vm is not null)
+        {
             _vm.PropertyChanged += OnViewModelPropertyChanged;
+            _vm.ControlRequestReceived += OnControlRequestReceived;
+        }
+
+        // Keep checking role while Game stays open so Promote takes effect without tab switching.
+        StartRolePolling(teamId);
+
+        // Re-assert bright timer colours after layout (Android theme can dull default White).
+        EnsureTimerLabelContrast();
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
         SetKeepScreenOn(false);
+        StopRolePolling();
 
         App.Sleeping -= OnAppSleeping;
         App.Resumed  -= OnAppResumed;
@@ -99,11 +100,153 @@ public partial class GamePage : ContentPage
         _vm?.PauseCloudMirror();
 
         if (_vm is not null)
+        {
             _vm.PropertyChanged -= OnViewModelPropertyChanged;
+            _vm.ControlRequestReceived -= OnControlRequestReceived;
+        }
         RotationStylePage.RotationStyleChanged -= OnRotationStyleChanged;
         DragState.NativeSwipeReleased -= OnNativeSwipeReleased;
         DragState.NativeLongPressBegan -= OnNativeLongPressBegan;
         DragState.NativeLongPressEnded -= OnNativeLongPressEnded;
+    }
+
+    private void StartRolePolling(string teamId)
+    {
+        StopRolePolling();
+        if (string.IsNullOrEmpty(teamId)
+            || teamId.StartsWith("local_", StringComparison.Ordinal)
+            || !string.Equals(Preferences.Get("team_mode", string.Empty), "shared", StringComparison.Ordinal))
+            return;
+
+        _rolePollCts = new CancellationTokenSource();
+        var token = _rolePollCts.Token;
+        _ = PollCloudRoleLoopAsync(teamId, token);
+    }
+
+    private void StopRolePolling()
+    {
+        try { _rolePollCts?.Cancel(); }
+        catch { /* ignore */ }
+        try { _rolePollCts?.Dispose(); }
+        catch { /* ignore */ }
+        _rolePollCts = null;
+    }
+
+    private async Task PollCloudRoleLoopAsync(string teamId, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(RolePollInterval, token).ConfigureAwait(false);
+                if (token.IsCancellationRequested) break;
+
+                // Team may have switched while we were delayed.
+                var currentTeam = Preferences.Get("team_id", string.Empty);
+                if (!string.Equals(currentTeam, teamId, StringComparison.Ordinal))
+                    break;
+
+                var localRole = Preferences.Get("user_role", (string?)null);
+                var cloudRole = await RefreshCloudRoleAsync(teamId, localRole).ConfigureAwait(false);
+
+                var changed = !string.Equals(
+                    localRole ?? string.Empty,
+                    cloudRole ?? string.Empty,
+                    StringComparison.OrdinalIgnoreCase);
+                var vmMismatch = _vm is not null
+                    && (_vm.IsCloudAdmin != !string.Equals(cloudRole, "member", StringComparison.Ordinal));
+
+                if (!changed && !vmMismatch)
+                    continue;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GamePage] Role poll detected change local={localRole} cloud={cloudRole} — re-init");
+
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    if (token.IsCancellationRequested) return;
+                    await ApplyTeamAndRoleToViewModelAsync(teamId, cloudRole, forceFromAppear: false);
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[GamePage] Role poll: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pulls role from Firestore and updates Preferences. Returns the role to use (cloud or previous).
+    /// </summary>
+    private async Task<string?> RefreshCloudRoleAsync(string teamId, string? fallbackRole)
+    {
+        if (string.IsNullOrEmpty(teamId)
+            || teamId.StartsWith("local_", StringComparison.Ordinal)
+            || !string.Equals(Preferences.Get("team_mode", string.Empty), "shared", StringComparison.Ordinal))
+            return fallbackRole;
+
+        try
+        {
+            var services = Handler?.MauiContext?.Services
+                ?? Application.Current?.Handler?.MauiContext?.Services;
+            var cloudTeam = services?.GetService<ICloudTeamService>();
+            if (cloudTeam is null) return fallbackRole;
+
+            var cloudRole = await cloudTeam.GetMyRoleAsync(teamId).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(cloudRole))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GamePage] Cloud role refresh returned empty for team={teamId}");
+                return fallbackRole;
+            }
+
+            var normalized = cloudRole.Trim().ToLowerInvariant();
+            Preferences.Set("user_role", normalized);
+            Preferences.Set($"{teamId}_role", normalized);
+            Preferences.Set($"user_role_{teamId}", normalized);
+            System.Diagnostics.Debug.WriteLine(
+                $"[GamePage] Cloud role refresh team={teamId} role={normalized}");
+            return normalized;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GamePage] Role refresh: {ex.Message}");
+            return fallbackRole;
+        }
+    }
+
+    private async Task ApplyTeamAndRoleToViewModelAsync(string teamId, string? userRole, bool forceFromAppear)
+    {
+        var sessionViewOnly = Preferences.Get($"session_view_only_{teamId}", false)
+            && !string.Equals(userRole, "member", StringComparison.Ordinal);
+        var isMember = string.Equals(userRole, "member", StringComparison.Ordinal) || sessionViewOnly;
+        var lastTeam = Preferences.Get("_gamepage_last_team", string.Empty);
+        var vmRoleMismatch = _vm is not null
+            && (_vm.IsCloudAdmin != !string.Equals(userRole, "member", StringComparison.Ordinal));
+
+        if (_vm is null)
+        {
+            await CreateViewModelAsync(teamId, userRole);
+            return;
+        }
+
+        // On appear: re-init for members / team switch / role change.
+        // On poll: only re-init when role actually changed (vmRoleMismatch) or team changed.
+        var shouldReinit = teamId != lastTeam
+            || vmRoleMismatch
+            || (forceFromAppear && isMember);
+
+        if (!shouldReinit)
+            return;
+
+        Preferences.Set("_gamepage_last_team", teamId);
+        await _vm.InitialiseAsync(teamId, userRole);
+        ApplyViewMode(_vm.ViewMode);
+        await WarmUpRosterRowsAsync();
     }
 
     private void OnAppSleeping(object? sender, EventArgs e)
@@ -116,8 +259,8 @@ public partial class GamePage : ContentPage
     private async void OnAppResumed(object? sender, EventArgs e)
     {
         if (_vm is null) return;
-        var userRole = Preferences.Get("user_role", (string?)null);
-        if (!string.Equals(userRole, "member", StringComparison.Ordinal)) return;
+        // Members and admins in Watch Only both need the cloud mirror.
+        if (!_vm.IsMember) return;
 
         System.Diagnostics.Debug.WriteLine("[GamePage] App resumed — re-attaching cloud mirror");
         try
@@ -138,6 +281,9 @@ public partial class GamePage : ContentPage
     /// </summary>
     public void ResetMatchState() => _vm?.ResetMatchState();
 
+    /// <summary>Live GameViewModel for Team Settings (e.g. Relinquish Match Control).</summary>
+    public GameViewModel? ViewModel => _vm;
+
     private async Task CreateViewModelAsync(string teamId, string? userRole)
     {
         var services = Handler?.MauiContext?.Services
@@ -153,6 +299,7 @@ public partial class GamePage : ContentPage
 
         BindingContext = _vm;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
+        _vm.ControlRequestReceived += OnControlRequestReceived;
 
         Preferences.Set("_gamepage_last_team", teamId);
         await _vm.InitialiseAsync(teamId, userRole);
@@ -796,10 +943,153 @@ public partial class GamePage : ContentPage
 
     // ── Bottom button handlers ────────────────────────────────────────────
 
-    private void OnStartClicked(object sender, EventArgs e)
+    private async void OnSessionViewOnlyToggleClicked(object sender, EventArgs e)
     {
-        _vm?.ToggleStartPause();
-        if (_vm is not null) _vm.RotationDue = false;
+        if (_vm is null || !_vm.CanUseSessionViewOnly) return;
+
+        try
+        {
+            if (_vm.IsSessionViewOnly)
+            {
+                var ok = await DisplayAlertAsync(
+                    "Take Control?",
+                    "You will run the game on this device again (setup only).\n\n" +
+                    "During a live match, only one Admin holds control — use Request control on the yellow banner.",
+                    "Take Control",
+                    "Cancel");
+                if (!ok) return;
+                await _vm.SetSessionViewOnlyAsync(false);
+            }
+            else
+            {
+                var ok = await DisplayAlertAsync(
+                    "Watch Only?",
+                    "This device will be view-only until you tap Take Control.\n\n" +
+                    "Your Admin role is unchanged. During a live match started by another Admin, " +
+                    "use Request control on the yellow banner instead.",
+                    "Watch Only",
+                    "Cancel");
+                if (!ok) return;
+                await _vm.SetSessionViewOnlyAsync(true);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GamePage] SessionViewOnly toggle: {ex.Message}");
+            await DisplayAlertAsync("Error", "Could not change control mode.", "OK");
+        }
+    }
+
+    private async void OnViewOnlyBannerTapped(object? sender, TappedEventArgs e)
+    {
+        if (_vm is null) return;
+
+        try
+        {
+            // Vacant control after Relinquish / server auto-release
+            if (_vm.CanTakeVacantControl)
+            {
+                var take = await DisplayAlertAsync(
+                    "Take Control?",
+                    "No Admin is controlling this match right now.\n\n" +
+                    "Take control to run timers and rotations on this device.",
+                    "Take Control",
+                    "Cancel");
+                if (!take) return;
+
+                var takeResult = await _vm.TakeVacantControlAsync();
+                if (takeResult == "success")
+                {
+                    await DisplayAlertAsync("You have control", "You are now running the match.", "OK");
+                }
+                else
+                {
+                    var msg = takeResult.StartsWith("error:", StringComparison.Ordinal)
+                        ? takeResult["error:".Length..].Trim()
+                        : takeResult;
+                    await DisplayAlertAsync("Could Not Take Control", msg, "OK");
+                }
+                return;
+            }
+
+            if (!_vm.CanRequestControl) return;
+
+            var who = _vm.ControllerDisplayName;
+            var ok = await DisplayAlertAsync(
+                "Request Control?",
+                $"Ask {who} to hand over match control to you?\n\n" +
+                "They will get Accept / Reject on their device. Only one Admin can control at a time.",
+                "Request",
+                "Cancel");
+            if (!ok) return;
+
+            var result = await _vm.RequestControlAsync();
+            if (result == "success")
+            {
+                await DisplayAlertAsync(
+                    "Request Sent",
+                    $"Waiting for {who} to accept or reject…\n\n" +
+                    "Keep the Game tab open on their device.",
+                    "OK");
+            }
+            else
+            {
+                var msg = result.StartsWith("error:", StringComparison.Ordinal)
+                    ? result["error:".Length..].Trim()
+                    : result;
+                await DisplayAlertAsync("Could Not Request", msg, "OK");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GamePage] Banner control action: {ex.Message}");
+            await DisplayAlertAsync("Error", "Could not complete control action.", "OK");
+        }
+    }
+
+    private async void OnControlRequestReceived(object? sender, (string RequesterName, string RequestId) e)
+    {
+        if (_vm is null) return;
+
+        try
+        {
+            var accept = await DisplayAlertAsync(
+                "Control Request",
+                $"{e.RequesterName} wants to control the match.\n\n" +
+                "Accept to hand over control (you become view-only). Reject to keep control.",
+                "Accept",
+                "Reject");
+
+            if (accept)
+                await _vm.AcceptControlRequestAsync(e.RequestId);
+            else
+                await _vm.RejectControlRequestAsync(e.RequestId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GamePage] Control request dialog: {ex.Message}");
+        }
+    }
+
+    private async void OnStartClicked(object sender, EventArgs e)
+    {
+        if (_vm is null) return;
+
+        // Setup with no field/goalie roles: explain how to assign instead of silently no-op
+        if (_vm.Phase == GamePhase.Setup && !_vm.HasPlayersReadyToStart)
+        {
+            await DisplayAlertAsync(
+                "Assign Players First",
+                "Assign players to roles on the roster before starting:\n\n" +
+                "• Swipe left = Field\n" +
+                "• Swipe right = Bench\n" +
+                "• Swipe left ×2 = Goalie",
+                "OK");
+            return;
+        }
+
+        _vm.ToggleStartPause();
+        _vm.RotationDue = false;
     }
 
     private async void OnStartPressed(object sender, EventArgs e)
@@ -907,13 +1197,16 @@ public partial class GamePage : ContentPage
 
     private async void OnTeamAScoreTapped(object sender, TappedEventArgs e)
     {
+        // View-only / locked co-admin: scores are display-only (controller owns scoring).
+        if (_vm is null || _vm.IsMember) return;
+
         var now = DateTime.UtcNow;
         if ((now - _lastTeamATap).TotalMilliseconds <= DoubleTapWindowMs)
         {
             // Double-tap: cancel the pending increment, decrement instead.
             _teamATapCts?.Cancel();
             _lastTeamATap = DateTime.MinValue;
-            _vm?.DecrementTeamAScore();
+            _vm.DecrementTeamAScore();
             return;
         }
 
@@ -927,35 +1220,35 @@ public partial class GamePage : ContentPage
             await Task.Delay(DoubleTapWindowMs, cts.Token);
 
             // Show goal detail modal only when scorer/assist reporting is enabled.
-            if (_vm is not null)
+            if (!GoalScoringOptions.IsScorerAssistEnabled())
             {
-                if (!GoalScoringOptions.IsScorerAssistEnabled())
-                {
-                    _vm.IncrementTeamAScore();
-                    return;
-                }
-
-                var fieldPlayers = _vm.GetFieldPlayers();
-                var modal = new GoalDetailModal(fieldPlayers, async (scorer, assist) =>
-                {
-                    _vm.IncrementTeamAScore(scorer, assist);
-                    await Task.CompletedTask;
-                });
-
-                await Navigation.PushModalAsync(modal);
+                _vm.IncrementTeamAScore();
+                return;
             }
+
+            var fieldPlayers = _vm.GetFieldPlayers();
+            var modal = new GoalDetailModal(fieldPlayers, async (scorer, assist) =>
+            {
+                _vm.IncrementTeamAScore(scorer, assist);
+                await Task.CompletedTask;
+            });
+
+            await Navigation.PushModalAsync(modal);
         }
         catch (TaskCanceledException) { /* superseded by double-tap */ }
     }
 
     private async void OnTeamBScoreTapped(object sender, TappedEventArgs e)
     {
+        // View-only / locked co-admin: scores are display-only (controller owns scoring).
+        if (_vm is null || _vm.IsMember) return;
+
         var now = DateTime.UtcNow;
         if ((now - _lastTeamBTap).TotalMilliseconds <= DoubleTapWindowMs)
         {
             _teamBTapCts?.Cancel();
             _lastTeamBTap = DateTime.MinValue;
-            _vm?.DecrementTeamBScore();
+            _vm.DecrementTeamBScore();
             return;
         }
 
@@ -967,7 +1260,7 @@ public partial class GamePage : ContentPage
         try
         {
             await Task.Delay(DoubleTapWindowMs, cts.Token);
-            _vm?.IncrementTeamBScore();
+            _vm.IncrementTeamBScore();
         }
         catch (TaskCanceledException) { /* superseded by double-tap */ }
     }
@@ -1009,6 +1302,10 @@ public partial class GamePage : ContentPage
 
     // ── Rotation alert (vibrate + flash) ─────────────────────────────────
 
+    /// <summary>High-contrast timer white (matches iOS / sideline readability on dark header).</summary>
+    private static readonly Color TimerBrightWhite = Color.FromArgb("#FFFFFF");
+    private static readonly Color TimerOverdueRed  = Color.FromArgb("#FF1744");
+
     // Track previous overdue states so we can detect the false→true edge
     // and vibrate exactly once when a timer first crosses zero.
     private bool _wasMatchTimerOverdue;
@@ -1031,6 +1328,24 @@ public partial class GamePage : ContentPage
 
         if (e.PropertyName == nameof(GameViewModel.CountdownOverdue))
             HandleCountdownOverdue(_vm?.CountdownOverdue == true);
+    }
+
+    /// <summary>
+    /// Force match + rotate timer labels to bright white full opacity.
+    /// Android can pick up the app-wide Label theme (dull grey on light AppTheme) unless we re-assert.
+    /// </summary>
+    private void EnsureTimerLabelContrast()
+    {
+        if (MatchTimerLabel is not null && _matchPulseCts is null)
+        {
+            MatchTimerLabel.TextColor = TimerBrightWhite;
+            MatchTimerLabel.Opacity = 1;
+        }
+        if (CountdownLabel is not null && _countdownPulseCts is null)
+        {
+            CountdownLabel.TextColor = TimerBrightWhite;
+            CountdownLabel.Opacity = 1;
+        }
     }
 
     private void HandleMatchTimerOverdue(bool overdue)
@@ -1072,8 +1387,8 @@ public partial class GamePage : ContentPage
         // Already pulsing — nothing to do.
         if (cts is not null) return;
 
-        label.TextColor  = Colors.Red;
-        button.TextColor = Colors.Red;
+        label.TextColor  = TimerOverdueRed;
+        button.TextColor = TimerOverdueRed;
 
         var token = new CancellationTokenSource();
         cts = token;
@@ -1088,13 +1403,13 @@ public partial class GamePage : ContentPage
         cts?.Cancel();
         cts = null;
 
-        // Restore normal appearance.
+        // Restore normal high-contrast appearance (bright white, full opacity).
         label.CancelAnimations();
         button.CancelAnimations();
         label.Opacity  = 1;
         button.Opacity = 1;
-        label.TextColor  = Colors.White;
-        button.TextColor = Colors.White;
+        label.TextColor  = TimerBrightWhite;
+        button.TextColor = TimerBrightWhite;
     }
 
     /// <summary>

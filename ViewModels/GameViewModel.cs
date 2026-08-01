@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using TurfTime2.Helpers;
 using TurfTime2.Models;
 using TurfTime2.Services;
 
@@ -60,16 +61,45 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     private bool         _rotationDue;
     private bool         _rotationWarning;
     private bool         _showInactivePlayers;
-    private string?      _userRole;   // "admin" | "member" | null
+    private string?      _userRole;   // "admin" | "member" | null (cloud role)
+    private bool         _sessionViewOnly; // local watch-only; does not demote cloud admin
     private string       _currentTeamId = string.Empty;
     private string       _teamName      = string.Empty;
     private bool         _initialArrangementDone;
+
+    // ── Single-controller lock (shared multi-admin) ───────────────────────
+    private string _myUid = "";
+    private string _controllerUid = "";
+    private string _controllerDisplayName = "";
+    private string _controlRequestUid = "";
+    private string _controlRequestDisplayName = "";
+    private string _controlRequestId = "";
+    private string _lastShownControlRequestId = "";
+    private bool   _forceLockedByController; // true when another admin holds control
+    /// <summary>After the controller hydrates once from cloud, further snaps only update control fields.</summary>
+    private bool   _controllerHydrated;
+    private DateTimeOffset _controllerHeartbeatUtc = DateTimeOffset.MinValue;
+    private System.Threading.Timer? _controllerHeartbeatTimer;
+    private int _heartbeatInFlight;
+
+    /// <summary>
+    /// How often the controlling device pings the cloud (online signal for the server).
+    /// Auto-release is performed by Cloud Function <c>releaseStaleGameControllers</c>, not peers.
+    /// Keep interval well under the server stale window (90s).
+    /// </summary>
+    private static readonly TimeSpan ControllerHeartbeatInterval = TimeSpan.FromSeconds(45);
 
     /// <summary>Live cloud roster listener (members). Short recovery pulls only — no continuous poll.</summary>
     private IDisposable? _rosterWatch;
     private CancellationTokenSource? _memberPollCts;
     private DateTimeOffset _lastAppliedCloudUtc = DateTimeOffset.MinValue;
     private bool _cloudMirrorActive;
+    /// <summary>
+    /// Last countdown remaining observed from cloud (view-only). Used to detect a real admin
+    /// Rotate (jump from mid/low cycle back to full preset) vs stale near-full cloud values
+    /// that previously reset the follower countdown every ~5–6s.
+    /// </summary>
+    private int _lastCloudCountdownRemaining = int.MinValue;
 
     // ── Timer display properties (formatted strings for binding) ──────────
     private string _matchTimeDisplay    = "90 min";
@@ -225,8 +255,105 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         RefreshDisplayItems();
     }
 
-    public bool IsMember      => _userRole == "member";
-    public bool IsAdmin       => _userRole != "member";
+    /// <summary>Cloud role is admin (ignores temporary Watch Only / controller lock on this device).</summary>
+    public bool IsCloudAdmin => !string.Equals(_userRole, "member", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Effective member: true cloud members, voluntary Watch Only, or locked out by another controller.
+    /// </summary>
+    public bool IsMember =>
+        string.Equals(_userRole, "member", StringComparison.Ordinal)
+        || _sessionViewOnly
+        || _forceLockedByController;
+
+    /// <summary>Effective admin controls (false while Watch Only or locked by another controller).</summary>
+    public bool IsAdmin => !IsMember;
+
+    public bool IsSessionViewOnly => _sessionViewOnly;
+
+    public bool IsForcedControllerLock => _forceLockedByController;
+
+    public bool IsGameController =>
+        IsCloudAdmin
+        && !string.IsNullOrEmpty(_myUid)
+        && !string.IsNullOrEmpty(_controllerUid)
+        && string.Equals(_myUid, _controllerUid, StringComparison.Ordinal);
+
+    public bool HasActiveController => !string.IsNullOrEmpty(_controllerUid);
+
+    /// <summary>Live match (not setup / finished) on a shared team — needs exactly one controller.</summary>
+    public bool IsSharedLiveMatch =>
+        IsCloudAdmin
+        && !string.IsNullOrWhiteSpace(_currentTeamId)
+        && !_currentTeamId.StartsWith("local_", StringComparison.Ordinal)
+        && !string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal)
+        && Phase is not GamePhase.Setup and not GamePhase.Finished;
+
+    public string ControllerDisplayName =>
+        string.IsNullOrWhiteSpace(_controllerDisplayName) ? "Admin" : _controllerDisplayName;
+
+    /// <summary>
+    /// Voluntary Watch Only only when no one holds match control (setup / idle).
+    /// During a controlled match, use Request control instead.
+    /// </summary>
+    public bool CanUseSessionViewOnly =>
+        IsCloudAdmin
+        && !string.IsNullOrWhiteSpace(_currentTeamId)
+        && !_currentTeamId.StartsWith("local_", StringComparison.Ordinal)
+        && !string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal)
+        && !HasActiveController
+        && Phase is GamePhase.Setup or GamePhase.Finished;
+
+    public string ViewOnlyBannerText
+    {
+        get
+        {
+            if (_forceLockedByController && IsCloudAdmin)
+            {
+                // Vacant seat after Relinquish / server auto-release
+                if (!HasActiveController && IsSharedLiveMatch)
+                    return "📖 No controller · Tap to take control";
+
+                var who = ControllerDisplayName;
+                if (!string.IsNullOrEmpty(_controlRequestUid)
+                    && string.Equals(_controlRequestUid, _myUid, StringComparison.Ordinal))
+                    return $"📖 {who} started game — request sent…";
+                return $"📖 {who} started game · Request control";
+            }
+
+            if (_sessionViewOnly)
+                return "📖 WATCH ONLY (this device) — another Admin can run the game";
+
+            if (HasActiveController && !IsCloudAdmin)
+                return $"📖 {ControllerDisplayName} started game — view only";
+
+            return "📖 VIEW-ONLY MODE — Team Admin controls the game";
+        }
+    }
+
+    /// <summary>True when a locked co-admin can tap the banner to request control from the current controller.</summary>
+    public bool CanRequestControl =>
+        IsCloudAdmin
+        && _forceLockedByController
+        && HasActiveController
+        && !string.Equals(_controlRequestUid, _myUid, StringComparison.Ordinal);
+
+    /// <summary>True when the match is live but no controller holds the seat — tap banner to claim.</summary>
+    public bool CanTakeVacantControl =>
+        IsCloudAdmin
+        && _forceLockedByController
+        && !HasActiveController
+        && IsSharedLiveMatch;
+
+    public string SessionViewOnlyToggleText =>
+        _sessionViewOnly ? "Take Control" : "Watch Only";
+
+    /// <summary>
+    /// Raised on the controller's device when another Admin requests control.
+    /// Args: (requesterDisplayName, requestId).
+    /// </summary>
+    public event EventHandler<(string RequesterName, string RequestId)>? ControlRequestReceived;
+
     public bool ScoresVisible => Phase != GamePhase.Setup && Phase != GamePhase.Finished;
 
     public string MatchTimeDisplay
@@ -276,6 +403,15 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _userRole      = userRole;
         TeamName       = Preferences.Get("team_name", string.Empty);
         _lastAppliedCloudUtc = DateTimeOffset.MinValue;
+        _lastShownControlRequestId = "";
+        _lastCloudCountdownRemaining = int.MinValue;
+        _controllerHydrated = false;
+        ClearLocalControlState();
+
+        // Restore device-local Watch Only for shared cloud admins (does not change cloud role).
+        _sessionViewOnly = IsCloudAdmin
+            && !teamId.StartsWith("local_", StringComparison.Ordinal)
+            && Preferences.Get(SessionViewOnlyKey(teamId), false);
 
         // Always reset to a clean default roster before loading the new team's
         // snapshot. Without this, switching to a brand-new team (which has no
@@ -291,10 +427,18 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             // Skipped for local teams — they never touch cloud/Firebase.
             _ = _cloud.WarmUpAsync();
             _ = _logger.WarmUpAsync();
+            try
+            {
+                _myUid = await _cloud.GetSignedInUidAsync().ConfigureAwait(false) ?? "";
+                if (!string.IsNullOrEmpty(_myUid))
+                    Preferences.Set("chat_user_id", _myUid);
+            }
+            catch { /* best-effort */ }
         }
 
-        // Members always take cloud as source of truth (admin writes the shared roster).
-        var snapshot = await _cloud.LoadAsync(teamId, preferCloud: IsMember).ConfigureAwait(false);
+        // Shared teams: prefer cloud so controller lock + live match state are current.
+        var preferCloud = IsMember || !isLocal;
+        var snapshot = await _cloud.LoadAsync(teamId, preferCloud: preferCloud).ConfigureAwait(false);
         if (snapshot is not null)
             ApplySnapshot(snapshot);
 
@@ -303,20 +447,116 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (!IsMember)
             RestoreStartConfigurationIfAvailable();
 
-        OnPropertyChanged(nameof(IsMember));
-        OnPropertyChanged(nameof(IsAdmin));
+        NotifyRoleProperties();
         UpdateStartButtonState();
 
-        // View-only devices follow the admin's cloud roster in near-real-time.
-        if (IsMember && !isLocal)
+        // Shared: always watch (members mirror; controllers receive control-request patches).
+        if (!isLocal)
             StartCloudMirror(teamId);
     }
 
+    private void ClearLocalControlState()
+    {
+        _controllerUid = "";
+        _controllerDisplayName = "";
+        _controlRequestUid = "";
+        _controlRequestDisplayName = "";
+        _controlRequestId = "";
+        _forceLockedByController = false;
+    }
+
+    private void NotifyRoleProperties()
+    {
+        OnPropertyChanged(nameof(IsCloudAdmin));
+        OnPropertyChanged(nameof(IsMember));
+        OnPropertyChanged(nameof(IsAdmin));
+        OnPropertyChanged(nameof(IsSessionViewOnly));
+        OnPropertyChanged(nameof(IsForcedControllerLock));
+        OnPropertyChanged(nameof(IsGameController));
+        OnPropertyChanged(nameof(HasActiveController));
+        OnPropertyChanged(nameof(ControllerDisplayName));
+        OnPropertyChanged(nameof(CanUseSessionViewOnly));
+        OnPropertyChanged(nameof(CanRequestControl));
+        OnPropertyChanged(nameof(CanTakeVacantControl));
+        OnPropertyChanged(nameof(IsSharedLiveMatch));
+        OnPropertyChanged(nameof(ViewOnlyBannerText));
+        OnPropertyChanged(nameof(SessionViewOnlyToggleText));
+        OnPropertyChanged(nameof(CanStart));
+    }
+
+    private static string SessionViewOnlyKey(string teamId) => $"session_view_only_{teamId}";
+
     /// <summary>
-    /// Stop Firestore listener / recovery pulls (page hidden or app backgrounded).
-    /// Safe to call repeatedly.
+    /// Cloud admins only: temporarily run as view-only on this device so a co-admin can control
+    /// the match without risk of clashing writes. Does not change cloud role.
     /// </summary>
-    public void PauseCloudMirror() => StopCloudMirror();
+    public async Task SetSessionViewOnlyAsync(bool enabled)
+    {
+        if (!IsCloudAdmin) return;
+        if (string.IsNullOrWhiteSpace(_currentTeamId)
+            || _currentTeamId.StartsWith("local_", StringComparison.Ordinal))
+            return;
+
+        _sessionViewOnly = enabled;
+        Preferences.Set(SessionViewOnlyKey(_currentTeamId), enabled);
+        NotifyRoleProperties();
+        UpdateStartButtonState();
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] SessionViewOnly={enabled} team={_currentTeamId}");
+
+        if (enabled)
+        {
+            try
+            {
+                var snap = await _cloud.LoadAsync(_currentTeamId, preferCloud: true).ConfigureAwait(false);
+                if (snap is not null)
+                    await MainThread.InvokeOnMainThreadAsync(() => ApplySnapshot(snap));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GameViewModel] WatchOnly load: {ex.Message}");
+            }
+
+            StartCloudMirror(_currentTeamId);
+        }
+        else
+        {
+            // Leaving Watch Only → free admin. Keep the cloud mirror so another Admin's
+            // Start still locks this device (do not StopCloudMirror).
+            try
+            {
+                // Pull latest state written by the co-admin before resuming control.
+                var snap = await _cloud.LoadAsync(_currentTeamId, preferCloud: true).ConfigureAwait(false);
+                if (snap is not null)
+                    await MainThread.InvokeOnMainThreadAsync(() => ApplySnapshot(snap));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GameViewModel] TakeControl load: {ex.Message}");
+            }
+
+            if (!_cloudMirrorActive)
+                StartCloudMirror(_currentTeamId);
+        }
+    }
+
+    /// <summary>
+    /// Stop Firestore listener for pure members when the page is hidden.
+    /// Cloud Admins keep the listener so control requests / relinquish / server release still arrive.
+    /// </summary>
+    public void PauseCloudMirror()
+    {
+        if (IsCloudAdmin)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                "[GameViewModel] PauseCloudMirror skipped for cloud Admin (need control channel)");
+            return;
+        }
+        StopCloudMirror();
+    }
 
     /// <summary>
     /// Re-attach live mirror after resume / re-appear. Forces one cloud load first so a
@@ -324,7 +564,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     public async Task ResumeCloudMirrorAsync()
     {
-        if (!IsMember) return;
+        // Members + free co-admins need mirror; live controller keeps it for control requests.
         if (string.IsNullOrWhiteSpace(_currentTeamId)) return;
         if (_currentTeamId.StartsWith("local_", StringComparison.Ordinal)) return;
         if (string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal))
@@ -370,7 +610,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                if (!IsMember) return;
+                // Free co-admins (Setup + Watch Only button) must still receive Start/Reset/
+                // controller claims. ApplySnapshot itself protects the live controller's local
+                // timers after hydrate and only merges control-request fields for them.
                 // Skip only strictly older snapshots. Equal timestamps re-apply after resume.
                 // MinValue (unparseable timestamp) is never treated as "newer than everything".
                 if (snap.LastModifiedUtc != DateTimeOffset.MinValue
@@ -406,10 +648,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
                     await MainThread.InvokeOnMainThreadAsync(() =>
                     {
-                        if (!IsMember) return;
+                        // Same as watch: free co-admins need Start/controller after Reset.
                         System.Diagnostics.Debug.WriteLine(
                             $"[GameViewModel] Recovery pull apply players={snap.Players.Count} " +
-                            $"lastMod={snap.LastModifiedUtc:o}");
+                            $"lastMod={snap.LastModifiedUtc:o} member={IsMember} controller={IsGameController}");
                         ApplySnapshot(snap);
                     });
                 }
@@ -537,6 +779,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                     StartButtonText = "Pause";
                 }
                 UpdateTimerLabelText();
+                _ = ForceCloudSaveAsync(); // half-time pause / second-half start → members
                 return;
 
             default:
@@ -599,6 +842,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     public void IncrementTeamAScore(string? scorer = null, string? assist = null)
     {
+        if (IsMember) return;
         TeamAScore++;
         LogScoreEvent(GameEventType.ScoreUs, delta: +1, TeamAScore, TeamBScore, scorer, assist);
         _ = AutoSaveAsync();
@@ -606,6 +850,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     public void IncrementTeamBScore(string? scorer = null, string? assist = null)
     {
+        if (IsMember) return;
         TeamBScore++;
         LogScoreEvent(GameEventType.ScoreThem, delta: +1, TeamAScore, TeamBScore, scorer, assist);
         _ = AutoSaveAsync();
@@ -614,6 +859,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Decrement Us score, minimum 0.</summary>
     public void DecrementTeamAScore()
     {
+        if (IsMember) return;
         if (TeamAScore > 0)
         {
             TeamAScore--;
@@ -625,6 +871,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Decrement Them score, minimum 0.</summary>
     public void DecrementTeamBScore()
     {
+        if (IsMember) return;
         if (TeamBScore > 0)
         {
             TeamBScore--;
@@ -1092,12 +1339,27 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             HalfDurationSeconds    = _timer.HalfDurationSeconds,
             MatchRemainingSeconds  = _timer.MatchRemainingSeconds,
             CurrentHalf            = Phase.ToString().ToLowerInvariant(),
-            // Persist running flag for members (display only); admin still owns control.
+            // Admin owns Start/Pause/Reset; members apply these and tick locally between signals.
             TimerRunning           = _timer.TimerRunning,
             CountdownPresetSeconds = _timer.CountdownPresetSeconds,
+            CountdownRemainingSeconds = _timer.CountdownRemainingSeconds,
             ViewMode               = (int)_viewMode,
             TeamAScore             = TeamAScore,
             TeamBScore             = TeamBScore,
+            RotationCount          = Math.Max(1, RotationCount),
+            NextFieldSlotIds       = QueueToSlotIds(_manualFieldQueue),
+            NextBenchSlotIds       = QueueToSlotIds(_manualBenchQueue),
+            LastFieldSlotId        = SlotIdAt(_lastFieldIdx),
+            LastBenchSlotId        = SlotIdAt(_lastBenchIdx),
+            ControllerUid          = _controllerUid,
+            ControllerDisplayName  = _controllerDisplayName,
+            // Request fields are not written by full roster upload (see CloudRosterService mask).
+            ControlRequestUid      = _controlRequestUid,
+            ControlRequestDisplayName = _controlRequestDisplayName,
+            ControlRequestId       = _controlRequestId,
+            ControllerHeartbeatUtc = IsGameController
+                ? DateTimeOffset.UtcNow
+                : _controllerHeartbeatUtc,
             Players                = Players.Select(p => new PlayerSnapshot
             {
                 SlotId         = p.SlotId,
@@ -1111,17 +1373,62 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         };
     }
 
+    private List<int> QueueToSlotIds(Queue<int?> queue)
+    {
+        var list = new List<int>(queue.Count);
+        foreach (var slot in queue)
+        {
+            if (slot is int idx && idx >= 0 && idx < Players.Count)
+                list.Add(Players[idx].SlotId);
+            else
+                list.Add(0); // deselected / empty queue slot
+        }
+        return list;
+    }
+
+    private int SlotIdAt(int playerIndex)
+        => playerIndex >= 0 && playerIndex < Players.Count ? Players[playerIndex].SlotId : 0;
+
     private void ApplySnapshot(RosterSnapshot s)
     {
+        // Always merge controller / request fields first (even for the live controller).
+        ApplyGameControlFromSnapshot(s);
+
+        // Controlling admin: after first hydrate, keep local roster/timers; only process control requests.
+        if (!IsMember && _controllerHydrated)
+        {
+            if (s.LastModifiedUtc > _lastAppliedCloudUtc)
+                _lastAppliedCloudUtc = s.LastModifiedUtc;
+            return;
+        }
+
         if (s.Players.Count == 0 && s.LastModifiedUtc <= _lastAppliedCloudUtc)
             return;
+
+        // View-only: heartbeat / sparse writes must not rebuild the roster UI or yank timers.
+        // Members tick match + rotation countdown locally between real control signals.
+        if (IsMember && IsSteadyStateMirror(s))
+        {
+            // Still track mid-cycle cloud countdown so a later jump to full preset = real Rotate.
+            var steadyPreset = s.CountdownPresetSeconds > 0
+                ? s.CountdownPresetSeconds
+                : _timer.CountdownPresetSeconds;
+            var steadyCd = s.CountdownRemainingSeconds;
+            if (steadyCd == 0 && steadyPreset > 0 && ParsePhase(s.CurrentHalf) == GamePhase.Setup)
+                steadyCd = steadyPreset;
+            NoteCloudCountdown(steadyCd);
+
+            if (s.LastModifiedUtc > _lastAppliedCloudUtc)
+                _lastAppliedCloudUtc = s.LastModifiedUtc;
+            return;
+        }
 
         System.Diagnostics.Debug.WriteLine(
             $"[GameViewModel] ApplySnapshot players={s.Players.Count} " +
             $"scores={s.TeamAScore}-{s.TeamBScore} half={s.CurrentHalf} member={IsMember}");
 
         _timer.MatchDurationSeconds   = s.MatchDurationSeconds > 0 ? s.MatchDurationSeconds : 90 * 60;
-        _timer.CountdownPresetSeconds = s.CountdownPresetSeconds;
+        _timer.CountdownPresetSeconds = s.CountdownPresetSeconds > 0 ? s.CountdownPresetSeconds : _timer.CountdownPresetSeconds;
         // Keep the explicit Preferences key in sync so the constructor's
         // early-restore path always reflects the most recent saved value.
         // Do not stamp local prefs for members — admin cloud is source of truth.
@@ -1129,87 +1436,487 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             Preferences.Set("game.countdownPresetSeconds", s.CountdownPresetSeconds);
         TeamAScore = s.TeamAScore;
         TeamBScore = s.TeamBScore;
-        ViewMode   = (TeamViewMode)s.ViewMode == TeamViewMode.Rotation
-                         ? TeamViewMode.Rotation
-                         : TeamViewMode.Swipeable;
+        // View-only members stay on the swipeable roster (no Rotation control).
+        if (IsMember)
+            ViewMode = TeamViewMode.Swipeable;
+        else
+            ViewMode = (TeamViewMode)s.ViewMode == TeamViewMode.Rotation
+                           ? TeamViewMode.Rotation
+                           : TeamViewMode.Swipeable;
 
+        var rosterChanged = false;
         if (s.Players.Count > 0)
-        {
-            // Prefer match by SlotId so reordering on admin is mirrored correctly.
-            var bySlot = s.Players
-                .Where(p => p.SlotId > 0)
-                .GroupBy(p => p.SlotId)
-                .ToDictionary(g => g.Key, g => g.First());
-
-            if (bySlot.Count > 0)
-            {
-                // Rebuild player list in cloud order when member is following admin.
-                if (IsMember || s.Players.Count != Players.Count)
-                {
-                    Players.Clear();
-                    foreach (var ps in s.Players)
-                    {
-                        Players.Add(new Player
-                        {
-                            SlotId = ps.SlotId > 0 ? ps.SlotId : Players.Count + 1,
-                            Name = string.IsNullOrWhiteSpace(ps.Name) ? $"Player {Players.Count + 1}" : ps.Name,
-                            FieldSeconds = ps.CounterSeconds,
-                            Position = ps.Field ? PlayerPosition.Field
-                                     : ps.Bench ? PlayerPosition.Bench
-                                     : ps.Goalie ? PlayerPosition.Goalie
-                                     : ps.Inactive ? PlayerPosition.Inactive
-                                     : PlayerPosition.None
-                        });
-                    }
-                }
-                else
-                {
-                    for (int i = 0; i < Players.Count; i++)
-                    {
-                        var p = Players[i];
-                        if (!bySlot.TryGetValue(p.SlotId, out var ps)
-                            && i < s.Players.Count)
-                            ps = s.Players[i];
-                        if (ps is null) continue;
-                        p.SlotId = ps.SlotId > 0 ? ps.SlotId : p.SlotId;
-                        p.Name = string.IsNullOrWhiteSpace(ps.Name) ? p.Name : ps.Name;
-                        p.FieldSeconds = ps.CounterSeconds;
-                        p.Position = ps.Field ? PlayerPosition.Field
-                                   : ps.Bench ? PlayerPosition.Bench
-                                   : ps.Goalie ? PlayerPosition.Goalie
-                                   : ps.Inactive ? PlayerPosition.Inactive
-                                   : PlayerPosition.None;
-                    }
-                }
-            }
-            else
-            {
-                for (int i = 0; i < Math.Min(s.Players.Count, Players.Count); i++)
-                {
-                    var ps = s.Players[i];
-                    var p  = Players[i];
-                    p.SlotId       = ps.SlotId > 0 ? ps.SlotId : i + 1;
-                    p.Name         = ps.Name;
-                    p.FieldSeconds = ps.CounterSeconds;
-                    p.Position = ps.Field    ? PlayerPosition.Field
-                               : ps.Bench   ? PlayerPosition.Bench
-                               : ps.Goalie  ? PlayerPosition.Goalie
-                               : ps.Inactive ? PlayerPosition.Inactive
-                               : PlayerPosition.None;
-                }
-            }
-        }
+            rosterChanged = ApplyPlayersFromSnapshot(s);
 
         if (s.LastModifiedUtc > _lastAppliedCloudUtc)
             _lastAppliedCloudUtc = s.LastModifiedUtc;
 
+        // Members: apply Start/Pause/Reset + remaining times from cloud, then tick locally.
+        var phaseBeforeTimer = Phase;
+        ApplyTimerControlFromSnapshot(s, rosterChanged);
+
+        // Phase may have advanced from Setup → live after timer apply; re-evaluate lock so
+        // CanTakeVacantControl / CanUseSessionViewOnly stay correct (promote + first hydrate).
+        if (phaseBeforeTimer != Phase)
+            ApplyGameControlFromSnapshot(s);
+
+        // Restore rotation FIFO so view-only clients highlight the same next players as admin.
+        ApplyRotationQueuesFromSnapshot(s);
+
         UpdateTimerDisplays();
         MarkNextPlayers();
         RefreshRotationPairs();
-        RefreshDisplayItems();
+        // Surgical Field→Goalie→Bench reorder when roles/order change (Move, not full clear).
+        // Always refresh for view-only after a non-steady apply so groups stay correct.
+        if (rosterChanged || IsMember)
+            RefreshDisplayItems();
         UpdateStartButtonState();
+        OnPropertyChanged(nameof(ScoresVisible));
+        OnPropertyChanged(nameof(Phase));
+        OnPropertyChanged(nameof(RotationCount));
         OnPropertyChanged(nameof(ActivePlayerCount));
         OnPropertyChanged(nameof(InactivePlayerCount));
+        // Phase drives Watch Only vs vacant-control UI for co-admins.
+        NotifyRoleProperties();
+
+        if (IsGameController)
+            _controllerHydrated = true;
+    }
+
+    /// <summary>
+    /// True when cloud state matches local control surface — only heartbeat/lastModified noise.
+    /// View-only clients keep ticking timers locally until a real signal arrives.
+    /// Do NOT compare remaining times here: stale cloud remainings are often higher than local
+    /// (local has ticked down), and treating that as "change" caused the rotate countdown to reset.
+    /// </summary>
+    private bool IsSteadyStateMirror(RosterSnapshot s)
+    {
+        var phase = ParsePhase(s.CurrentHalf);
+        if (phase != _timer.Phase) return false;
+        if (s.TimerRunning != _timer.TimerRunning) return false;
+        if (s.TeamAScore != TeamAScore || s.TeamBScore != TeamBScore) return false;
+        if (s.RotationCount > 0 && s.RotationCount != RotationCount) return false;
+        if (RosterLayoutChanged(s)) return false;
+
+        // Real admin Rotate: countdown is back near the full preset, not a stale mid-cycle value.
+        var cdRem = s.CountdownRemainingSeconds;
+        var preset = s.CountdownPresetSeconds > 0 ? s.CountdownPresetSeconds : _timer.CountdownPresetSeconds;
+        if (IsAdminCountdownRestart(cdRem, _timer.CountdownRemainingSeconds, preset))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Detects admin Rotate (countdown reset to preset), not stale near-full cloud while the
+    /// follower ticks locally. Old logic treated "cloud≈preset and local only ~6s behind" as
+    /// Rotate — with a 30s preset that re-fired every ~5s and yanked the UI back to full.
+    /// Real Rotate is a cloud jump from mid/low cycle up to (near) full preset.
+    /// </summary>
+    private bool IsAdminCountdownRestart(int cloudCountdown, int localCountdown, int presetSeconds)
+    {
+        if (presetSeconds <= 0) presetSeconds = 120;
+
+        var cloudNearFull = cloudCountdown >= presetSeconds - 1;
+        if (!cloudNearFull)
+            return false;
+
+        var prev = _lastCloudCountdownRemaining;
+        if (prev == int.MinValue)
+            return false; // no history yet — first live snap must not look like a mid-cycle Rotate
+
+        // Cloud must have been meaningfully into the cycle, then jumped back to full.
+        var wasIntoCycle = prev <= presetSeconds - Math.Max(8, presetSeconds / 4);
+        if (!wasIntoCycle)
+            return false;
+
+        // Follower should also be behind cloud (not both already at full after Start).
+        return localCountdown < cloudCountdown - 3;
+    }
+
+    private void NoteCloudCountdown(int cloudCountdown)
+    {
+        if (cloudCountdown < 0 && _lastCloudCountdownRemaining == int.MinValue)
+            return;
+        _lastCloudCountdownRemaining = cloudCountdown;
+    }
+
+    private bool RosterLayoutChanged(RosterSnapshot s)
+    {
+        if (s.Players.Count == 0) return false;
+        if (s.Players.Count != Players.Count) return true;
+
+        for (int i = 0; i < s.Players.Count; i++)
+        {
+            var ps = s.Players[i];
+            var p = Players[i];
+            var pos = ps.Field ? PlayerPosition.Field
+                    : ps.Bench ? PlayerPosition.Bench
+                    : ps.Goalie ? PlayerPosition.Goalie
+                    : ps.Inactive ? PlayerPosition.Inactive
+                    : PlayerPosition.None;
+            if (ps.SlotId > 0 && p.SlotId != ps.SlotId) return true;
+            if (p.Position != pos) return true;
+            if (!string.Equals(p.Name, ps.Name ?? "", StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(ps.Name)
+                && !string.Equals(p.Name, ps.Name, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if DisplayItems must refresh (count/order/positions changed).
+    /// Position changes always require RefreshDisplayItems so Field → Goalie → Bench grouping updates.
+    /// </summary>
+    private bool ApplyPlayersFromSnapshot(RosterSnapshot s)
+    {
+        var bySlot = s.Players
+            .Where(p => p.SlotId > 0)
+            .GroupBy(p => p.SlotId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // Rebuild when count differs or cloud order (by SlotId sequence) differs from local.
+        var needsRebuild = s.Players.Count != Players.Count;
+        if (!needsRebuild && bySlot.Count > 0)
+        {
+            for (int i = 0; i < s.Players.Count && i < Players.Count; i++)
+            {
+                if (s.Players[i].SlotId > 0 && Players[i].SlotId != s.Players[i].SlotId)
+                {
+                    needsRebuild = true;
+                    break;
+                }
+            }
+        }
+
+        if (needsRebuild)
+        {
+            // Cloud order is source of truth for view-only clients.
+            Players.Clear();
+            foreach (var ps in s.Players)
+            {
+                Players.Add(new Player
+                {
+                    SlotId = ps.SlotId > 0 ? ps.SlotId : Players.Count + 1,
+                    Name = string.IsNullOrWhiteSpace(ps.Name) ? $"Player {Players.Count + 1}" : ps.Name,
+                    FieldSeconds = ps.CounterSeconds,
+                    Position = ps.Field ? PlayerPosition.Field
+                             : ps.Bench ? PlayerPosition.Bench
+                             : ps.Goalie ? PlayerPosition.Goalie
+                             : ps.Inactive ? PlayerPosition.Inactive
+                             : PlayerPosition.None
+                });
+            }
+            return true;
+        }
+
+        // In-place update by SlotId — still flag display refresh when roles change
+        // so Field/Goalie/Bench groups reorder (skipping this left mixed rows on view-only).
+        var displayDirty = false;
+        for (int i = 0; i < Players.Count; i++)
+        {
+            var p = Players[i];
+            if (!bySlot.TryGetValue(p.SlotId, out var ps))
+            {
+                if (i < s.Players.Count)
+                    ps = s.Players[i];
+                else
+                    continue;
+            }
+
+            var newPos = ps.Field ? PlayerPosition.Field
+                       : ps.Bench ? PlayerPosition.Bench
+                       : ps.Goalie ? PlayerPosition.Goalie
+                       : ps.Inactive ? PlayerPosition.Inactive
+                       : PlayerPosition.None;
+
+            if (p.Position != newPos)
+            {
+                p.Position = newPos;
+                displayDirty = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(ps.Name) && p.Name != ps.Name)
+                p.Name = ps.Name;
+
+            p.FieldSeconds = ps.CounterSeconds;
+        }
+
+        return displayDirty;
+    }
+
+    /// <summary>
+    /// Apply single-controller lock + pending control request from cloud.
+    /// Updates effective IsMember for co-admins locked out of control.
+    /// </summary>
+    private void ApplyGameControlFromSnapshot(RosterSnapshot s)
+    {
+        var prevController = _controllerUid;
+        var prevRequestId = _controlRequestId;
+        var wasLocked = _forceLockedByController;
+        var wasController = IsGameController;
+
+        _controllerUid = s.ControllerUid?.Trim() ?? "";
+        _controllerDisplayName = s.ControllerDisplayName?.Trim() ?? "";
+        _controlRequestUid = s.ControlRequestUid?.Trim() ?? "";
+        _controlRequestDisplayName = s.ControlRequestDisplayName?.Trim() ?? "";
+        _controlRequestId = s.ControlRequestId?.Trim() ?? "";
+        _controllerHeartbeatUtc = s.ControllerHeartbeatUtc > DateTimeOffset.UnixEpoch
+            ? s.ControllerHeartbeatUtc.ToUniversalTime()
+            : (s.LastModifiedUtc > DateTimeOffset.UnixEpoch
+                ? s.LastModifiedUtc.ToUniversalTime()
+                : DateTimeOffset.MinValue);
+
+        // Auto-release of stale controllers is server-side (Cloud Function
+        // releaseStaleGameControllers). Clients only mirror the cleared fields.
+
+        // Prefer snapshot phase: ApplySnapshot runs control *before* timer sync, so on
+        // init / promote re-init local Phase is still Setup while cloud is already live.
+        // Using only local Phase left forceLock=false → no yellow banner and no Watch Only.
+        var snapPhase = ParsePhase(s.CurrentHalf);
+        var matchLive = snapPhase is not GamePhase.Setup and not GamePhase.Finished
+            || Phase is not GamePhase.Setup and not GamePhase.Finished;
+        var shared = IsCloudAdmin
+            && !string.IsNullOrWhiteSpace(_currentTeamId)
+            && !_currentTeamId.StartsWith("local_", StringComparison.Ordinal)
+            && !string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal);
+
+        // Lock rules for cloud Admins:
+        //  1) Another Admin is controller → force view-only
+        //  2) Live match with vacant controller (after Relinquish/server release) → force view-only
+        //     until someone explicitly Takes control (prevents dual-writer free-for-all)
+        if (shared
+            && !string.IsNullOrEmpty(_controllerUid)
+            && !string.IsNullOrEmpty(_myUid)
+            && !string.Equals(_myUid, _controllerUid, StringComparison.Ordinal))
+        {
+            _forceLockedByController = true;
+            _sessionViewOnly = false;
+            StopControllerHeartbeat();
+        }
+        else if (shared && string.IsNullOrEmpty(_controllerUid) && matchLive)
+        {
+            _forceLockedByController = true;
+            _sessionViewOnly = false;
+            StopControllerHeartbeat();
+        }
+        else
+        {
+            _forceLockedByController = false;
+        }
+
+        // Newly became controller (accepted transfer / take vacant): drop forced lock.
+        if (IsGameController)
+        {
+            _forceLockedByController = false;
+            if (!wasController)
+                _controllerHydrated = true;
+            StartControllerHeartbeat();
+        }
+        else if (wasController && !IsGameController)
+        {
+            StopControllerHeartbeat();
+        }
+
+        // Became locked: next cloud apply should re-hydrate full match state.
+        if (_forceLockedByController && !wasLocked)
+            _controllerHydrated = false;
+
+        var lockChanged = wasLocked != _forceLockedByController || wasController != IsGameController;
+        if (lockChanged || prevController != _controllerUid || prevRequestId != _controlRequestId)
+            NotifyRoleProperties();
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] Control state myUid={(_myUid.Length == 0 ? "(empty)" : _myUid[..Math.Min(6, _myUid.Length)] + "…")} " +
+            $"controller={(_controllerUid.Length == 0 ? "(none)" : _controllerUid[..Math.Min(6, _controllerUid.Length)] + "…")} " +
+            $"name={_controllerDisplayName} isController={IsGameController} forceLock={_forceLockedByController} " +
+            $"request={(_controlRequestId.Length == 0 ? "(none)" : _controlRequestId[..Math.Min(8, _controlRequestId.Length)])}");
+
+        // Controller: surface new control request once.
+        if (IsGameController
+            && !string.IsNullOrEmpty(_controlRequestUid)
+            && !string.IsNullOrEmpty(_controlRequestId)
+            && !string.Equals(_controlRequestId, _lastShownControlRequestId, StringComparison.Ordinal)
+            && !string.Equals(_controlRequestUid, _myUid, StringComparison.Ordinal))
+        {
+            _lastShownControlRequestId = _controlRequestId;
+            var name = string.IsNullOrWhiteSpace(_controlRequestDisplayName)
+                ? "Another Admin"
+                : _controlRequestDisplayName;
+            try
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GameViewModel] Raising ControlRequestReceived from={name} id={_controlRequestId}");
+                MainThread.BeginInvokeOnMainThread(() =>
+                    ControlRequestReceived?.Invoke(this, (name, _controlRequestId)));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GameViewModel] ControlRequestReceived: {ex.Message}");
+            }
+        }
+
+        // If we sent a request and it's gone without us becoming controller → rejected (banner updates).
+        if (prevRequestId.Length > 0
+            && string.IsNullOrEmpty(_controlRequestId)
+            && !IsGameController
+            && string.Equals(prevRequestId, _lastShownControlRequestId, StringComparison.Ordinal) == false)
+        {
+            // no-op; ViewOnlyBannerText updates via NotifyRoleProperties
+        }
+    }
+
+    /// <summary>
+    /// Rebuild local rotation queues / last-rotated pointers from cloud SlotIds
+    /// so MarkNextPlayers paints the same blue next-up highlights as the admin.
+    /// </summary>
+    private void ApplyRotationQueuesFromSnapshot(RosterSnapshot s)
+    {
+        if (s.RotationCount > 0)
+            _rotationCount = Math.Max(1, s.RotationCount);
+
+        _lastFieldIdx = IndexOfSlotId(s.LastFieldSlotId);
+        _lastBenchIdx = IndexOfSlotId(s.LastBenchSlotId);
+
+        // If cloud sent queues (including empty list after rotate), use them.
+        // Missing/null lists leave existing queues (admin local path); members get empty then auto-FIFO.
+        if (s.NextFieldSlotIds is not null)
+        {
+            _manualFieldQueue.Clear();
+            foreach (var slotId in s.NextFieldSlotIds)
+            {
+                if (slotId <= 0)
+                    _manualFieldQueue.Enqueue(null);
+                else
+                {
+                    var idx = IndexOfSlotId(slotId);
+                    _manualFieldQueue.Enqueue(idx >= 0 ? idx : null);
+                }
+            }
+        }
+
+        if (s.NextBenchSlotIds is not null)
+        {
+            _manualBenchQueue.Clear();
+            foreach (var slotId in s.NextBenchSlotIds)
+            {
+                if (slotId <= 0)
+                    _manualBenchQueue.Enqueue(null);
+                else
+                {
+                    var idx = IndexOfSlotId(slotId);
+                    _manualBenchQueue.Enqueue(idx >= 0 ? idx : null);
+                }
+            }
+        }
+
+        // Members with no queue data yet (older admin builds): seed from auto-FIFO so something highlights.
+        if (IsMember
+            && _manualFieldQueue.Count == 0
+            && _manualBenchQueue.Count == 0
+            && Phase is GamePhase.FirstHalf or GamePhase.SecondHalf or GamePhase.HalfTime or GamePhase.Ended)
+        {
+            SeedRotationQueues();
+        }
+    }
+
+    private int IndexOfSlotId(int slotId)
+    {
+        if (slotId <= 0) return -1;
+        for (int i = 0; i < Players.Count; i++)
+            if (Players[i].SlotId == slotId)
+                return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// View-only path: mirror admin timer control without per-second cloud updates.
+    /// Only re-applies on Start/Pause/phase changes or a real Rotate (countdown near full preset).
+    /// Never re-applies mid-cycle remainings from stale admin saves (that reset the UI every ~15–45s).
+    /// </summary>
+    private void ApplyTimerControlFromSnapshot(RosterSnapshot s, bool rosterChanged = false)
+    {
+        var phase = ParsePhase(s.CurrentHalf);
+        var matchRem = s.MatchRemainingSeconds;
+        var cdRem = s.CountdownRemainingSeconds;
+        var preset = s.CountdownPresetSeconds > 0 ? s.CountdownPresetSeconds : _timer.CountdownPresetSeconds;
+        // Older cloud docs may omit countdownRemainingSeconds (0 default) — fall back to preset.
+        if (cdRem == 0 && preset > 0 && phase == GamePhase.Setup)
+            cdRem = preset;
+
+        var running = s.TimerRunning;
+        var halfDur = s.HalfDurationSeconds > 0
+            ? s.HalfDurationSeconds
+            : Math.Max(1, (s.MatchDurationSeconds > 0 ? s.MatchDurationSeconds : 90 * 60) / 2);
+
+        var phaseChanged = phase != _timer.Phase;
+        var runningChanged = running != _timer.TimerRunning;
+        var localCd = _timer.CountdownRemainingSeconds;
+
+        // Admin Rotate: cloud jumped back to full preset (not "stale full + local ticked 6s").
+        var countdownRestart = !phaseChanged && !runningChanged
+            && IsAdminCountdownRestart(cdRem, localCd, preset);
+
+        // If cloud rarely stores mid-cycle countdown, Rotate still swaps players — treat a
+        // roster layout change while local is near zero / overdue as a rotate reset.
+        if (!countdownRestart && rosterChanged && !phaseChanged && !runningChanged
+            && cdRem >= preset - 1
+            && localCd <= Math.Max(8, preset / 5))
+        {
+            countdownRestart = true;
+        }
+
+        // Always remember what cloud last reported (even on steady path).
+        NoteCloudCountdown(cdRem);
+
+        if (!phaseChanged && !runningChanged && !countdownRestart)
+        {
+            // Steady match: keep local ticks. Ignore cloud remainings entirely.
+            return;
+        }
+
+        // On countdown-only restart, keep the locally ticking match clock.
+        if (countdownRestart && !phaseChanged && !runningChanged)
+            matchRem = _timer.MatchRemainingSeconds;
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] Timer control apply phase={phase} running={running} " +
+            $"matchRem={matchRem} cdRem={cdRem} restartCd={countdownRestart} roster={rosterChanged} " +
+            $"(was phase={_timer.Phase} running={_timer.TimerRunning} cd={localCd} lastCloudCd={_lastCloudCountdownRemaining})");
+
+        _timer.ApplySyncedState(
+            matchDurationSeconds: s.MatchDurationSeconds > 0 ? s.MatchDurationSeconds : _timer.MatchDurationSeconds,
+            halfDurationSeconds: halfDur,
+            matchRemainingSeconds: matchRem,
+            countdownPresetSeconds: preset > 0 ? preset : _timer.CountdownPresetSeconds,
+            countdownRemainingSeconds: cdRem,
+            phase: phase,
+            timerRunning: running);
+
+        MatchTimerOverdue = matchRem < 0;
+        CountdownOverdue = cdRem < 0;
+        if (countdownRestart)
+        {
+            RotationDue = false;
+            RotationWarning = false;
+        }
+        UpdateStartButtonState();
+    }
+
+    private static GamePhase ParsePhase(string? half)
+    {
+        var h = (half ?? "setup").Trim().ToLowerInvariant().Replace("_", "");
+        return h switch
+        {
+            "firsthalf" or "first" => GamePhase.FirstHalf,
+            "halftime" or "half" => GamePhase.HalfTime,
+            "secondhalf" or "second" => GamePhase.SecondHalf,
+            "ended" => GamePhase.Ended,
+            "finished" => GamePhase.Finished,
+            _ => GamePhase.Setup
+        };
     }
 
     private void SaveStartConfiguration()
@@ -1306,10 +2013,18 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             _logger.StartSession(
                 _timer.MatchDurationSeconds,
                 _timer.CountdownPresetSeconds);
+
+            // Claim single-controller lock for shared multi-admin games.
+            ClaimControllerIfNeeded();
         }
         else
         {
             _logger.Log(GameEventType.GameResumed, "Match resumed");
+            // Resume only if we already hold control (or local / no controller yet).
+            if (IsCloudAdmin && HasActiveController && !IsGameController)
+                return;
+            if (IsCloudAdmin && !HasActiveController)
+                ClaimControllerIfNeeded();
         }
 
         _timer.StartMatch();
@@ -1317,8 +2032,426 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         StartButtonText = "Pause";
         UpdateTimerLabelText();
         OnPropertyChanged(nameof(ScoresVisible));
-        // Immediate cloud push so view-only members see field/bench layout without waiting for debounce.
-        _ = ForceCloudSaveAsync();
+        NotifyRoleProperties();
+        // Claim + full roster + explicit controller patch (controller fields must hit cloud
+        // even if full upload is masked/raced — other Admins depend on this).
+        _ = PublishMatchStartToCloudAsync();
+    }
+
+    private async Task PublishMatchStartToCloudAsync()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(_myUid))
+            {
+                _myUid = await _cloud.GetSignedInUidAsync().ConfigureAwait(false) ?? "";
+                if (!string.IsNullOrEmpty(_myUid))
+                    Preferences.Set("chat_user_id", _myUid);
+            }
+
+            // Re-claim if first claim failed (uid not ready yet).
+            if (IsCloudAdmin && !IsGameController && string.IsNullOrEmpty(_controllerUid))
+            {
+                await MainThread.InvokeOnMainThreadAsync(ClaimControllerIfNeeded);
+            }
+
+            await ForceCloudSaveAsync().ConfigureAwait(false);
+
+            if (IsGameController
+                && !string.IsNullOrWhiteSpace(_currentTeamId)
+                && !_currentTeamId.StartsWith("local_", StringComparison.Ordinal))
+            {
+                await _cloud.PatchGameControlAsync(
+                    _currentTeamId,
+                    _controllerUid,
+                    _controllerDisplayName,
+                    "",
+                    "",
+                    "",
+                    DateTimeOffset.UtcNow).ConfigureAwait(false);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GameViewModel] Published controller patch uid={_controllerUid[..Math.Min(8, _controllerUid.Length)]}… name={_controllerDisplayName}");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GameViewModel] PublishMatchStart: not controller after claim " +
+                    $"(IsCloudAdmin={IsCloudAdmin} myUidEmpty={string.IsNullOrEmpty(_myUid)} controller={_controllerUid})");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameViewModel] PublishMatchStart failed: {ex.Message}");
+        }
+    }
+
+    private void ClaimControllerIfNeeded()
+    {
+        if (!IsCloudAdmin) return;
+        if (string.IsNullOrWhiteSpace(_currentTeamId)
+            || _currentTeamId.StartsWith("local_", StringComparison.Ordinal))
+            return;
+        if (string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal))
+            return;
+
+        if (string.IsNullOrEmpty(_myUid))
+            _myUid = Preferences.Get("chat_user_id", string.Empty) ?? "";
+
+        if (string.IsNullOrEmpty(_myUid))
+        {
+            System.Diagnostics.Debug.WriteLine(
+                "[GameViewModel] ClaimController skipped — no Firebase uid yet");
+            return;
+        }
+
+        // Don't steal control if another admin already holds it.
+        if (!string.IsNullOrEmpty(_controllerUid)
+            && !string.Equals(_controllerUid, _myUid, StringComparison.Ordinal))
+            return;
+
+        _controllerUid = _myUid;
+        var name = UserDisplayName.Get();
+        _controllerDisplayName = string.IsNullOrWhiteSpace(name) ? "Admin" : name;
+        _controlRequestUid = "";
+        _controlRequestDisplayName = "";
+        _controlRequestId = "";
+        _controllerHeartbeatUtc = DateTimeOffset.UtcNow;
+        _forceLockedByController = false;
+        _sessionViewOnly = false;
+        _controllerHydrated = true;
+        StartControllerHeartbeat();
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] Claimed controller uid={_myUid[..Math.Min(6, _myUid.Length)]}… name={_controllerDisplayName}");
+    }
+
+    private void ClearControllerLock()
+    {
+        StopControllerHeartbeat();
+        _controllerUid = "";
+        _controllerDisplayName = "";
+        _controlRequestUid = "";
+        _controlRequestDisplayName = "";
+        _controlRequestId = "";
+        _controllerHeartbeatUtc = DateTimeOffset.MinValue;
+        _forceLockedByController = false;
+        // After Reset/Relinquish we are a free co-admin again — next cloud Start must fully apply.
+        _controllerHydrated = false;
+        _lastShownControlRequestId = "";
+        NotifyRoleProperties();
+    }
+
+    private void StartControllerHeartbeat()
+    {
+        if (!IsGameController) return;
+        if (string.IsNullOrWhiteSpace(_currentTeamId)
+            || _currentTeamId.StartsWith("local_", StringComparison.Ordinal))
+            return;
+
+        StopControllerHeartbeat();
+        // Immediate ping, then periodic — server uses this for stale auto-release.
+        _ = SendControllerHeartbeatAsync();
+        _controllerHeartbeatTimer = new System.Threading.Timer(
+            _ => _ = SendControllerHeartbeatAsync(),
+            null,
+            ControllerHeartbeatInterval,
+            ControllerHeartbeatInterval);
+    }
+
+    private void StopControllerHeartbeat()
+    {
+        try { _controllerHeartbeatTimer?.Dispose(); }
+        catch { /* ignore */ }
+        _controllerHeartbeatTimer = null;
+    }
+
+    private async Task SendControllerHeartbeatAsync()
+    {
+        if (!IsGameController) return;
+        if (Interlocked.CompareExchange(ref _heartbeatInFlight, 1, 0) != 0) return;
+
+        try
+        {
+            _controllerHeartbeatUtc = DateTimeOffset.UtcNow;
+            // Single-field patch — smaller than full control / roster writes.
+            await _cloud.PatchControllerHeartbeatAsync(_currentTeamId, _controllerHeartbeatUtc)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameViewModel] Controller heartbeat: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _heartbeatInFlight, 0);
+        }
+    }
+
+    /// <summary>
+    /// Controlling Admin voluntarily releases match control (Team Settings → Relinquish).
+    /// Does not end the match — timers continue on devices that were mirroring until someone claims control.
+    /// </summary>
+    public async Task<string> RelinquishControlAsync()
+    {
+        if (!IsCloudAdmin)
+            return "error: Only Admins can relinquish match control.";
+
+        if (string.IsNullOrEmpty(_myUid))
+            _myUid = await _cloud.GetSignedInUidAsync().ConfigureAwait(false) ?? "";
+
+        // Must be the current controller (or local has no lock to clear).
+        if (!string.IsNullOrEmpty(_controllerUid)
+            && !string.IsNullOrEmpty(_myUid)
+            && !string.Equals(_controllerUid, _myUid, StringComparison.Ordinal))
+        {
+            return "error: You are not the Admin currently controlling the match. " +
+                   "Use Request control on the Game banner, or wait for auto-release if they went offline.";
+        }
+
+        if (string.IsNullOrEmpty(_controllerUid) && !IsGameController)
+            return "error: No active match controller to relinquish.";
+
+        var teamId = _currentTeamId;
+        if (string.IsNullOrWhiteSpace(teamId))
+            teamId = Preferences.Get("team_id", string.Empty);
+
+        ClearControllerLock();
+        // Live match with vacant seat: stay view-only until someone Takes control
+        // (including this device — prevents continuing as a free dual-writer).
+        if (Phase is not GamePhase.Setup and not GamePhase.Finished
+            && !teamId.StartsWith("local_", StringComparison.Ordinal)
+            && IsCloudAdmin)
+        {
+            _forceLockedByController = true;
+            NotifyRoleProperties();
+        }
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(teamId)
+                && !teamId.StartsWith("local_", StringComparison.Ordinal))
+            {
+                await _cloud.PatchGameControlAsync(
+                    teamId,
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    DateTimeOffset.UnixEpoch).ConfigureAwait(false);
+                await _cloud.PatchControlRequestAsync(teamId, "", "", "").ConfigureAwait(false);
+
+                // Push roster/timer without claiming controller (ForceCloudSave blocked when vacant live).
+                try
+                {
+                    var snapshot = ToSnapshot();
+                    // Temporary allow write for relinquish handoff snapshot
+                    snapshot.ControllerUid = "";
+                    snapshot.ControllerDisplayName = "";
+                    await _cloud.ForceSyncAsync(teamId, snapshot).ConfigureAwait(false);
+                }
+                catch { /* patch is enough for unlock */ }
+            }
+
+            return "success";
+        }
+        catch (Exception ex)
+        {
+            return $"error: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Apply cloud controller state into this VM after a Relinquish from Team Settings
+    /// (or external clear), without a full re-init.
+    /// </summary>
+    public void ApplyExternalControllerClear()
+    {
+        ClearControllerLock();
+    }
+
+    /// <summary>
+    /// Locked co-admin: ask the controller to hand over match control.
+    /// Patches only control fields so the live roster is not overwritten.
+    /// </summary>
+    public async Task<string> RequestControlAsync()
+    {
+        if (!CanRequestControl)
+            return "error: You cannot request control right now.";
+
+        if (string.IsNullOrEmpty(_myUid))
+            _myUid = await _cloud.GetSignedInUidAsync().ConfigureAwait(false) ?? "";
+        if (string.IsNullOrEmpty(_myUid))
+            return "error: Not signed in.";
+
+        var name = UserDisplayName.Get();
+        if (string.IsNullOrWhiteSpace(name))
+            name = "Admin";
+
+        var requestId = Guid.NewGuid().ToString("N");
+        _controlRequestUid = _myUid;
+        _controlRequestDisplayName = name;
+        _controlRequestId = requestId;
+        NotifyRoleProperties();
+
+        try
+        {
+            // Request-only patch — must never rewrite controllerUid (that wiped/raced handoffs).
+            await _cloud.PatchControlRequestAsync(
+                _currentTeamId,
+                _controlRequestUid,
+                _controlRequestDisplayName,
+                _controlRequestId).ConfigureAwait(false);
+            return "success";
+        }
+        catch (Exception ex)
+        {
+            _controlRequestUid = "";
+            _controlRequestDisplayName = "";
+            _controlRequestId = "";
+            NotifyRoleProperties();
+            return $"error: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Claim vacant control after Relinquish or server auto-release (live match, no controller).
+    /// </summary>
+    public async Task<string> TakeVacantControlAsync()
+    {
+        if (!CanTakeVacantControl && !(IsCloudAdmin && !HasActiveController && IsSharedLiveMatch))
+            return "error: Control is not vacant.";
+
+        if (string.IsNullOrEmpty(_myUid))
+            _myUid = await _cloud.GetSignedInUidAsync().ConfigureAwait(false) ?? "";
+        if (string.IsNullOrEmpty(_myUid))
+            return "error: Not signed in.";
+
+        // Re-check cloud — another Admin may have claimed already.
+        try
+        {
+            var snap = await _cloud.LoadAsync(_currentTeamId, preferCloud: true).ConfigureAwait(false);
+            if (snap is not null && !string.IsNullOrWhiteSpace(snap.ControllerUid)
+                && !string.Equals(snap.ControllerUid.Trim(), _myUid, StringComparison.Ordinal))
+            {
+                await MainThread.InvokeOnMainThreadAsync(() => ApplySnapshot(snap));
+                return "error: Another Admin already holds control.";
+            }
+        }
+        catch { /* proceed with claim */ }
+
+        ClaimControllerIfNeeded();
+        // Force claim even if ClaimControllerIfNeeded no-ops when empty
+        if (!IsGameController)
+        {
+            _controllerUid = _myUid;
+            var name = UserDisplayName.Get();
+            _controllerDisplayName = string.IsNullOrWhiteSpace(name) ? "Admin" : name;
+            _controlRequestUid = "";
+            _controlRequestDisplayName = "";
+            _controlRequestId = "";
+            _controllerHeartbeatUtc = DateTimeOffset.UtcNow;
+            _forceLockedByController = false;
+            _sessionViewOnly = false;
+            _controllerHydrated = true;
+            StartControllerHeartbeat();
+        }
+
+        NotifyRoleProperties();
+
+        try
+        {
+            await _cloud.PatchGameControlAsync(
+                _currentTeamId,
+                _controllerUid,
+                _controllerDisplayName,
+                "",
+                "",
+                "",
+                DateTimeOffset.UtcNow).ConfigureAwait(false);
+            await ForceCloudSaveAsync().ConfigureAwait(false);
+            return "success";
+        }
+        catch (Exception ex)
+        {
+            return $"error: {ex.Message}";
+        }
+    }
+
+    /// <summary>Controller accepts a pending request and transfers control.</summary>
+    public async Task AcceptControlRequestAsync(string requestId)
+    {
+        if (!IsGameController) return;
+        if (!string.Equals(_controlRequestId, requestId, StringComparison.Ordinal)) return;
+        if (string.IsNullOrEmpty(_controlRequestUid)) return;
+
+        var newUid = _controlRequestUid;
+        var newName = string.IsNullOrWhiteSpace(_controlRequestDisplayName)
+            ? "Admin"
+            : _controlRequestDisplayName;
+
+        // Final full state push while we still have effective IsAdmin, then lock ourselves.
+        _controllerUid = newUid;
+        _controllerDisplayName = newName;
+        _controlRequestUid = "";
+        _controlRequestDisplayName = "";
+        _controlRequestId = "";
+        // Temporarily keep IsAdmin for ForceCloudSave (IsGameController is false after uid change).
+        // ForceCloudSave blocks non-controllers — push via ForceSync directly.
+        try
+        {
+            var snapshot = ToSnapshot();
+            await _cloud.ForceSyncAsync(_currentTeamId, snapshot).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GameViewModel] AcceptControl ForceSave: {ex.Message}");
+        }
+
+        try
+        {
+            await _cloud.PatchGameControlAsync(
+                _currentTeamId,
+                newUid,
+                newName,
+                "",
+                "",
+                "",
+                DateTimeOffset.UtcNow).ConfigureAwait(false);
+            // Clear request fields explicitly
+            await _cloud.PatchControlRequestAsync(_currentTeamId, "", "", "").ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GameViewModel] AcceptControl patch: {ex.Message}");
+        }
+
+        StopControllerHeartbeat();
+        _forceLockedByController = true;
+        _sessionViewOnly = false;
+        NotifyRoleProperties();
+    }
+
+    /// <summary>Controller rejects a pending control request.</summary>
+    public async Task RejectControlRequestAsync(string requestId)
+    {
+        if (!IsGameController) return;
+        if (!string.Equals(_controlRequestId, requestId, StringComparison.Ordinal)) return;
+
+        _controlRequestUid = "";
+        _controlRequestDisplayName = "";
+        _controlRequestId = "";
+        NotifyRoleProperties();
+
+        try
+        {
+            await _cloud.PatchControlRequestAsync(_currentTeamId, "", "", "").ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GameViewModel] RejectControl: {ex.Message}");
+        }
     }
 
     private async Task ForceCloudSaveAsync()
@@ -1326,7 +2459,25 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             if (!IsAdmin || string.IsNullOrWhiteSpace(_currentTeamId)) return;
+
+            var isLocal = _currentTeamId.StartsWith("local_", StringComparison.Ordinal)
+                || string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal);
+
+            // Shared live match: only the controller may push roster/timer state.
+            // Vacant seat or non-controller must not write (dual-game bug).
+            if (!isLocal && IsCloudAdmin)
+            {
+                var live = Phase is not GamePhase.Setup and not GamePhase.Finished;
+                if (live && !IsGameController)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[GameViewModel] ForceCloudSave blocked — not match controller");
+                    return;
+                }
+            }
+
             var snapshot = ToSnapshot();
+            // Full save must not wipe pending control requests (handled in REST upload mask).
             await _cloud.ForceSyncAsync(_currentTeamId, snapshot).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -1347,7 +2498,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             GamePhase.Setup    => "Start",
             _                  => "Resume"
         };
-        _ = AutoSaveAsync();
+        // Immediate cloud push so view-only clients pause without waiting for debounce.
+        _ = ForceCloudSaveAsync();
     }
 
     private void EndGame()
@@ -1356,6 +2508,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _logger.EndSession(Players, TeamAScore, TeamBScore, teamName);
         StartButtonText = "Reset";
         OnPropertyChanged(nameof(Phase));
+        // Keep controller until Reset so only they can finalize; optional clear on End:
+        // leave lock until Restart/Reset for cleaner handoff after full stop.
+        _ = ForceCloudSaveAsync();
     }
 
     /// <summary>Public surface for the long-press restart command in the code-behind.</summary>
@@ -1386,12 +2541,14 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         UpdateTimerDisplays();
         StartButtonText = "Start";
         UpdateTimerLabelText();
+        // Match finished/reset → release single-controller lock so any Admin can start next.
+        ClearControllerLock();
         UpdateStartButtonState();
         MarkNextPlayers();
         RefreshRotationPairs();
         RefreshDisplayItems();
         OnPropertyChanged(nameof(ScoresVisible));
-        _ = AutoSaveAsync();
+        _ = ForceCloudSaveAsync(); // reset signal for view-only clients
     }
 
     /// <summary>
@@ -1671,12 +2828,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         StartButtonText = "1/2 Time";
         UpdateTimerLabelText();
         OnPropertyChanged(nameof(Phase));
+        if (IsAdmin)
+            _ = ForceCloudSaveAsync(); // phase signal for view-only
     }
 
     private void OnRegulationTimeEnded(object? sender, EventArgs e)
     {
         StartButtonText = "End";
         OnPropertyChanged(nameof(Phase));
+        if (IsAdmin)
+            _ = ForceCloudSaveAsync();
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────
@@ -1730,20 +2891,21 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         if (IsMember) return;
 
-        if (Phase != GamePhase.Setup) return;
-
-        var hasFieldPlayers = Players.Any(p =>
-            p.Position is PlayerPosition.Field or PlayerPosition.Goalie);
-
         OnPropertyChanged(nameof(Phase));
         OnPropertyChanged(nameof(CanStart));
-        _ = hasFieldPlayers;
+        OnPropertyChanged(nameof(HasPlayersReadyToStart));
     }
 
-    public bool CanStart =>
-        !IsMember &&
-        (Phase != GamePhase.Setup ||
-         Players.Any(p => p.Position is PlayerPosition.Field or PlayerPosition.Goalie));
+    /// <summary>
+    /// Start is always tappable for admins so we can show assignment help when Setup is incomplete.
+    /// </summary>
+    public bool CanStart => !IsMember;
+
+    /// <summary>
+    /// True when at least one player is Field or Goalie (minimum to begin a match).
+    /// </summary>
+    public bool HasPlayersReadyToStart =>
+        Players.Any(p => p.Position is PlayerPosition.Field or PlayerPosition.Goalie);
 
     // ── DisplayItems builder ──────────────────────────────────────────────
 
@@ -1862,11 +3024,25 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             if (string.IsNullOrWhiteSpace(_currentTeamId)) return;
+
+            // Same single-controller write gate as ForceCloudSave (prevents dual games).
+            if (!IsAdmin) return;
+            var isLocal = _currentTeamId.StartsWith("local_", StringComparison.Ordinal)
+                || string.Equals(Preferences.Get("team_mode", ""), "local", StringComparison.Ordinal);
+            if (!isLocal && IsCloudAdmin)
+            {
+                var live = Phase is not GamePhase.Setup and not GamePhase.Finished;
+                if (live && !IsGameController)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[GameViewModel] AutoSave blocked — not match controller");
+                    return;
+                }
+            }
+
             var snapshot = ToSnapshot();
-            // Shared-team admin: force immediate cloud write (REST) so members mirror quickly.
-            // Debounced path still used only for local-only convenience saves via SaveAsync.
-            if (IsAdmin && !_currentTeamId.StartsWith("local_", StringComparison.Ordinal)
-                && !string.Equals(Preferences.Get("team_mode", ""), "local", StringComparison.Ordinal))
+            // Shared-team controller/admin: force immediate cloud write (REST) so peers mirror quickly.
+            if (!isLocal)
             {
                 await _cloud.ForceSyncAsync(_currentTeamId, snapshot).ConfigureAwait(false);
             }
@@ -1896,6 +3072,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        StopControllerHeartbeat();
         StopCloudMirror();
         _timer.MatchTickOccurred     -= OnMatchTick;
         _timer.CountdownTickOccurred -= OnCountdownTick;

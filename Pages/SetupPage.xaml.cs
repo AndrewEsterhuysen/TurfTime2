@@ -3,14 +3,24 @@ namespace TurfTime2;
 public partial class SetupPage : ContentPage
 {
 	private const string LOCATION_PICK_KEY = "location_pick_coordinates";
-	private const string SETUP_DATA_KEY = "setup_data.v1";
-	private bool _isLoadingData = false;
+	private bool _isLoadingData;
+	private bool _isAdmin = true;
 
-	// Helper to get team-specific key
+	// Helper to get team-specific key (uses same team_id as rest of app)
 	private string GetTeamKey(string baseKey)
 	{
-		var teamId = Preferences.Get("selected_team_id", "");
+		var teamId = Preferences.Get("team_id", string.Empty);
 		return string.IsNullOrEmpty(teamId) ? baseKey : $"{baseKey}_{teamId}";
+	}
+
+	private static bool IsCurrentUserAdmin()
+	{
+		var role = Preferences.Get("user_role", "admin") ?? "admin";
+		// Local teams are always editable; shared members are view-only
+		var mode = Preferences.Get("team_mode", string.Empty);
+		if (string.Equals(mode, "local", StringComparison.OrdinalIgnoreCase))
+			return true;
+		return !string.Equals(role, "member", StringComparison.OrdinalIgnoreCase);
 	}
 
 	public SetupPage()
@@ -23,26 +33,53 @@ public partial class SetupPage : ContentPage
 	{
 		base.OnAppearing();
 		DetailsPage.ApplyPageTeamTitle(this, "Location");
-		// Check if returning from maps with coordinates
+		ApplyEditPermissions();
+		// Check if returning from maps with coordinates (admin only will apply)
 		CheckForPickedLocation();
 		// Reload data in case it was updated elsewhere
 		LoadMatchData();
+		ApplyEditPermissions();
 	}
 
 	protected override void OnDisappearing()
 	{
 		base.OnDisappearing();
-		// Save data when leaving the page
-		SaveMatchData();
+		if (_isAdmin)
+			SaveMatchData();
+	}
+
+	private void ApplyEditPermissions()
+	{
+		_isAdmin = IsCurrentUserAdmin();
+		ViewOnlyBanner.IsVisible = !_isAdmin;
+
+		// Viewers can see all data; only admin can change it
+		MatchDatePicker.IsEnabled = _isAdmin;
+		MatchTimePicker.IsEnabled = _isAdmin;
+		ArriveTimePicker.IsEnabled = _isAdmin;
+		LocationNameEntry.IsEnabled = _isAdmin;
+		LocationNameEntry.IsReadOnly = !_isAdmin;
+		LatitudeEntry.IsEnabled = _isAdmin;
+		LatitudeEntry.IsReadOnly = !_isAdmin;
+		LongitudeEntry.IsEnabled = _isAdmin;
+		LongitudeEntry.IsReadOnly = !_isAdmin;
+		MapsLinkEntry.IsEnabled = _isAdmin;
+		MapsLinkEntry.IsReadOnly = !_isAdmin;
+
+		// Admin-only location capture controls
+		GetLocationButton.IsVisible = _isAdmin;
+		PickLocationButton.IsVisible = _isAdmin;
+
+		// Search / Open still useful for members navigating to the ground
+		SearchLocationButton.IsEnabled = true;
+		OpenLinkButton.IsEnabled = true;
 	}
 
 	private void OnFieldChanged(object sender, EventArgs e)
 	{
-		// Don't save while loading data to avoid feedback loop
-		if (!_isLoadingData)
-		{
-			SaveMatchData();
-		}
+		if (_isLoadingData || !_isAdmin)
+			return;
+		SaveMatchData();
 	}
 
 	private void LoadMatchData()
@@ -51,19 +88,13 @@ public partial class SetupPage : ContentPage
 		{
 			_isLoadingData = true;
 
-			// Load from Preferences (team-specific keys)
-			var teamName = Preferences.Get(GetTeamKey("setup_team"), string.Empty);
 			var matchDate = Preferences.Get(GetTeamKey("setup_match_date"), DateTime.Today.ToString("O"));
 			var matchTime = Preferences.Get(GetTeamKey("setup_match_time"), DateTime.Now.ToString("HH:mm:ss"));
-			var duration = Preferences.Get(GetTeamKey("setup_duration"), string.Empty);
+			var arriveTime = Preferences.Get(GetTeamKey("setup_arrive_time"), string.Empty);
 			var locationName = Preferences.Get(GetTeamKey("setup_location_name"), string.Empty);
 			var latitude = Preferences.Get(GetTeamKey("setup_latitude"), string.Empty);
 			var longitude = Preferences.Get(GetTeamKey("setup_longitude"), string.Empty);
 			var mapsLink = Preferences.Get(GetTeamKey("setup_maps_link"), string.Empty);
-
-			// Populate fields
-			if (!string.IsNullOrEmpty(teamName))
-				TeamEntry.Text = teamName;
 
 			if (DateTime.TryParse(matchDate, out var parsedDate))
 				MatchDatePicker.Date = parsedDate;
@@ -71,20 +102,16 @@ public partial class SetupPage : ContentPage
 			if (TimeSpan.TryParse(matchTime, out var parsedTime))
 				MatchTimePicker.Time = parsedTime;
 
-			if (!string.IsNullOrEmpty(duration))
-				DurationEntry.Text = duration;
+			if (TimeSpan.TryParse(arriveTime, out var parsedArrive))
+				ArriveTimePicker.Time = parsedArrive;
+			else if (TimeSpan.TryParse(matchTime, out var fallbackArrive))
+				// Default arrive to match start if never set
+				ArriveTimePicker.Time = fallbackArrive;
 
-			if (!string.IsNullOrEmpty(locationName))
-				LocationNameEntry.Text = locationName;
-
-			if (!string.IsNullOrEmpty(latitude))
-				LatitudeEntry.Text = latitude;
-
-			if (!string.IsNullOrEmpty(longitude))
-				LongitudeEntry.Text = longitude;
-
-			if (!string.IsNullOrEmpty(mapsLink))
-				MapsLinkEntry.Text = mapsLink;
+			LocationNameEntry.Text = locationName;
+			LatitudeEntry.Text = latitude;
+			LongitudeEntry.Text = longitude;
+			MapsLinkEntry.Text = mapsLink;
 		}
 		catch (Exception ex)
 		{
@@ -98,13 +125,14 @@ public partial class SetupPage : ContentPage
 
 	private void SaveMatchData()
 	{
+		if (!_isAdmin)
+			return;
+
 		try
 		{
-			// Save all fields to Preferences (team-specific keys)
-			Preferences.Set(GetTeamKey("setup_team"), TeamEntry.Text ?? string.Empty);
-			Preferences.Set(GetTeamKey("setup_match_date"), MatchDatePicker.Date.ToString());
+			Preferences.Set(GetTeamKey("setup_match_date"), $"{MatchDatePicker.Date:yyyy-MM-dd}");
 			Preferences.Set(GetTeamKey("setup_match_time"), MatchTimePicker.Time.ToString());
-			Preferences.Set(GetTeamKey("setup_duration"), DurationEntry.Text ?? string.Empty);
+			Preferences.Set(GetTeamKey("setup_arrive_time"), ArriveTimePicker.Time.ToString());
 			Preferences.Set(GetTeamKey("setup_location_name"), LocationNameEntry.Text ?? string.Empty);
 			Preferences.Set(GetTeamKey("setup_latitude"), LatitudeEntry.Text ?? string.Empty);
 			Preferences.Set(GetTeamKey("setup_longitude"), LongitudeEntry.Text ?? string.Empty);
@@ -120,7 +148,9 @@ public partial class SetupPage : ContentPage
 
 	private void CheckForPickedLocation()
 	{
-		// Check if we have coordinates from map picker
+		if (!_isAdmin)
+			return;
+
 		if (Preferences.ContainsKey(LOCATION_PICK_KEY))
 		{
 			var coords = Preferences.Get(LOCATION_PICK_KEY, string.Empty);
@@ -131,6 +161,7 @@ public partial class SetupPage : ContentPage
 				{
 					LatitudeEntry.Text = parts[0].Trim();
 					LongitudeEntry.Text = parts[1].Trim();
+					SaveMatchData();
 				}
 				Preferences.Remove(LOCATION_PICK_KEY);
 			}
@@ -139,16 +170,19 @@ public partial class SetupPage : ContentPage
 
 	private async void OnGetLocationClicked(object sender, EventArgs e)
 	{
+		if (!_isAdmin)
+			return;
+
 		try
 		{
 #if WINDOWS
-			await DisplayAlertAsync("Not Available on Windows", 
-				"GPS location is not available on Windows desktop. Please enter coordinates manually or use the 'Search Location' or 'Paste Maps Link' features.", 
+			await DisplayAlertAsync("Not Available on Windows",
+				"GPS location is not available on Windows desktop. Please enter coordinates manually or use the 'Search Location' or 'Paste Maps Link' features.",
 				"OK");
 			return;
 #else
 			var location = await Geolocation.GetLastKnownLocationAsync();
-			
+
 			if (location == null)
 			{
 				location = await Geolocation.GetLocationAsync(new GeolocationRequest
@@ -162,6 +196,7 @@ public partial class SetupPage : ContentPage
 			{
 				LatitudeEntry.Text = location.Latitude.ToString("F6");
 				LongitudeEntry.Text = location.Longitude.ToString("F6");
+				SaveMatchData();
 			}
 			else
 			{
@@ -192,18 +227,16 @@ public partial class SetupPage : ContentPage
 		try
 		{
 			var locationName = LocationNameEntry.Text?.Trim();
-			
+
 			if (string.IsNullOrWhiteSpace(locationName))
 			{
 				await DisplayAlertAsync("No Location", "Please enter a location name first.", "OK");
 				return;
 			}
 
-			// Build Google Maps search URL
 			var searchQuery = Uri.EscapeDataString(locationName);
 			var mapsUrl = $"https://www.google.com/maps/search/?api=1&query={searchQuery}";
 
-			// Open in Google Maps
 			if (Uri.TryCreate(mapsUrl, UriKind.Absolute, out var uri))
 			{
 				await Launcher.OpenAsync(uri);
@@ -221,18 +254,29 @@ public partial class SetupPage : ContentPage
 
 	private async void OnPickLocationClicked(object sender, EventArgs e)
 	{
+		if (!_isAdmin)
+			return;
+
 		try
 		{
 #if WINDOWS
-			await DisplayAlertAsync("Not Available on Windows", 
-				"Map picker is not available on Windows desktop. Please use 'Search Location' to open Google Maps in your browser, or paste a Google Maps link.", 
+			await DisplayAlertAsync("Not Available on Windows",
+				"Map picker is not available on Windows desktop. Please use 'Search Location' to open Google Maps in your browser, or paste a Google Maps link.",
 				"OK");
 			return;
 #else
-			// Get current location or use default if available
+			// Instructions first — open Maps only after the user acknowledges
+			await DisplayAlertAsync(
+				"Pick Location",
+				"1. Find your desired location on the map\n" +
+				"2. Long-press on the location to drop a pin\n" +
+				"3. Tap the pin and copy the coordinates\n" +
+				"4. Return to this app and paste the coordinates into Latitude / Longitude",
+				"Open Maps");
+
 			double lat = 0;
 			double lon = 0;
-			
+
 			if (!string.IsNullOrWhiteSpace(LatitudeEntry.Text) && !string.IsNullOrWhiteSpace(LongitudeEntry.Text))
 			{
 				double.TryParse(LatitudeEntry.Text, out lat);
@@ -240,7 +284,6 @@ public partial class SetupPage : ContentPage
 			}
 			else
 			{
-				// Try to get current location as starting point
 				var location = await Geolocation.GetLastKnownLocationAsync();
 				if (location != null)
 				{
@@ -251,7 +294,6 @@ public partial class SetupPage : ContentPage
 
 			var locationName = LocationNameEntry.Text ?? "Match Location";
 
-			// Create a placemark for the map
 			var placemark = new Placemark
 			{
 				Location = new Location(lat, lon),
@@ -264,16 +306,7 @@ public partial class SetupPage : ContentPage
 				NavigationMode = NavigationMode.None
 			};
 
-			// Open map to show/pick location
 			await Map.OpenAsync(placemark, options);
-
-			// Show instructions to user
-			await DisplayAlertAsync("Pick Location", 
-				"1. Find your desired location on the map\n" +
-				"2. Long-press on the location to drop a pin\n" +
-				"3. Tap the pin and copy the coordinates\n" +
-				"4. Return to this app and paste the coordinates", 
-				"OK");
 #endif
 		}
 		catch (Exception ex)
@@ -287,22 +320,24 @@ public partial class SetupPage : ContentPage
 		try
 		{
 			var link = MapsLinkEntry.Text?.Trim();
-			
+
 			if (string.IsNullOrWhiteSpace(link))
 			{
 				await DisplayAlertAsync("No Link", "Please paste a Google Maps link first.", "OK");
 				return;
 			}
 
-			// Validate and extract coordinates from Google Maps link if possible
+			// Extract coordinates when possible (admin gets fields updated; members still open the link)
 			if (TryExtractCoordinatesFromLink(link, out double lat, out double lon))
 			{
-				// Update coordinate fields
-				LatitudeEntry.Text = lat.ToString("F6");
-				LongitudeEntry.Text = lon.ToString("F6");
+				if (_isAdmin)
+				{
+					LatitudeEntry.Text = lat.ToString("F6");
+					LongitudeEntry.Text = lon.ToString("F6");
+					SaveMatchData();
+				}
 			}
 
-			// Open the link in browser/maps app
 			if (Uri.TryCreate(link, UriKind.Absolute, out var uri))
 			{
 				await Launcher.OpenAsync(uri);
@@ -325,22 +360,14 @@ public partial class SetupPage : ContentPage
 
 		try
 		{
-			// Google Maps link formats:
-			// 1. https://maps.google.com/?q=lat,lng
-			// 2. https://www.google.com/maps/@lat,lng,zoom
-			// 3. https://www.google.com/maps/place/.../@lat,lng
-			// 4. https://goo.gl/maps/... (shortened, can't extract directly)
-			// 5. https://maps.app.goo.gl/... (new shortened format)
-
 			var uri = new Uri(link);
-			
-			// Try to extract from query parameter
+
 			if (link.Contains("?q="))
 			{
 				var query = uri.Query.TrimStart('?');
 				var parts = query.Replace("q=", "").Split(',');
-				if (parts.Length >= 2 && 
-					double.TryParse(parts[0], out latitude) && 
+				if (parts.Length >= 2 &&
+					double.TryParse(parts[0], out latitude) &&
 					double.TryParse(parts[1], out double lng))
 				{
 					longitude = lng;
@@ -348,14 +375,13 @@ public partial class SetupPage : ContentPage
 				}
 			}
 
-			// Try to extract from path (format: /@lat,lng,zoom)
 			var path = uri.AbsolutePath;
 			if (path.Contains("/@"))
 			{
 				var coordsPart = path.Substring(path.IndexOf("/@") + 2);
 				var parts = coordsPart.Split(',');
-				if (parts.Length >= 2 && 
-					double.TryParse(parts[0], out latitude) && 
+				if (parts.Length >= 2 &&
+					double.TryParse(parts[0], out latitude) &&
 					double.TryParse(parts[1], out double lng))
 				{
 					longitude = lng;
@@ -363,13 +389,12 @@ public partial class SetupPage : ContentPage
 				}
 			}
 
-			// Try alternative format with /place/
 			if (path.Contains("/place/"))
 			{
 				var coordsPart = path.Substring(path.LastIndexOf("/@") + 2);
 				var parts = coordsPart.Split(',');
-				if (parts.Length >= 2 && 
-					double.TryParse(parts[0], out latitude) && 
+				if (parts.Length >= 2 &&
+					double.TryParse(parts[0], out latitude) &&
 					double.TryParse(parts[1], out double lng))
 				{
 					longitude = lng;

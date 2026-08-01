@@ -161,6 +161,7 @@ public partial class HelpPage : ContentPage
         <li><strong>Tap</strong> a score to <em>increment</em> (+1).</li>
         <li><strong>Double-tap</strong> a score to <em>decrement</em> (−1) if you made a mistake. Minimum is 0.</li>
         <li>Both the header score labels <em>and</em> the coloured side strips in Rotation view are tappable.</li>
+        <li><strong>Shared teams:</strong> only the <em>match controller</em> can change scores. View-only devices show scores but ignore taps.</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
@@ -170,7 +171,7 @@ public partial class HelpPage : ContentPage
             <ul>
                 <li>Starts or pauses the match timer.</li>
                 <li>Shows <em>½ Time</em> at half-time — tap to begin the second half.</li>
-                <li><em>Hold 1 second</em> to fully restart the game (resets timers and scores).</li>
+                <li><em>Hold 1 second</em> to fully restart / reset the game (resets timers and scores; releases match control on shared teams).</li>
             </ul>
         </li>
         <li><strong>Rotate</strong> (centre):
@@ -193,8 +194,9 @@ public partial class HelpPage : ContentPage
     <p>Press <span class='key'>View: Rotation</span> to see the substitution call-out screen:</p>
     <ul>
         <li><strong>Centre panel:</strong> Lists each upcoming swap — bench player coming <em>on</em> (blue, left-aligned) and field player going <em>off</em> (orange, right-aligned).</li>
-        <li><strong>Left strip (green — Us):</strong> Shows your score. Tap to +1, double-tap to −1.</li>
-        <li><strong>Right strip (red — Them):</strong> Shows opponent score. Tap to +1, double-tap to −1.</li>
+        <li><strong>Tap to Rotate:</strong> Tap the centre panel to execute the same rotation as the bottom <span class='key'>Rotate</span> button (controller only on shared teams).</li>
+        <li><strong>Left strip (green — Us):</strong> Shows your score. Tap to +1, double-tap to −1 (controller only on shared teams).</li>
+        <li><strong>Right strip (red — Them):</strong> Shows opponent score. Tap to +1, double-tap to −1 (controller only on shared teams).</li>
         <li>Designed for sideline communication — large text, high contrast.</li>
     </ul>
 
@@ -214,9 +216,60 @@ public partial class HelpPage : ContentPage
     <ul>
         <li>Choose <strong>Shared</strong> on Team Details to create a cloud team, join with an invite code, or recover admin access on a new device.</li>
         <li>Choose <strong>Local</strong> for device-only teams (no cloud sync). Chat and Details tabs appear only for shared teams.</li>
-        <li>Set a <strong>display name</strong> when you create or join a shared team (editable under Current Team). That name appears as the source of your Chat messages and in push notifications — not a device ID.</li>
-        <li>👁️ <strong>View-only mode:</strong> If you joined as a team member (not admin), the amber banner shows and controls are disabled — the team admin runs the game.</li>
-        <li>Roster and scores sync for shared teams so members can follow the match on their devices.</li>
+        <li>Set a <strong>display name</strong> when you create or join a shared team (editable under Current Team). That name appears in Chat, push notifications, and the member list — not a device ID.</li>
+        <li>Roster, timers, and scores sync so everyone can follow the match on their devices.</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>👑 Roles: Owner · Admin · Member</h3>
+    <ul>
+        <li><strong>Owner</strong> — the club manager who created the team (or received ownership). Can transfer ownership, delete the team from Firebase, remove other Admins, and do everything an Admin can.</li>
+        <li><strong>Admin</strong> — can run games, edit Location / Kit / Duties, promote members, remove Members, and manage invite codes (not delete the whole team).</li>
+        <li><strong>Member</strong> — view-only on the Game tab; can follow roster, timers, and scores; can use Chat.</li>
+        <li>Open <strong>Team Admin Panel → View Team Members</strong> to see who is Owner, Admin, or Member.</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>🎮 Single Match Controller (Shared Teams)</h3>
+    <p>Only <strong>one Admin at a time</strong> may control a live match (timers, rotate, scores, roster edits). This prevents two devices from fighting over the same game.</p>
+    <ul>
+        <li><strong>Start</strong> on a free Admin device claims control and publishes it to the cloud.</li>
+        <li>👁️ <strong>Yellow banner — Member:</strong> “VIEW-ONLY MODE — Team Admin controls the game.”</li>
+        <li>👁️ <strong>Yellow banner — locked co-Admin:</strong> “&#123;Name&#125; started game · Request control” — tap to ask the controller to hand over. They get Accept / Reject on their Game tab.</li>
+        <li>👁️ <strong>Vacant control:</strong> after Relinquish or server auto-release (~90s offline), Admins see “No controller · Tap to take control.”</li>
+        <li><strong>Watch Only</strong> (grey button in Setup / Finished): voluntary view-only on this device without demoting your Admin role. Tap again for <em>Take Control</em> when no one holds the seat.</li>
+        <li><strong>Relinquish Match Control</strong> (Team Admin Panel): free the seat so another Admin can take over without ending the match.</li>
+        <li>After a full <strong>Reset</strong>, control is released and any Admin may Start the next game.</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>🛠️ Team Admin Panel</h3>
+    <ul>
+        <li><strong>Invite Code</strong> — share so others can join.</li>
+        <li><strong>View Team Members</strong> — names with (Owner) / (Admin) / (Member).</li>
+        <li><strong>Promote to Admin</strong> — elevate a Member (they should open Game so the new role applies).</li>
+        <li><strong>Remove Member</strong> — delete someone from the cloud team. Owner can remove other Admins; Admins can remove Members. Use <em>Leave Team</em> to remove yourself.</li>
+        <li><strong>Relinquish Match Control</strong> — hand over the live controller seat.</li>
+        <li><strong>Transfer Ownership</strong> (Owner only) — pass club ownership to another Admin.</li>
+        <li><strong>Regenerate Invite Code</strong> — invalidate the old code and issue a new one.</li>
+        <li><strong>Delete team</strong> (swipe under Change Team, Owner only) — permanently removes the team from Firebase for everyone.</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>📍 Details: Location · Kit · Duties</h3>
+    <ul>
+        <li><strong>Location</strong> — match date/time, venue name, coordinates, maps link.</li>
+        <li><strong>Kit</strong> — arrive / warm-up / game / departure kit notes and special events.</li>
+        <li><strong>Duties</strong> — duty officer, canteen, grounds setup / pack-up, other notes.</li>
+        <li>Admins edit; Members see a view-only banner on these pages.</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>💡 Tips</h3>
+    <ul>
+        <li>Keep the <strong>Game</strong> tab open on the controller’s device when another Admin requests control.</li>
+        <li>If you reinstall often during testing, Firebase may create a <em>new device identity</em> — the cloud Owner is still the original <code>createdBy</code> account. Prefer the original Owner device for delete / transfer.</li>
+        <li>Open <strong>Help</strong> anytime from the side menu for this guide.</li>
     </ul>
 
     </body>

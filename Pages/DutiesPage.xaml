@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.DutiesPage"
+             Title="Duties">
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="14">
+
+            <!-- View-only banner (shared members) -->
+            <Border x:Name="ViewOnlyBanner"
+                    IsVisible="False"
+                    BackgroundColor="#ffc107"
+                    Padding="10,6"
+                    StrokeShape="RoundRectangle 6"
+                    Margin="0,4,0,0">
+                <Label Text="📖 VIEW-ONLY — Only the team Admin can edit duties"
+                       TextColor="Black"
+                       FontAttributes="Bold"
+                       FontSize="12"
+                       HorizontalOptions="Center"
+                       HorizontalTextAlignment="Center" />
+            </Border>
+
+            <Frame Padding="14"
+                   CornerRadius="8"
+                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
+                   HasShadow="False">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Match-Day Duties"
+                           FontAttributes="Bold"
+                           FontSize="15" />
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Duty Officer" />
+                        <Label Text="Person responsible on the day"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="DutyOfficerEntry"
+                               Placeholder="Name of duty officer"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Canteen" />
+                        <Label Text="Person(s) on canteen duty"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="CanteenEntry"
+                               Placeholder="Name(s) for canteen"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Grounds Setup" />
+                        <Label Text="Person(s) setting up the grounds"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="GroundsSetupEntry"
+                               Placeholder="Name(s) for grounds setup"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Grounds Pack-up" />
+                        <Label Text="Person(s) packing up the grounds"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="GroundsPackupEntry"
+                               Placeholder="Name(s) for grounds pack-up"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="5">
+                        <Label Text="Other" />
+                        <Label Text="Any additional match-day duties"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Entry x:Name="OtherEntry"
+                               Placeholder="e.g. first aid, equipment, notes"
+                               TextChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

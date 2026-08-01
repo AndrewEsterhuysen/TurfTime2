@@ -99,6 +99,185 @@ public sealed class CloudRosterService : ICloudRosterService
         catch { /* best-effort */ }
     }
 
+    public async Task<string?> GetSignedInUidAsync()
+    {
+        try
+        {
+            return await _auth.EnsureSignedInAsync().ConfigureAwait(false)
+                   ?? _auth.UserId;
+        }
+        catch
+        {
+            return _auth.UserId;
+        }
+    }
+
+    public async Task PatchGameControlAsync(
+        string teamId,
+        string controllerUid,
+        string controllerDisplayName,
+        string controlRequestUid,
+        string controlRequestDisplayName,
+        string controlRequestId,
+        DateTimeOffset? controllerHeartbeatUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(teamId) || IsLocalOnlyTeam(teamId))
+            return;
+
+        var idToken = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            throw new InvalidOperationException("No Firebase id token for control patch");
+
+        var nowTs = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+        var clearControl = string.IsNullOrEmpty(controllerUid);
+
+        var fields = new Dictionary<string, object>
+        {
+            ["controllerUid"] = new Dictionary<string, object> { ["stringValue"] = controllerUid ?? "" },
+            ["controllerDisplayName"] = new Dictionary<string, object> { ["stringValue"] = controllerDisplayName ?? "" },
+            ["controlRequestUid"] = new Dictionary<string, object> { ["stringValue"] = controlRequestUid ?? "" },
+            ["controlRequestDisplayName"] = new Dictionary<string, object> { ["stringValue"] = controlRequestDisplayName ?? "" },
+            ["controlRequestId"] = new Dictionary<string, object> { ["stringValue"] = controlRequestId ?? "" },
+            ["lastModifiedUtc"] = new Dictionary<string, object>
+            {
+                ["timestampValue"] = nowTs
+            }
+        };
+
+        // Heartbeat: only when releasing (clear) or controller explicitly refreshes.
+        // Omit on control-request patches so a locked admin cannot keep a dead controller "alive".
+        if (clearControl)
+        {
+            fields["controllerHeartbeatUtc"] = new Dictionary<string, object>
+            {
+                ["timestampValue"] = "1970-01-01T00:00:00.000Z"
+            };
+        }
+        else if (controllerHeartbeatUtc.HasValue)
+        {
+            var hb = controllerHeartbeatUtc.Value.ToUniversalTime()
+                .ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+            fields["controllerHeartbeatUtc"] = new Dictionary<string, object>
+            {
+                ["timestampValue"] = hb
+            };
+        }
+
+        var fieldPaths = string.Join("&",
+            fields.Keys.Select(k => $"updateMask.fieldPaths={Uri.EscapeDataString(k)}"));
+        var url =
+            $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/teams/{Uri.EscapeDataString(teamId)}/roster/data?{fieldPaths}";
+
+        var json = JsonSerializer.Serialize(new { fields });
+        using var req = new HttpRequestMessage(HttpMethod.Patch, url)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+        };
+        req.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+
+        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Control patch {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+        }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[CloudRosterService] Control patch team={teamId} controller={controllerUid[..Math.Min(6, (controllerUid ?? "").Length)]}… request={controlRequestUid[..Math.Min(6, (controlRequestUid ?? "").Length)]}…");
+    }
+
+    public async Task PatchControllerHeartbeatAsync(string teamId, DateTimeOffset heartbeatUtc)
+    {
+        if (string.IsNullOrWhiteSpace(teamId) || IsLocalOnlyTeam(teamId))
+            return;
+
+        var idToken = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            throw new InvalidOperationException("No Firebase id token for heartbeat");
+
+        var hb = heartbeatUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+        var fields = new Dictionary<string, object>
+        {
+            ["controllerHeartbeatUtc"] = new Dictionary<string, object>
+            {
+                ["timestampValue"] = hb
+            }
+        };
+
+        var url =
+            $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/teams/{Uri.EscapeDataString(teamId)}/roster/data?updateMask.fieldPaths=controllerHeartbeatUtc";
+
+        var json = JsonSerializer.Serialize(new { fields });
+        using var req = new HttpRequestMessage(HttpMethod.Patch, url)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+        };
+        req.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+
+        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            throw new InvalidOperationException(
+                $"Heartbeat patch {(int)resp.StatusCode}: {body[..Math.Min(160, body.Length)]}");
+        }
+    }
+
+    public async Task PatchControlRequestAsync(
+        string teamId,
+        string controlRequestUid,
+        string controlRequestDisplayName,
+        string controlRequestId)
+    {
+        if (string.IsNullOrWhiteSpace(teamId) || IsLocalOnlyTeam(teamId))
+            return;
+
+        var idToken = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            throw new InvalidOperationException("No Firebase id token for control request");
+
+        var fields = new Dictionary<string, object>
+        {
+            ["controlRequestUid"] = new Dictionary<string, object> { ["stringValue"] = controlRequestUid ?? "" },
+            ["controlRequestDisplayName"] = new Dictionary<string, object> { ["stringValue"] = controlRequestDisplayName ?? "" },
+            ["controlRequestId"] = new Dictionary<string, object> { ["stringValue"] = controlRequestId ?? "" },
+        };
+
+        var fieldPaths = string.Join("&",
+            fields.Keys.Select(k => $"updateMask.fieldPaths={Uri.EscapeDataString(k)}"));
+        var url =
+            $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/teams/{Uri.EscapeDataString(teamId)}/roster/data?{fieldPaths}";
+
+        var json = JsonSerializer.Serialize(new { fields });
+        using var req = new HttpRequestMessage(HttpMethod.Patch, url)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+        };
+        req.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+
+        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Control request patch {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+        }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[CloudRosterService] Control request patch team={teamId} " +
+            $"req={controlRequestUid[..Math.Min(6, (controlRequestUid ?? "").Length)]}…");
+    }
+
     public IDisposable? WatchRoster(string teamId, Action<RosterSnapshot> onUpdate)
     {
         if (string.IsNullOrWhiteSpace(teamId) || IsLocalOnlyTeam(teamId))
@@ -120,19 +299,21 @@ public sealed class CloudRosterService : ICloudRosterService
                         if (data is not null)
                             roster = FromDictionary(data);
 
-                        // Plugin.Firebase on iOS often delivers change events with null/empty
-                        // Data after long suspend, or fails nested map casts. Fall back to REST
-                        // so members still mirror the admin without continuous polling.
+                        // Plugin.Firebase SDK Data often omits sparse control fields (controllerUid,
+                        // controlRequest*). Always REST-refresh so multi-admin control is reliable.
+                        // View-only UI uses IsSteadyStateMirror to ignore heartbeat-only noise.
                         if (roster is null || roster.Players.Count == 0)
                         {
                             System.Diagnostics.Debug.WriteLine(
                                 $"[CloudRosterService] Watch empty/null Data for {teamId} — REST fallback");
-                            _ = DeliverViaRestAsync(teamId, onUpdate);
-                            return;
                         }
-
-                        SaveLocal(teamId, roster);
-                        onUpdate(roster);
+                        else
+                        {
+                            // Fast path: apply SDK immediately so timers/roster don't wait on REST.
+                            SaveLocal(teamId, roster);
+                            onUpdate(roster);
+                        }
+                        _ = DeliverViaRestAsync(teamId, onUpdate);
                     }
                     catch (Exception ex)
                     {
@@ -260,6 +441,7 @@ public sealed class CloudRosterService : ICloudRosterService
         try
         {
             await UploadViaRestAsync(teamId, snapshot).ConfigureAwait(false);
+            _ = TouchTeamLastActivityAsync(teamId);
             return;
         }
         catch (Exception restEx)
@@ -275,11 +457,34 @@ public sealed class CloudRosterService : ICloudRosterService
             await doc.SetDataAsync(payload).ConfigureAwait(false);
             System.Diagnostics.Debug.WriteLine(
                 $"[CloudRosterService] SDK SetDataAsync completed (team {teamId}, players={snapshot.Players.Count}) — verify via REST if members cannot see state");
+            _ = TouchTeamLastActivityAsync(teamId);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine(
                 $"[CloudRosterService] Firestore SDK upload: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Bumps metadata.lastActivityUtc so cleanupDormantTeams (12‑month purge) does not
+    /// delete active shared teams. Failures are non-fatal.
+    /// </summary>
+    private async Task TouchTeamLastActivityAsync(string teamId)
+    {
+        try
+        {
+            await _db.GetDocument($"teams/{teamId}/metadata/info")
+                .SetDataAsync(new Dictionary<object, object>
+                {
+                    ["lastActivityUtc"] = DateTimeOffset.UtcNow
+                }, SetOptions.Merge())
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudRosterService] Touch lastActivityUtc: {ex.Message}");
         }
     }
 
@@ -326,9 +531,25 @@ public sealed class CloudRosterService : ICloudRosterService
             ["timerRunning"] = new Dictionary<string, object> { ["booleanValue"] = snapshot.TimerRunning },
             ["countdownPresetSeconds"] = new Dictionary<string, object> { ["integerValue"] = snapshot.CountdownPresetSeconds.ToString() },
             ["countdownPreset"] = new Dictionary<string, object> { ["integerValue"] = snapshot.CountdownPresetSeconds.ToString() },
+            ["countdownRemainingSeconds"] = new Dictionary<string, object> { ["integerValue"] = snapshot.CountdownRemainingSeconds.ToString() },
             ["viewMode"] = new Dictionary<string, object> { ["integerValue"] = snapshot.ViewMode.ToString() },
             ["teamAScore"] = new Dictionary<string, object> { ["integerValue"] = snapshot.TeamAScore.ToString() },
             ["teamBScore"] = new Dictionary<string, object> { ["integerValue"] = snapshot.TeamBScore.ToString() },
+            ["rotationCount"] = new Dictionary<string, object> { ["integerValue"] = Math.Max(1, snapshot.RotationCount).ToString() },
+            ["lastFieldSlotId"] = new Dictionary<string, object> { ["integerValue"] = snapshot.LastFieldSlotId.ToString() },
+            ["lastBenchSlotId"] = new Dictionary<string, object> { ["integerValue"] = snapshot.LastBenchSlotId.ToString() },
+            ["nextFieldSlotIds"] = IntArrayValue(snapshot.NextFieldSlotIds),
+            ["nextBenchSlotIds"] = IntArrayValue(snapshot.NextBenchSlotIds),
+            // Controller identity/heartbeat only — NEVER write controlRequest* here.
+            // Full roster saves from the live controller were wiping pending handoff requests.
+            ["controllerUid"] = new Dictionary<string, object> { ["stringValue"] = snapshot.ControllerUid ?? "" },
+            ["controllerDisplayName"] = new Dictionary<string, object> { ["stringValue"] = snapshot.ControllerDisplayName ?? "" },
+            ["controllerHeartbeatUtc"] = new Dictionary<string, object>
+            {
+                ["timestampValue"] = (snapshot.ControllerHeartbeatUtc > DateTimeOffset.UnixEpoch
+                    ? snapshot.ControllerHeartbeatUtc
+                    : DateTimeOffset.UtcNow).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'")
+            },
             ["players"] = new Dictionary<string, object>
             {
                 ["arrayValue"] = new Dictionary<string, object>
@@ -338,8 +559,13 @@ public sealed class CloudRosterService : ICloudRosterService
             }
         };
 
+        // updateMask required so omitted controlRequest* fields are preserved in Firestore.
+        var mask = string.Join("&",
+            fields.Keys.Select(k => $"updateMask.fieldPaths={Uri.EscapeDataString(k)}"));
+        var patchUrl = $"{url}?{mask}";
+
         var body = JsonSerializer.Serialize(new { fields });
-        using var req = new HttpRequestMessage(HttpMethod.Patch, url)
+        using var req = new HttpRequestMessage(HttpMethod.Patch, patchUrl)
         {
             Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
         };
@@ -492,10 +718,39 @@ public sealed class CloudRosterService : ICloudRosterService
             ["timerRunning"] = s.TimerRunning,
             ["countdownPresetSeconds"] = s.CountdownPresetSeconds,
             ["countdownPreset"] = s.CountdownPresetSeconds,
+            ["countdownRemainingSeconds"] = s.CountdownRemainingSeconds,
             ["viewMode"] = s.ViewMode,
             ["teamAScore"] = s.TeamAScore,
             ["teamBScore"] = s.TeamBScore,
+            ["rotationCount"] = Math.Max(1, s.RotationCount),
+            ["lastFieldSlotId"] = s.LastFieldSlotId,
+            ["lastBenchSlotId"] = s.LastBenchSlotId,
+            ["nextFieldSlotIds"] = s.NextFieldSlotIds.Select(i => (object)i).ToList(),
+            ["nextBenchSlotIds"] = s.NextBenchSlotIds.Select(i => (object)i).ToList(),
+            // Omit controlRequest* — merge SDK writes must not clear pending handoffs.
+            ["controllerUid"] = s.ControllerUid ?? "",
+            ["controllerDisplayName"] = s.ControllerDisplayName ?? "",
+            ["controllerHeartbeatUtc"] = s.ControllerHeartbeatUtc > DateTimeOffset.UnixEpoch
+                ? s.ControllerHeartbeatUtc
+                : DateTimeOffset.UtcNow,
             ["players"] = players
+        };
+    }
+
+    private static Dictionary<string, object> IntArrayValue(IEnumerable<int>? values)
+    {
+        var list = (values ?? Enumerable.Empty<int>())
+            .Select(i => (object)new Dictionary<string, object>
+            {
+                ["integerValue"] = i.ToString()
+            })
+            .ToList();
+        return new Dictionary<string, object>
+        {
+            ["arrayValue"] = new Dictionary<string, object>
+            {
+                ["values"] = list
+            }
         };
     }
 
@@ -515,9 +770,23 @@ public sealed class CloudRosterService : ICloudRosterService
                 TimerRunning = ReadBool(fields, "timerRunning", false),
                 CountdownPresetSeconds = ReadInt(fields, "countdownPresetSeconds",
                     ReadInt(fields, "countdownPreset", 120)),
+                CountdownRemainingSeconds = ReadInt(fields, "countdownRemainingSeconds",
+                    ReadInt(fields, "countdownPresetSeconds",
+                        ReadInt(fields, "countdownPreset", 120))),
                 ViewMode = ReadInt(fields, "viewMode", 0),
                 TeamAScore = ReadInt(fields, "teamAScore", 0),
-                TeamBScore = ReadInt(fields, "teamBScore", 0)
+                TeamBScore = ReadInt(fields, "teamBScore", 0),
+                RotationCount = Math.Max(1, ReadInt(fields, "rotationCount", 1)),
+                LastFieldSlotId = ReadInt(fields, "lastFieldSlotId", 0),
+                LastBenchSlotId = ReadInt(fields, "lastBenchSlotId", 0),
+                NextFieldSlotIds = ReadIntList(fields, "nextFieldSlotIds"),
+                NextBenchSlotIds = ReadIntList(fields, "nextBenchSlotIds"),
+                ControllerUid = ReadString(fields, "controllerUid", ""),
+                ControllerDisplayName = ReadString(fields, "controllerDisplayName", ""),
+                ControlRequestUid = ReadString(fields, "controlRequestUid", ""),
+                ControlRequestDisplayName = ReadString(fields, "controlRequestDisplayName", ""),
+                ControlRequestId = ReadString(fields, "controlRequestId", ""),
+                ControllerHeartbeatUtc = ReadTimestamp(fields, "controllerHeartbeatUtc")
             };
 
             if (fields.TryGetValue("players", out var playersObj) && playersObj is not null)
@@ -601,9 +870,23 @@ public sealed class CloudRosterService : ICloudRosterService
                 TimerRunning = ReadRestBool(fields, "timerRunning", false),
                 CountdownPresetSeconds = ReadRestInt(fields, "countdownPresetSeconds",
                     ReadRestInt(fields, "countdownPreset", 120)),
+                CountdownRemainingSeconds = ReadRestInt(fields, "countdownRemainingSeconds",
+                    ReadRestInt(fields, "countdownPresetSeconds",
+                        ReadRestInt(fields, "countdownPreset", 120))),
                 ViewMode = ReadRestInt(fields, "viewMode", 0),
                 TeamAScore = ReadRestInt(fields, "teamAScore", 0),
-                TeamBScore = ReadRestInt(fields, "teamBScore", 0)
+                TeamBScore = ReadRestInt(fields, "teamBScore", 0),
+                RotationCount = Math.Max(1, ReadRestInt(fields, "rotationCount", 1)),
+                LastFieldSlotId = ReadRestInt(fields, "lastFieldSlotId", 0),
+                LastBenchSlotId = ReadRestInt(fields, "lastBenchSlotId", 0),
+                NextFieldSlotIds = ReadRestIntList(fields, "nextFieldSlotIds"),
+                NextBenchSlotIds = ReadRestIntList(fields, "nextBenchSlotIds"),
+                ControllerUid = ReadRestString(fields, "controllerUid", ""),
+                ControllerDisplayName = ReadRestString(fields, "controllerDisplayName", ""),
+                ControlRequestUid = ReadRestString(fields, "controlRequestUid", ""),
+                ControlRequestDisplayName = ReadRestString(fields, "controlRequestDisplayName", ""),
+                ControlRequestId = ReadRestString(fields, "controlRequestId", ""),
+                ControllerHeartbeatUtc = ReadRestTimestamp(fields, "controllerHeartbeatUtc")
             };
 
             if (fields.TryGetProperty("players", out var playersField)
@@ -652,6 +935,60 @@ public sealed class CloudRosterService : ICloudRosterService
             string s when int.TryParse(s, out var i) => i,
             _ => fallback
         };
+    }
+
+    private static List<int> ReadIntList(IDictionary<string, object> d, string key)
+    {
+        var list = new List<int>();
+        if (!d.TryGetValue(key, out var v) || v is null) return list;
+
+        IEnumerable<object>? items = v switch
+        {
+            IEnumerable<object> o => o,
+            System.Collections.IEnumerable e => e.Cast<object>(),
+            _ => null
+        };
+        if (items is null) return list;
+
+        foreach (var item in items)
+        {
+            switch (item)
+            {
+                case int i:
+                    list.Add(i);
+                    break;
+                case long l:
+                    list.Add((int)l);
+                    break;
+                case string s when int.TryParse(s, out var pi):
+                    list.Add(pi);
+                    break;
+                case IDictionary<string, object> map when map.TryGetValue("integerValue", out var iv)
+                    && int.TryParse(iv?.ToString(), out var nested):
+                    list.Add(nested);
+                    break;
+                default:
+                    if (int.TryParse(item?.ToString(), out var parsed))
+                        list.Add(parsed);
+                    break;
+            }
+        }
+        return list;
+    }
+
+    private static List<int> ReadRestIntList(JsonElement fields, string key)
+    {
+        var list = new List<int>();
+        if (!fields.TryGetProperty(key, out var field)) return list;
+        if (!field.TryGetProperty("arrayValue", out var arr)) return list;
+        if (!arr.TryGetProperty("values", out var values)) return list;
+        foreach (var item in values.EnumerateArray())
+        {
+            if (item.TryGetProperty("integerValue", out var iv)
+                && int.TryParse(iv.GetString(), out var n))
+                list.Add(n);
+        }
+        return list;
     }
 
     private static bool ReadBool(IDictionary<string, object> d, string key, bool fallback)

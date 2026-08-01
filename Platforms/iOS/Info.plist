@@ -64,6 +64,9 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<!-- Export compliance: only exempt crypto (HTTPS/TLS + SHA-256 hashing). -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
 

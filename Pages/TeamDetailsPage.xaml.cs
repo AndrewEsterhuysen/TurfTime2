@@ -24,19 +24,80 @@ public partial class TeamDetailsPage : ContentPage
 		LoadCurrentTeam();
 	}
 
-	protected override void OnAppearing()
+	protected override async void OnAppearing()
 	{
 		base.OnAppearing();
 		DetailsPage.ApplyPageTeamTitle(this, "Team");
+
+		// Shared teams: always re-fetch cloud role so Promote to Admin is reflected locally.
+		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		if (teamMode == "shared" && !string.IsNullOrEmpty(teamId))
+			await RefreshMyRoleFromCloudAsync(teamId);
+
 		LoadCurrentTeam();
 
-		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
 		if (!string.IsNullOrEmpty(teamMode))
 		{
 			if (teamMode == "local")
 				LocalCheckbox.IsChecked = true;   // triggers LoadLocalTeamsAsync
 			else if (teamMode == "shared")
 				SharedCheckbox.IsChecked = true;  // triggers LoadSharedTeamsAsync
+		}
+	}
+
+	/// <summary>
+	/// Writes role into all local caches used by Game, Team Admin tools, and team switcher.
+	/// </summary>
+	private static void ApplyLocalRoleCache(string teamId, string role)
+	{
+		var normalized = string.IsNullOrWhiteSpace(role)
+			? "member"
+			: role.Trim().ToLowerInvariant();
+		if (normalized is not ("admin" or "member"))
+			normalized = "member";
+
+		Preferences.Set($"{teamId}_role", normalized);
+		Preferences.Set($"user_role_{teamId}", normalized);
+
+		var currentId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		if (string.Equals(currentId, teamId, StringComparison.Ordinal))
+			Preferences.Set(USER_ROLE_KEY, normalized);
+	}
+
+	/// <summary>
+	/// Pulls the signed-in user's role from Firestore and updates local Preferences.
+	/// Returns the normalized role, or null if cloud could not be reached.
+	/// </summary>
+	private async Task<string?> RefreshMyRoleFromCloudAsync(string teamId)
+	{
+		if (string.IsNullOrWhiteSpace(teamId) || teamId.StartsWith("local_", StringComparison.Ordinal))
+			return null;
+
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null) return null;
+
+			var cloudRole = await cloud.GetMyRoleAsync(teamId);
+			if (string.IsNullOrWhiteSpace(cloudRole))
+			{
+				System.Diagnostics.Debug.WriteLine(
+					$"[TeamDetails] GetMyRole empty for team={teamId}");
+				return null;
+			}
+
+			var normalized = cloudRole.Trim().ToLowerInvariant();
+			ApplyLocalRoleCache(teamId, normalized);
+			System.Diagnostics.Debug.WriteLine(
+				$"[TeamDetails] Cloud role for {teamId}: {normalized}");
+			return normalized;
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine(
+				$"[TeamDetails] RefreshMyRoleFromCloud: {ex.Message}");
+			return null;
 		}
 	}
 
@@ -86,6 +147,11 @@ public partial class TeamDetailsPage : ContentPage
 			SharedAdminTools.IsVisible = isAdmin;
 			if (isAdmin)
 				LoadInviteCode();
+
+			// Owner (club manager) can transfer ownership to another admin
+			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var isOwner = isShared && Preferences.Get($"{teamId}_isOwner", false);
+			TransferOwnershipButton.IsVisible = isOwner;
 
 			LeaveTeamButton.IsVisible = isShared;
 			DeleteLocalTeamButton.IsVisible = isLocal;
@@ -205,6 +271,7 @@ public partial class TeamDetailsPage : ContentPage
 			ChangeTeamModeHint.IsVisible = false;
 			AcquireTeamSection.IsVisible = true;
 			JoinSubsection.IsVisible = true;
+			LocalImportSubsection.IsVisible = false;
 			CreateSubsectionTitle.Text = "Create new shared team";
 			SetJoinTeamExpanded(false);
 			SetCreateTeamExpanded(false);
@@ -217,6 +284,7 @@ public partial class TeamDetailsPage : ContentPage
 			RejoinAdminSection.IsVisible = false;
 			ChangeTeamModeHint.IsVisible = true;
 			AcquireTeamSection.IsVisible = false;
+			LocalImportSubsection.IsVisible = false;
 		}
 		else
 		{
@@ -236,7 +304,8 @@ public partial class TeamDetailsPage : ContentPage
 			RejoinAdminSection.IsVisible = false;
 			ChangeTeamModeHint.IsVisible = false;
 			AcquireTeamSection.IsVisible = true;
-			JoinSubsection.IsVisible = false; // parents join shared teams, not local
+			JoinSubsection.IsVisible = false; // invite join is shared-only
+			LocalImportSubsection.IsVisible = true; // offline roster QR
 			CreateSubsectionTitle.Text = "Create new local team";
 			SetJoinTeamExpanded(false);
 			SetCreateTeamExpanded(false);
@@ -249,12 +318,14 @@ public partial class TeamDetailsPage : ContentPage
 			LocalTeamSwitcherLabel.IsVisible = false;
 			ChangeTeamModeHint.IsVisible = true;
 			AcquireTeamSection.IsVisible = false;
+			LocalImportSubsection.IsVisible = false;
 		}
 		else
 		{
 			LocalTeamSection.IsVisible = false;
 			LocalTeamsCollection.IsVisible = false;
 			LocalTeamSwitcherLabel.IsVisible = false;
+			LocalImportSubsection.IsVisible = false;
 		}
 		UpdateCreateTeamSubSections();
 	}
@@ -440,12 +511,15 @@ public partial class TeamDetailsPage : ContentPage
 					{
 						var isActive = currentTeamMode == "shared" && currentTeamId == teamId;
 						var role = Preferences.Get($"{teamId}_role", "member");
+						if (string.IsNullOrEmpty(role)) role = "member";
+						var isOwner = Preferences.Get($"{teamId}_isOwner", false);
 						result.Add(new SharedTeamItem
 						{
 							TeamId = teamId,
 							TeamName = teamName,
 							IsActive = isActive,
-							Role = char.ToUpperInvariant(role[0]) + role[1..]
+							Role = char.ToUpperInvariant(role[0]) + role[1..],
+							IsOwner = isOwner
 						});
 					}
 				}
@@ -455,6 +529,10 @@ public partial class TeamDetailsPage : ContentPage
 			_sharedTeams.Clear();
 			foreach (var team in newTeams)
 				_sharedTeams.Add(team);
+
+			// Refresh owner flags + roles from cloud (Promote to Admin, ownership transfer).
+			_ = RefreshSharedTeamOwnerFlagsAsync();
+			_ = RefreshSharedTeamRolesFromCloudAsync();
 
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Found {_sharedTeams.Count} shared teams");
 
@@ -470,7 +548,7 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
-	private void OnSharedTeamSelectionChanged(object sender, SelectionChangedEventArgs e)
+	private async void OnSharedTeamSelectionChanged(object sender, SelectionChangedEventArgs e)
 	{
 		if (e.CurrentSelection.FirstOrDefault() is not SharedTeamItem selectedTeam)
 			return;
@@ -479,32 +557,47 @@ public partial class TeamDetailsPage : ContentPage
 
 		if (currentTeamId == selectedTeam.TeamId)
 		{
+			// Same team re-selected: still refresh cloud role (e.g. just promoted).
 			SharedTeamsCollection.SelectedItem = null;
+			var refreshed = await RefreshMyRoleFromCloudAsync(selectedTeam.TeamId);
+			LoadCurrentTeam();
+			if (!string.IsNullOrEmpty(refreshed))
+			{
+				selectedTeam.Role = char.ToUpperInvariant(refreshed[0]) + refreshed[1..];
+				FindGamePage()?.ResetMatchState();
+			}
 			return;
 		}
 
 		System.Diagnostics.Debug.WriteLine($"[TeamDetails] Switching to shared team: {selectedTeam.TeamName}");
+		SharedTeamsCollection.SelectedItem = null;
 
-		var storedRole = Preferences.Get($"{selectedTeam.TeamId}_role", "member");
+		// Prefer cloud role over stale local cache (join stored "member"; promote updates cloud only).
+		var role = await RefreshMyRoleFromCloudAsync(selectedTeam.TeamId)
+		           ?? Preferences.Get($"{selectedTeam.TeamId}_role", "member");
+		if (string.IsNullOrWhiteSpace(role)) role = "member";
+		role = role.Trim().ToLowerInvariant();
+
+		FindGamePage()?.ResetMatchState();
+
 		Preferences.Set(TEAM_MODE_KEY, "shared");
 		Preferences.Set(TEAM_ID_KEY, selectedTeam.TeamId);
 		Preferences.Set(TEAM_NAME_KEY, selectedTeam.TeamName);
-		Preferences.Set(USER_ROLE_KEY, storedRole);
+		ApplyLocalRoleCache(selectedTeam.TeamId, role);
 
 		SyncTeamIdToLocalStorage(selectedTeam.TeamId);
 		RefreshAppShellMenu();
-		SharedTeamsCollection.SelectedItem = null;
 
-		MainThread.BeginInvokeOnMainThread(async () =>
-		{
-			await DisplayAlert("Team Switched",
-				$"Now managing: {selectedTeam.TeamName}\n\n" +
-				$"Role: {selectedTeam.Role}",
-				"OK");
+		var roleLabel = char.ToUpperInvariant(role[0]) + role[1..];
+		selectedTeam.Role = roleLabel;
 
-			LoadCurrentTeam();
-			_ = LoadSharedTeamsAsync();
-		});
+		await DisplayAlert("Team Switched",
+			$"Now managing: {selectedTeam.TeamName}\n\n" +
+			$"Role: {roleLabel}",
+			"OK");
+
+		LoadCurrentTeam();
+		_ = LoadSharedTeamsAsync();
 	}
 
 	private void OnSharedTeamItemTapped(object sender, EventArgs e)
@@ -944,6 +1037,7 @@ public partial class TeamDetailsPage : ContentPage
 				$"{teamId}_logs",           // Game logs (if stored per-team)
 				$"{teamId}_invite_code",    // Invite code (for shared teams)
 				$"{teamId}_role",           // Local role cache for shared teams
+				$"{teamId}_isOwner",        // Club manager / creator flag
 				$"{teamId}_settings",       // Team-specific settings
 				$"{teamId}_history",        // Match history
 				$"{teamId}_stats",          // Team statistics
@@ -1051,6 +1145,8 @@ public partial class TeamDetailsPage : ContentPage
 					// Save locally as well for Phase 1 compatibility
 					Preferences.Set($"{teamId}_invite_code", inviteCode);
 					Preferences.Set($"{teamId}_name", teamName);
+					// Creator is the team owner (club manager) — only they may hard-delete the cloud team.
+					Preferences.Set($"{teamId}_isOwner", true);
 					RegisterTeamId(teamId);
 					UserDisplayName.Set(displayName);
 
@@ -1231,6 +1327,7 @@ private void RegisterTeamId(string teamId)
 					Preferences.Set(USER_ROLE_KEY, "member");
 					Preferences.Set($"{teamId}_role", "member");
 					Preferences.Set($"{teamId}_name", teamName);
+					Preferences.Set($"{teamId}_isOwner", false);
 					UserDisplayName.Set(displayName);
 
 					// ALSO store per-team keys for GamePage polling
@@ -1363,6 +1460,16 @@ private void RegisterTeamId(string teamId)
 						Preferences.Set($"team_mode_{restoredTeamId}", "shared");
 						Preferences.Set($"user_role_{restoredTeamId}", "admin");
 						Preferences.Set($"{restoredTeamId}_name", restoredTeamName);
+						// Owner only if this Firebase user is metadata.createdBy (club manager)
+						var isOwner = false;
+						try
+						{
+							var c = ResolveCloudTeam();
+							if (c is not null)
+								isOwner = await c.IsTeamOwnerAsync(restoredTeamId);
+						}
+						catch { /* non-fatal */ }
+						Preferences.Set($"{restoredTeamId}_isOwner", isOwner);
 						UserDisplayName.Set(displayName);
 						RegisterTeamId(restoredTeamId);
 
@@ -1676,9 +1783,476 @@ private void RegisterTeamId(string teamId)
 		}
 	}
 
-	private void OnViewMembersClicked(object sender, EventArgs e)
+	private async void OnViewMembersClicked(object sender, EventArgs e)
 	{
-		DisplayAlert("Team Members", "Feature coming soon!\n\nThis will show all team members with their roles.", "OK");
+		try
+		{
+			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			if (string.IsNullOrEmpty(teamId))
+			{
+				await DisplayAlert("No Team", "Select a shared team first.", "OK");
+				return;
+			}
+
+			var cloud = ResolveCloudTeam();
+			if (cloud is null)
+			{
+				await DisplayAlert("Unavailable", "Cloud team service is not available.", "OK");
+				return;
+			}
+
+			var members = await cloud.ListMembersAsync(teamId);
+			if (members.Count == 0)
+			{
+				await DisplayAlert("Team Members", "No members found (or could not load).", "OK");
+				return;
+			}
+
+			// Resolve real owner (metadata.createdBy) so every viewer sees Owner, not only self-as-owner.
+			var ownerUid = await cloud.GetTeamOwnerUidAsync(teamId);
+
+			var body = string.Join("\n", members.Select(m =>
+			{
+				string role;
+				if (!string.IsNullOrEmpty(ownerUid)
+				    && string.Equals(m.Uid, ownerUid, StringComparison.Ordinal))
+					role = "Owner";
+				else if (m.IsAdmin)
+					role = "Admin";
+				else
+					role = "Member";
+				return $"• {m.DisplayName}  ({role})";
+			}));
+
+			await DisplayAlert("Team Members", body, "OK");
+		}
+		catch (Exception ex)
+		{
+			await DisplayAlert("Error", $"Could not load members: {ex.Message}", "OK");
+		}
+	}
+
+	private async void OnRelinquishControlClicked(object sender, EventArgs e)
+	{
+		try
+		{
+			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var mode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+			if (string.IsNullOrEmpty(teamId) || mode != "shared")
+			{
+				await DisplayAlert("Shared Team", "Select a shared team first.", "OK");
+				return;
+			}
+
+			var confirm = await DisplayAlert(
+				"Relinquish Match Control?",
+				"Stop controlling the live match on this device.\n\n" +
+				"Other Admins will no longer be locked to view-only and can Start or take control.\n\n" +
+				"This does not end the match — it only releases the single-controller lock.",
+				"Relinquish",
+				"Cancel");
+			if (!confirm) return;
+
+			RelinquishControlButton.IsEnabled = false;
+
+			// Prefer the live GameViewModel so local state updates immediately.
+			var gamePage = FindGamePage();
+			var vm = gamePage?.ViewModel;
+			string result;
+			if (vm is not null)
+			{
+				result = await vm.RelinquishControlAsync();
+			}
+			else
+			{
+				// Game not loaded — clear cloud lock directly if we are the controller.
+				var roster = Handler?.MauiContext?.Services?.GetService<ICloudRosterService>()
+				             ?? Application.Current?.Handler?.MauiContext?.Services
+					             ?.GetService<ICloudRosterService>();
+				if (roster is null)
+				{
+					await DisplayAlert("Unavailable", "Could not reach cloud services.", "OK");
+					return;
+				}
+
+				var uid = await roster.GetSignedInUidAsync() ?? "";
+				var snap = await roster.LoadAsync(teamId, preferCloud: true);
+				var controller = snap?.ControllerUid?.Trim() ?? "";
+				if (string.IsNullOrEmpty(controller))
+				{
+					await DisplayAlert("No Controller", "Nobody currently holds match control.", "OK");
+					return;
+				}
+
+				if (!string.IsNullOrEmpty(uid)
+				    && !string.Equals(controller, uid, StringComparison.Ordinal))
+				{
+					await DisplayAlert(
+						"Not Controlling",
+						$"{snap?.ControllerDisplayName ?? "Another Admin"} is controlling the match.\n\n" +
+						"Ask them to Relinquish, Accept your Request control, or wait for auto-release if they went offline (~90s).",
+						"OK");
+					return;
+				}
+
+				await roster.PatchGameControlAsync(teamId, "", "", "", "", "", DateTimeOffset.UnixEpoch);
+				result = "success";
+			}
+
+			if (result == "success")
+			{
+				await DisplayAlert(
+					"Control Released",
+					"Match control was relinquished. Another Admin can now run the game.",
+					"OK");
+			}
+			else
+			{
+				var msg = result.StartsWith("error:", StringComparison.Ordinal)
+					? result["error:".Length..].Trim()
+					: result;
+				await DisplayAlert("Could Not Relinquish", msg, "OK");
+			}
+		}
+		catch (Exception ex)
+		{
+			await DisplayAlert("Error", $"Could not relinquish control: {ex.Message}", "OK");
+		}
+		finally
+		{
+			RelinquishControlButton.IsEnabled = true;
+		}
+	}
+
+	private async void OnPromoteToAdminClicked(object sender, EventArgs e)
+	{
+		try
+		{
+			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			if (string.IsNullOrEmpty(teamId))
+			{
+				await DisplayAlert("No Team", "Select a shared team first.", "OK");
+				return;
+			}
+
+			var cloud = ResolveCloudTeam();
+			if (cloud is null)
+			{
+				await DisplayAlert("Unavailable", "Cloud team service is not available.", "OK");
+				return;
+			}
+
+			var selfUid = await cloud.EnsureSignedInAsync()
+			              ?? Preferences.Get("chat_user_id", string.Empty);
+			var members = await cloud.ListMembersAsync(teamId);
+			var candidates = members
+				.Where(m => !m.IsAdmin
+				            && !string.Equals(m.Uid, selfUid, StringComparison.Ordinal))
+				.ToList();
+
+			if (candidates.Count == 0)
+			{
+				await DisplayAlert(
+					"No Members to Promote",
+					"Everyone on this team is already an Admin, or there are no other members yet.\n\n" +
+					"Share the invite code so someone can join as a Member first.",
+					"OK");
+				return;
+			}
+
+			var labels = candidates.Select(m => m.DisplayName).ToArray();
+			var choice = await DisplayActionSheet(
+				"Promote to Admin…",
+				"Cancel",
+				null,
+				labels);
+
+			if (string.IsNullOrEmpty(choice) || choice == "Cancel")
+				return;
+
+			var target = candidates.FirstOrDefault(m => m.DisplayName == choice);
+			if (target is null || candidates.Count(m => m.DisplayName == choice) > 1)
+			{
+				var uniqueLabels = candidates
+					.Select(m => $"{m.DisplayName} ({m.Uid[..Math.Min(6, m.Uid.Length)]}…)")
+					.ToArray();
+				choice = await DisplayActionSheet("Promote to Admin…", "Cancel", null, uniqueLabels);
+				if (string.IsNullOrEmpty(choice) || choice == "Cancel")
+					return;
+				var idx = Array.IndexOf(uniqueLabels, choice);
+				if (idx < 0) return;
+				target = candidates[idx];
+			}
+
+			var confirm = await DisplayAlert(
+				"Promote to Admin?",
+				$"Make {target.DisplayName} an Admin?\n\n" +
+				"They will be able to run games, edit Location/Kit/Duties, and manage the team " +
+				"(same as you, except only the Owner can delete the team or transfer ownership).\n\n" +
+				"Tip: if two Admins control a live match at once, one should use Watch Only on the Game page.",
+				"Promote",
+				"Cancel");
+			if (!confirm) return;
+
+			var result = await cloud.PromoteMemberToAdminAsync(teamId, target.Uid);
+			if (result == "success")
+			{
+				await DisplayAlert(
+					"Promoted",
+					$"{target.DisplayName} is now an Admin.\n\n" +
+					"Ask them to open the Game tab (or switch away and back) so their device picks up Admin controls.",
+					"OK");
+			}
+			else
+			{
+				var msg = result.StartsWith("error:", StringComparison.Ordinal)
+					? result["error:".Length..].Trim()
+					: result;
+				await DisplayAlert("Could Not Promote", msg, "OK");
+			}
+		}
+		catch (Exception ex)
+		{
+			await DisplayAlert("Error", $"Could not promote member: {ex.Message}", "OK");
+		}
+	}
+
+	private async void OnRemoveMemberClicked(object sender, EventArgs e)
+	{
+		try
+		{
+			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			if (string.IsNullOrEmpty(teamId))
+			{
+				await DisplayAlert("No Team", "Select a shared team first.", "OK");
+				return;
+			}
+
+			var cloud = ResolveCloudTeam();
+			if (cloud is null)
+			{
+				await DisplayAlert("Unavailable", "Cloud team service is not available.", "OK");
+				return;
+			}
+
+			var selfUid = await cloud.EnsureSignedInAsync()
+			              ?? Preferences.Get("chat_user_id", string.Empty);
+			// Prefer live cloud owner (REST), not a stale Preferences flag from an older install.
+			var ownerUid = await cloud.GetTeamOwnerUidAsync(teamId);
+			var iAmOwner = !string.IsNullOrEmpty(ownerUid)
+			               && !string.IsNullOrEmpty(selfUid)
+			               && string.Equals(ownerUid, selfUid, StringComparison.Ordinal);
+			// If ownership cannot be resolved, still list Admins so they can be cleaned up.
+			var canRemoveAdmins = iAmOwner || string.IsNullOrEmpty(ownerUid);
+			Preferences.Set($"{teamId}_isOwner", iAmOwner);
+
+			var members = await cloud.ListMembersAsync(teamId);
+			// Everyone except self; owner (or unresolved ownership) may remove other Admins;
+			// co-admins only Members. Owner never appears (self filter + server createdBy check).
+			var candidates = members
+				.Where(m => !string.Equals(m.Uid, selfUid, StringComparison.Ordinal))
+				.Where(m => canRemoveAdmins || !m.IsAdmin)
+				.Where(m => string.IsNullOrEmpty(ownerUid)
+				            || !string.Equals(m.Uid, ownerUid, StringComparison.Ordinal))
+				.ToList();
+
+			if (candidates.Count == 0)
+			{
+				await DisplayAlert(
+					"No One to Remove",
+					canRemoveAdmins
+						? "There are no other removable members on this team."
+						: "There are no Members to remove.\n\n" +
+						  "Only the team Owner can remove other Admins. Use Leave Team to leave yourself.",
+					"OK");
+				return;
+			}
+
+			static string MemberRemoveLabel(CloudTeamMember m, string? owner)
+			{
+				if (!string.IsNullOrEmpty(owner)
+				    && string.Equals(m.Uid, owner, StringComparison.Ordinal))
+					return $"{m.DisplayName} (Owner)";
+				if (m.IsAdmin) return $"{m.DisplayName} (Admin)";
+				return m.DisplayName;
+			}
+
+			var labels = candidates.Select(m => MemberRemoveLabel(m, ownerUid)).ToArray();
+			var choice = await DisplayActionSheet(
+				"Remove Member…",
+				"Cancel",
+				null,
+				labels);
+
+			if (string.IsNullOrEmpty(choice) || choice == "Cancel")
+				return;
+
+			var target = candidates.FirstOrDefault(m =>
+				string.Equals(MemberRemoveLabel(m, ownerUid), choice, StringComparison.Ordinal));
+			if (target is null || candidates.Count(m =>
+				    string.Equals(MemberRemoveLabel(m, ownerUid), choice, StringComparison.Ordinal)) > 1)
+			{
+				var uniqueLabels = candidates
+					.Select(m =>
+					{
+						var role = (!string.IsNullOrEmpty(ownerUid)
+						            && string.Equals(m.Uid, ownerUid, StringComparison.Ordinal))
+							? "Owner"
+							: m.IsAdmin ? "Admin" : "Member";
+						return $"{m.DisplayName} ({role}, {m.Uid[..Math.Min(6, m.Uid.Length)]}…)";
+					})
+					.ToArray();
+				choice = await DisplayActionSheet("Remove Member…", "Cancel", null, uniqueLabels);
+				if (string.IsNullOrEmpty(choice) || choice == "Cancel")
+					return;
+				var idx = Array.IndexOf(uniqueLabels, choice);
+				if (idx < 0) return;
+				target = candidates[idx];
+			}
+
+			var roleNote = target.IsAdmin ? " (Admin)" : "";
+			var confirm = await DisplayAlert(
+				"Remove Member?",
+				$"Remove {target.DisplayName}{roleNote} from this team?\n\n" +
+				"They will lose access immediately and must rejoin with the invite code " +
+				"(or admin recovery if they were an Admin).\n\n" +
+				"This does not delete their device data — only cloud membership.",
+				"Remove",
+				"Cancel");
+			if (!confirm) return;
+
+			var result = await cloud.RemoveMemberAsync(teamId, target.Uid);
+			if (result == "success")
+			{
+				await DisplayAlert(
+					"Member Removed",
+					$"{target.DisplayName} is no longer on this team.",
+					"OK");
+			}
+			else
+			{
+				var msg = result.StartsWith("error:", StringComparison.Ordinal)
+					? result["error:".Length..].Trim()
+					: result;
+				await DisplayAlert("Could Not Remove", msg, "OK");
+			}
+		}
+		catch (Exception ex)
+		{
+			await DisplayAlert("Error", $"Could not remove member: {ex.Message}", "OK");
+		}
+	}
+
+	private async void OnTransferOwnershipClicked(object sender, EventArgs e)
+	{
+		try
+		{
+			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var teamName = Preferences.Get(TEAM_NAME_KEY, "this team");
+			if (string.IsNullOrEmpty(teamId))
+			{
+				await DisplayAlert("No Team", "Select a shared team first.", "OK");
+				return;
+			}
+
+			var cloud = ResolveCloudTeam();
+			if (cloud is null)
+			{
+				await DisplayAlert("Unavailable", "Cloud team service is not available.", "OK");
+				return;
+			}
+
+			if (!await cloud.IsTeamOwnerAsync(teamId))
+			{
+				await DisplayAlert(
+					"Owner Only",
+					"Only the team owner (club manager) can transfer ownership.",
+					"OK");
+				Preferences.Set($"{teamId}_isOwner", false);
+				TransferOwnershipButton.IsVisible = false;
+				return;
+			}
+
+			var selfUid = await cloud.EnsureSignedInAsync() ?? Preferences.Get("chat_user_id", string.Empty);
+			var members = await cloud.ListMembersAsync(teamId);
+			var otherAdmins = members
+				.Where(m => m.IsAdmin && !string.Equals(m.Uid, selfUid, StringComparison.Ordinal))
+				.ToList();
+
+			if (otherAdmins.Count == 0)
+			{
+				await DisplayAlert(
+					"No Other Admins",
+					"Ownership can only transfer to another Admin.\n\n" +
+					"Use Promote to Admin first, then transfer ownership.",
+					"OK");
+				return;
+			}
+
+			// DisplayActionSheet: cancel + admin display names
+			var labels = otherAdmins.Select(a => a.DisplayName).ToArray();
+			var choice = await DisplayActionSheet(
+				"Transfer ownership to…",
+				"Cancel",
+				null,
+				labels);
+
+			if (string.IsNullOrEmpty(choice) || choice == "Cancel")
+				return;
+
+			var target = otherAdmins.FirstOrDefault(a => a.DisplayName == choice);
+			// Disambiguate duplicate names by re-prompting with uid suffix if needed
+			if (target is null || otherAdmins.Count(a => a.DisplayName == choice) > 1)
+			{
+				var uniqueLabels = otherAdmins
+					.Select(a => $"{a.DisplayName} ({a.Uid[..Math.Min(6, a.Uid.Length)]}…)")
+					.ToArray();
+				choice = await DisplayActionSheet("Transfer ownership to…", "Cancel", null, uniqueLabels);
+				if (string.IsNullOrEmpty(choice) || choice == "Cancel")
+					return;
+				var idx = Array.IndexOf(uniqueLabels, choice);
+				if (idx < 0) return;
+				target = otherAdmins[idx];
+			}
+
+			var confirm = await DisplayAlert(
+				"Transfer Ownership?",
+				$"Make {target.DisplayName} the owner of '{teamName}'?\n\n" +
+				"You will remain an Admin and can still run games, but only they can Delete the team from the cloud.\n\n" +
+				"You can leave the team afterward if you wish.",
+				"Transfer",
+				"Cancel");
+			if (!confirm) return;
+
+			TransferOwnershipButton.IsEnabled = false;
+			var result = await cloud.TransferOwnershipAsync(teamId, target.Uid);
+			if (result == "success")
+			{
+				Preferences.Set($"{teamId}_isOwner", false);
+				TransferOwnershipButton.IsVisible = false;
+				await DisplayAlert(
+					"Ownership Transferred",
+					$"{target.DisplayName} is now the owner of '{teamName}'.",
+					"OK");
+				_ = LoadSharedTeamsAsync();
+				LoadCurrentTeam();
+			}
+			else
+			{
+				var msg = result.StartsWith("error:", StringComparison.Ordinal)
+					? result["error:".Length..].Trim()
+					: result;
+				await DisplayAlert("Transfer Failed", string.IsNullOrWhiteSpace(msg) ? result : msg, "OK");
+			}
+		}
+		catch (Exception ex)
+		{
+			await DisplayAlert("Error", $"Transfer failed: {ex.Message}", "OK");
+		}
+		finally
+		{
+			TransferOwnershipButton.IsEnabled = true;
+		}
 	}
 
 	private async void OnRegenerateCodeClicked(object sender, EventArgs e)
@@ -1809,7 +2383,7 @@ private void RegisterTeamId(string teamId)
 	}
 
 	/// <summary>
-	/// Swipe left on a shared team row — leave that team (device-side). Same on iOS and Android.
+	/// Swipe right on a shared team row — leave that team (device-side). Same on iOS and Android.
 	/// </summary>
 	private async void OnLeaveSharedTeamSwipe(object sender, EventArgs e)
 	{
@@ -1818,10 +2392,17 @@ private void RegisterTeamId(string teamId)
 
 		System.Diagnostics.Debug.WriteLine($"[TeamDetails] Leave swipe triggered for: {teamToLeave.TeamName}");
 
+		var ownerNote = teamToLeave.IsOwner
+			? "\n\n⚠️ You are the team OWNER. Leaving does NOT delete the cloud team for other members/admins.\n" +
+			  "To remove it for everyone, swipe the other way and choose Delete.\n" +
+			  "If left abandoned, the cloud team is auto-removed after 12 months with no activity."
+			: "";
+
 		var confirm = await DisplayAlert(
 			"Leave Team?",
 			$"Are you sure you want to leave '{teamToLeave.TeamName}'?\n\n" +
-			"This removes the team from this device. You will need an invite code (or admin recovery) to rejoin.",
+			"This removes the team from this device. You will need an invite code (or admin recovery) to rejoin." +
+			ownerNote,
 			"Leave",
 			"Cancel");
 
@@ -1834,7 +2415,206 @@ private void RegisterTeamId(string teamId)
 		await LeaveSharedTeamAsync(teamToLeave);
 	}
 
-	private async Task LeaveSharedTeamAsync(SharedTeamItem team)
+	/// <summary>
+	/// Swipe left — owner-only hard delete of the shared team in Firebase (all members lose access).
+	/// </summary>
+	private async void OnDeleteSharedTeamSwipe(object sender, EventArgs e)
+	{
+		if (sender is not SwipeItem swipeItem || swipeItem.CommandParameter is not SharedTeamItem team)
+			return;
+
+		// Live cloud owner uid (REST) — do not trust stale Preferences/IsOwner alone.
+		var cloud = ResolveCloudTeam();
+		var isOwner = false;
+		if (cloud is not null)
+		{
+			try
+			{
+				isOwner = await cloud.IsTeamOwnerAsync(team.TeamId);
+				Preferences.Set($"{team.TeamId}_isOwner", isOwner);
+				team.IsOwner = isOwner;
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] IsTeamOwner check: {ex.Message}");
+				isOwner = team.IsOwner; // last resort
+			}
+		}
+		else
+		{
+			isOwner = team.IsOwner;
+		}
+
+		if (!isOwner)
+		{
+			await DisplayAlert(
+				"Owner Only",
+				$"Only the team owner (club manager who created '{team.TeamName}') can delete it from the cloud.\n\n" +
+				"If this device reinstalled, Firebase may have a new identity — the cloud still lists the original Owner. " +
+				"Use Leave to remove yourself, or delete from the original Owner device.\n\n" +
+				"Co-admins should Leave rather than Delete.",
+				"OK");
+			return;
+		}
+
+		var confirm = await DisplayAlert(
+			"Delete Team Forever?",
+			$"Delete '{team.TeamName}' for EVERYONE?\n\n" +
+			"This permanently removes cloud data including:\n" +
+			"  • Team metadata & invite code\n" +
+			"  • Member list\n" +
+			"  • Shared roster\n" +
+			"  • Chat & session history (when present)\n\n" +
+			"Other admins and members will lose access. This cannot be undone.",
+			"Delete Forever",
+			"Cancel");
+
+		if (!confirm)
+			return;
+
+		await DeleteSharedTeamAsOwnerAsync(team);
+	}
+
+	private async Task DeleteSharedTeamAsOwnerAsync(SharedTeamItem team)
+	{
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null)
+			{
+				await DisplayAlert("Unavailable", "Cloud team service is not available. Check your connection.", "OK");
+				return;
+			}
+
+			var result = await cloud.DeleteTeamAsOwnerAsync(team.TeamId);
+			if (result == "error: not_owner")
+			{
+				Preferences.Set($"{team.TeamId}_isOwner", false);
+				team.IsOwner = false;
+				await DisplayAlert(
+					"Owner Only",
+					"Firebase did not accept this device as the team Owner.\n\n" +
+					"Common cause after many redeploys: a new anonymous sign-in id, while " +
+					"metadata.createdBy still points at the original Owner account.\n\n" +
+					"Try again on the device that originally created the team, or use Leave " +
+					"on this device and clean up from the true Owner.",
+					"OK");
+				return;
+			}
+
+			if (!result.StartsWith("success", StringComparison.Ordinal))
+			{
+				var msg = result.StartsWith("error:", StringComparison.Ordinal)
+					? result["error:".Length..].Trim()
+					: result;
+				await DisplayAlert("Delete Failed", string.IsNullOrWhiteSpace(msg) ? result : msg, "OK");
+				return;
+			}
+
+			// Local cleanup (same as leave, plus owner flag)
+			await LeaveSharedTeamAsync(team, skipConfirmMessage: true);
+			Preferences.Remove($"{team.TeamId}_isOwner");
+
+			await DisplayAlert(
+				"Team Deleted",
+				$"'{team.TeamName}' was removed from Firebase and this device.",
+				"OK");
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ❌ Delete shared team: {ex.Message}");
+			await DisplayAlert("Error", $"Failed to delete team: {ex.Message}", "OK");
+		}
+	}
+
+	private async Task RefreshSharedTeamOwnerFlagsAsync()
+	{
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null) return;
+
+			var changed = false;
+			foreach (var team in _sharedTeams.ToList())
+			{
+				var owner = await cloud.IsTeamOwnerAsync(team.TeamId);
+				Preferences.Set($"{team.TeamId}_isOwner", owner);
+				if (team.IsOwner != owner)
+				{
+					team.IsOwner = owner;
+					changed = true;
+				}
+			}
+
+			if (changed)
+			{
+				await MainThread.InvokeOnMainThreadAsync(() =>
+				{
+					// Force CollectionView refresh for RoleLabel
+					var copy = _sharedTeams.ToList();
+					_sharedTeams.Clear();
+					foreach (var t in copy)
+						_sharedTeams.Add(t);
+				});
+			}
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Refresh owner flags: {ex.Message}");
+		}
+	}
+
+	/// <summary>
+	/// Re-reads each shared team's cloud role for this device (picks up Promote to Admin).
+	/// </summary>
+	private async Task RefreshSharedTeamRolesFromCloudAsync()
+	{
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null) return;
+
+			var changed = false;
+			var currentId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+
+			foreach (var team in _sharedTeams.ToList())
+			{
+				var role = await cloud.GetMyRoleAsync(team.TeamId);
+				if (string.IsNullOrWhiteSpace(role)) continue;
+
+				var normalized = role.Trim().ToLowerInvariant();
+				ApplyLocalRoleCache(team.TeamId, normalized);
+
+				var label = char.ToUpperInvariant(normalized[0]) + normalized[1..];
+				if (!string.Equals(team.Role, label, StringComparison.OrdinalIgnoreCase))
+				{
+					team.Role = label;
+					changed = true;
+				}
+
+				if (string.Equals(team.TeamId, currentId, StringComparison.Ordinal))
+					changed = true; // ensure admin tools re-evaluate
+			}
+
+			if (changed)
+			{
+				await MainThread.InvokeOnMainThreadAsync(() =>
+				{
+					LoadCurrentTeam();
+					var copy = _sharedTeams.ToList();
+					_sharedTeams.Clear();
+					foreach (var t in copy)
+						_sharedTeams.Add(t);
+				});
+			}
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Refresh roles: {ex.Message}");
+		}
+	}
+
+	private async Task LeaveSharedTeamAsync(SharedTeamItem team, bool skipConfirmMessage = false)
 	{
 		try
 		{
@@ -1851,11 +2631,12 @@ private void RegisterTeamId(string teamId)
 				Preferences.Set("team_id_list", System.Text.Json.JsonSerializer.Serialize(teamIds));
 			}
 
-			// Local cleanup for this team (cloud membership docs are not deleted here)
+			// Local cleanup for this team (cloud membership docs are not deleted here unless owner delete already ran)
 			DeleteAllTeamData(team.TeamId);
 			Preferences.Remove($"{team.TeamId}_role");
 			Preferences.Remove($"team_mode_{team.TeamId}");
 			Preferences.Remove($"user_role_{team.TeamId}");
+			// Keep isOwner only if still on list — cleared on delete path
 
 			if (isCurrentTeam)
 			{
@@ -1864,13 +2645,16 @@ private void RegisterTeamId(string teamId)
 				Preferences.Remove(TEAM_NAME_KEY);
 				Preferences.Remove(USER_ROLE_KEY);
 
-				await DisplayAlert(
-					"Left Team",
-					$"You have left '{team.TeamName}'.\n\n" +
-					"No team is selected. Join or select another shared team to continue.",
-					"OK");
+				if (!skipConfirmMessage)
+				{
+					await DisplayAlert(
+						"Left Team",
+						$"You have left '{team.TeamName}'.\n\n" +
+						"No team is selected. Join or select another shared team to continue.",
+						"OK");
+				}
 			}
-			else
+			else if (!skipConfirmMessage)
 			{
 				await DisplayAlert("Left Team", $"You have left '{team.TeamName}'.", "OK");
 			}
@@ -1882,7 +2666,10 @@ private void RegisterTeamId(string teamId)
 		catch (Exception ex)
 		{
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] ❌ Leave team error: {ex.Message}");
-			await DisplayAlert("Error", $"Failed to leave team: {ex.Message}", "OK");
+			if (!skipConfirmMessage)
+				await DisplayAlert("Error", $"Failed to leave team: {ex.Message}", "OK");
+			else
+				throw;
 		}
 	}
 
@@ -2034,6 +2821,9 @@ public class SharedTeamItem
 	public string TeamName { get; set; } = string.Empty;
 	public bool IsActive { get; set; }
 	public string Role { get; set; } = string.Empty;
+	/// <summary>True when this device's Firebase user created the team (club manager / owner).</summary>
+	public bool IsOwner { get; set; }
+	public string RoleLabel => IsOwner ? "Owner" : Role;
 }
 
 // Converter to show checkmark for active team

@@ -82,12 +82,12 @@ public partial class DetailsPage : ContentPage
 
     private async void OnKitTapped(object sender, EventArgs e)
     {
-        await NavigateAsync("details/comingsoon?title=Kit", "Kit");
+        await NavigateAsync("details/kit", "Kit");
     }
 
     private async void OnDutiesTapped(object sender, EventArgs e)
     {
-        await NavigateAsync("details/comingsoon?title=Duties", "Duties");
+        await NavigateAsync("details/duties", "Duties");
     }
 
     private async void OnNominationsTapped(object sender, EventArgs e)

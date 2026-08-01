@@ -99,6 +99,39 @@
                                     TextColor="White"
                                     HeightRequest="44"
                                     FontSize="14"/>
+                            <Button Text="Promote to Admin"
+                                    Clicked="OnPromoteToAdminClicked"
+                                    BackgroundColor="#2E7D32"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
+                            <Button Text="Remove Member"
+                                    Clicked="OnRemoveMemberClicked"
+                                    BackgroundColor="#C62828"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
+                            <Label Text="Removes someone from the cloud team. They must rejoin with the invite code. You cannot remove the Owner; only the Owner can remove other Admins."
+                                   FontSize="11"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                            <Button x:Name="RelinquishControlButton"
+                                    Text="Relinquish Match Control"
+                                    Clicked="OnRelinquishControlClicked"
+                                    BackgroundColor="#546E7A"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
+                            <Label Text="Hand over live-match control so another Admin can run the game. If you go offline, the server auto-releases control after ~90s."
+                                   FontSize="11"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                            <Button x:Name="TransferOwnershipButton"
+                                    Text="Transfer Ownership"
+                                    IsVisible="False"
+                                    Clicked="OnTransferOwnershipClicked"
+                                    BackgroundColor="#1565C0"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
                             <Button Text="Regenerate Invite Code"
                                     Clicked="OnRegenerateCodeClicked"
                                     BackgroundColor="#E65100"
@@ -204,12 +237,22 @@
                                 <CollectionView.ItemTemplate>
                                     <DataTemplate>
                                         <SwipeView>
-                                            <SwipeView.RightItems>
+                                            <!-- Swipe right: Leave (any member/admin, including owner) -->
+                                            <SwipeView.LeftItems>
                                                 <SwipeItems Mode="Execute">
                                                     <SwipeItem Text="Leave"
-                                                               BackgroundColor="#F44336"
+                                                               BackgroundColor="#FF9800"
                                                                CommandParameter="{Binding .}"
                                                                Invoked="OnLeaveSharedTeamSwipe"/>
+                                                </SwipeItems>
+                                            </SwipeView.LeftItems>
+                                            <!-- Swipe left: Delete team (owner only — enforced in handler) -->
+                                            <SwipeView.RightItems>
+                                                <SwipeItems Mode="Execute">
+                                                    <SwipeItem Text="Delete"
+                                                               BackgroundColor="#F44336"
+                                                               CommandParameter="{Binding .}"
+                                                               Invoked="OnDeleteSharedTeamSwipe"/>
                                                 </SwipeItems>
                                             </SwipeView.RightItems>
                                             <Frame Padding="10"
@@ -230,7 +273,7 @@
                                                         <Label Text="{Binding TeamName}"
                                                                FontSize="16"
                                                                FontAttributes="Bold"/>
-                                                        <Label Text="{Binding Role}"
+                                                        <Label Text="{Binding RoleLabel}"
                                                                FontSize="10"
                                                                TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
                                                     </VerticalStackLayout>
@@ -380,7 +423,27 @@
                                 </VerticalStackLayout>
                             </VerticalStackLayout>
 
-                            <!-- CREATE (below Join) -->
+                            <!-- LOCAL: import roster QR (device-to-device, offline) -->
+                            <VerticalStackLayout x:Name="LocalImportSubsection"
+                                                 IsVisible="False"
+                                                 Spacing="6">
+                                <Label Text="Import local team (QR)"
+                                       FontSize="15"
+                                       FontAttributes="Bold"
+                                       TextColor="#2E7D32"/>
+                                <Label Text="Scan a local roster QR shared from another device"
+                                       FontSize="11"
+                                       TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
+                                <Button x:Name="LocalImportTeamButton"
+                                        Text="Import Team (QR)"
+                                        Clicked="OnImportTeamClicked"
+                                        BackgroundColor="#4CAF50"
+                                        TextColor="White"
+                                        HeightRequest="44"
+                                        FontSize="14"/>
+                            </VerticalStackLayout>
+
+                            <!-- CREATE (below Join / Local import) -->
                             <VerticalStackLayout x:Name="CreateSubsection"
                                                  Spacing="6">
                                 <Grid ColumnDefinitions="*, Auto">

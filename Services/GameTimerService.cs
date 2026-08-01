@@ -130,6 +130,46 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
         _countdownRunning = continueRunning && TimerRunning;
     }
 
+    public void ApplySyncedState(
+        int matchDurationSeconds,
+        int halfDurationSeconds,
+        int matchRemainingSeconds,
+        int countdownPresetSeconds,
+        int countdownRemainingSeconds,
+        GamePhase phase,
+        bool timerRunning)
+    {
+        // Stop any local loop before rewriting state to avoid races.
+        StopBackgroundLoop();
+        TimerRunning = false;
+        _countdownRunning = false;
+
+        if (matchDurationSeconds > 0)
+            _matchDurationSeconds = matchDurationSeconds;
+
+        if (countdownPresetSeconds > 0)
+            CountdownPresetSeconds = countdownPresetSeconds;
+
+        HalfDurationSeconds = halfDurationSeconds > 0
+            ? halfDurationSeconds
+            : Math.Max(1, MatchDurationSeconds / 2);
+
+        Phase = phase;
+        MatchRemainingSeconds = matchRemainingSeconds;
+        CountdownRemainingSeconds = countdownRemainingSeconds;
+
+        // Only run during active halves / overtime-style phases — not setup or finished.
+        var canRun = timerRunning
+            && phase is GamePhase.FirstHalf or GamePhase.SecondHalf or GamePhase.HalfTime or GamePhase.Ended;
+
+        if (canRun)
+        {
+            TimerRunning = true;
+            _countdownRunning = true;
+            StartBackgroundLoop();
+        }
+    }
+
     // ── Background loop ───────────────────────────────────────────────────
 
     private void StartBackgroundLoop()
