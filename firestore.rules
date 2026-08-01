@@ -99,15 +99,42 @@ service cloud.firestore {
     }
 
     // Chat messages
+    // Create: author only. Update: reactions (any signed-in), soft-delete (author/admin),
+    // pin (admin). Immutable core fields (userId/timestamp/senderName) must not change
+    // on reaction/pin updates; soft-delete may set isDeleted + deletedAt.
     match /teams/{teamId}/messages/{messageId} {
       allow read: if signedIn();
       allow create: if signedIn()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.text is string
         && request.resource.data.text.size() <= 500;
-      allow update: if false;
-      // Owner cascade-delete only (club manager wiping a team at season end)
-      allow delete: if isTeamOwner(teamId) || isTeamAdmin(teamId);
+
+      allow update: if signedIn() && (
+        // Toggle reactions — only the reactions map may change
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.timestamp == resource.data.timestamp
+        )
+        // Soft-delete for everyone (author or team admin/coach)
+        || (
+          (resource.data.userId == request.auth.uid || isTeamAdmin(teamId))
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['isDeleted', 'deletedAt'])
+          && request.resource.data.isDeleted == true
+        )
+        // Admin pin / unpin
+        || (
+          isTeamAdmin(teamId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['isPinned', 'pinnedAt', 'pinnedBy'])
+        )
+      );
+
+      // Hard delete: owner cascade, admin, or the original author
+      allow delete: if isTeamOwner(teamId)
+        || isTeamAdmin(teamId)
+        || (signedIn() && resource.data.userId == request.auth.uid);
     }
 
     // Game sessions (reports)

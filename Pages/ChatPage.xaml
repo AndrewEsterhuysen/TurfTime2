@@ -4,15 +4,77 @@
              x:Class="TurfTime2.ChatPage"
              Title="Chat"
              HideSoftInputOnTapped="False">
-    <Grid RowDefinitions="*, Auto">
+    <!-- RootGrid bottom padding is raised on iOS when the keyboard is open so InputBar stays visible. -->
+    <Grid x:Name="RootGrid" RowDefinitions="Auto, *, Auto, Auto">
+        <!-- Pinned message (admin/coach) -->
+        <Border x:Name="PinnedBar"
+                Grid.Row="0"
+                IsVisible="False"
+                StrokeThickness="0"
+                BackgroundColor="#FFF8E1"
+                Padding="12,8"
+                Margin="0,0,0,2">
+            <Grid ColumnDefinitions="*, Auto">
+                <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Label Text="📌 Pinned"
+                           FontSize="11"
+                           FontAttributes="Bold"
+                           TextColor="#E65100" />
+                    <Label x:Name="PinnedTextLabel"
+                           FontSize="13"
+                           LineBreakMode="TailTruncation"
+                           MaxLines="2"
+                           TextColor="#333333" />
+                </VerticalStackLayout>
+                <Button x:Name="UnpinButton"
+                        Grid.Column="1"
+                        Text="Unpin"
+                        FontSize="12"
+                        Padding="8,4"
+                        HeightRequest="36"
+                        BackgroundColor="Transparent"
+                        TextColor="#E65100"
+                        Clicked="OnUnpinClicked"
+                        IsVisible="False" />
+            </Grid>
+        </Border>
+
         <CollectionView x:Name="MessagesList"
-                        Grid.Row="0"
+                        Grid.Row="1"
                         SelectionMode="None"
                         Margin="8" />
 
+        <!-- Reply quote strip above composer -->
+        <Grid x:Name="ReplyBar"
+              Grid.Row="2"
+              IsVisible="False"
+              ColumnDefinitions="4, *, Auto"
+              Padding="10,6"
+              BackgroundColor="#E8F5E9">
+            <BoxView Grid.Column="0" Color="#2e7d32" WidthRequest="4" />
+            <VerticalStackLayout Grid.Column="1" Margin="8,0,0,0" Spacing="1">
+                <Label x:Name="ReplyBarName"
+                       FontSize="11"
+                       FontAttributes="Bold"
+                       TextColor="#2e7d32" />
+                <Label x:Name="ReplyBarText"
+                       FontSize="12"
+                       LineBreakMode="TailTruncation"
+                       MaxLines="1"
+                       TextColor="#555555" />
+            </VerticalStackLayout>
+            <Button Grid.Column="2"
+                    Text="✕"
+                    BackgroundColor="Transparent"
+                    TextColor="#666666"
+                    WidthRequest="40"
+                    HeightRequest="36"
+                    Clicked="OnCancelReplyClicked" />
+        </Grid>
+
         <!-- High-contrast input so iOS caret/text are always visible and tappable -->
         <Grid x:Name="InputBar"
-              Grid.Row="1"
+              Grid.Row="3"
               ColumnDefinitions="*, Auto"
               Padding="10,8"
               BackgroundColor="#2e7d32">
@@ -35,6 +97,8 @@
                        ReturnType="Send"
                        VerticalOptions="Center"
                        MinimumHeightRequest="40"
+                       Focused="OnMessageEntryFocused"
+                       Unfocused="OnMessageEntryUnfocused"
                        Completed="OnSendClicked" />
             </Border>
             <Button x:Name="SendButton"

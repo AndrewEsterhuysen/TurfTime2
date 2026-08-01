@@ -1,4 +1,6 @@
-﻿namespace TurfTime2
+﻿using TurfTime2.Helpers;
+
+namespace TurfTime2
 {
     public partial class AppShell : Shell
     {
@@ -26,6 +28,9 @@
 
             // Handle navigation to clear stacks when switching to Settings / Details tabs
             this.Navigated += OnShellNavigated;
+
+            ChatBadgeHelper.Changed += OnChatBadgeChanged;
+            UpdateChatTabBadge();
         }
 
         protected override void OnAppearing()
@@ -34,8 +39,27 @@
 
             // Update menu state when shell appears
             UpdateMenuItemAvailability();
+            UpdateChatTabBadge();
 
             System.Diagnostics.Debug.WriteLine("[AppShell] OnAppearing - Menu state updated");
+        }
+
+        private void OnChatBadgeChanged()
+        {
+            MainThread.BeginInvokeOnMainThread(UpdateChatTabBadge);
+        }
+
+        private void UpdateChatTabBadge()
+        {
+            try
+            {
+                if (ChatTab is not null)
+                    ChatTab.Title = ChatBadgeHelper.ChatTabTitle;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AppShell] Chat badge: {ex.Message}");
+            }
         }
 
         // Public method to refresh menu - called from TeamDetailsPage

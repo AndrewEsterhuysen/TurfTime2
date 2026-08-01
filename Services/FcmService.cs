@@ -179,6 +179,7 @@ public class FcmService
         catch { /* best-effort */ }
 
         System.Diagnostics.Debug.WriteLine($"[FCM] 📩 Notification received: {title} — {body}");
+        Helpers.ChatBadgeHelper.IncrementFromPush();
 #if ANDROID
         // Always post our own notification so LargeIcon (app art) is applied.
         try { ShowLocalNotification(title, body); }
@@ -199,19 +200,8 @@ public class FcmService
 
     private void OnNotificationTapped(object? sender, object e)
     {
-        System.Diagnostics.Debug.WriteLine("[FCM] 👆 Notification tapped");
-        _ = MainThread.InvokeOnMainThreadAsync(async () =>
-        {
-            try
-            {
-                if (Shell.Current is not null)
-                    await Shell.Current.GoToAsync("//ChatPage");
-            }
-            catch (Exception navEx)
-            {
-                System.Diagnostics.Debug.WriteLine($"[FCM] Navigate to Chat: {navEx.Message}");
-            }
-        });
+        System.Diagnostics.Debug.WriteLine("[FCM] 👆 Notification tapped → Chat");
+        Helpers.ChatNavigation.OpenChat();
     }
 
     private void ShowLocalNotification(string title, string body)
@@ -224,6 +214,8 @@ public class FcmService
         PendingIntent? pending = null;
         if (launchIntent != null)
         {
+            launchIntent.PutExtra("open_chat", true);
+            launchIntent.SetFlags(ActivityFlags.SingleTop | ActivityFlags.ClearTop);
             var flags = PendingIntentFlags.UpdateCurrent;
             if (OperatingSystem.IsAndroidVersionAtLeast(23))
                 flags |= PendingIntentFlags.Immutable;
@@ -250,7 +242,8 @@ public class FcmService
             .SetPriority(NotificationCompat.PriorityHigh)
             .SetCategory(NotificationCompat.CategoryMessage)
             .SetVisibility(NotificationCompat.VisibilityPublic)
-            .SetDefaults((int)(NotificationDefaults.Sound | NotificationDefaults.Vibrate));
+            .SetDefaults((int)(NotificationDefaults.Sound | NotificationDefaults.Vibrate))
+            .SetNumber(Math.Max(1, Helpers.ChatBadgeHelper.UnreadCount));
 
         // Full-color Turf Time app icon (right side of notification, similar to iOS).
         var large = LoadAppIconBitmap(context, packageName);
@@ -271,7 +264,9 @@ public class FcmService
             Title = title ?? "Turf Time",
             Body = body ?? "",
             Sound = UNNotificationSound.Default,
-            Badge = 1
+            Badge = Helpers.ChatBadgeHelper.UnreadCount > 0
+                ? Helpers.ChatBadgeHelper.UnreadCount
+                : 1
         };
         var trigger = UNTimeIntervalNotificationTrigger.CreateTrigger(0.1, false);
         var requestId = $"turftime-chat-{Guid.NewGuid():N}";
@@ -460,15 +455,8 @@ public class FcmService
             UNNotificationResponse response,
             Action completionHandler)
         {
-            _ = MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                try
-                {
-                    if (Shell.Current is not null)
-                        await Shell.Current.GoToAsync("//ChatPage");
-                }
-                catch { /* ignore */ }
-            });
+            System.Diagnostics.Debug.WriteLine("[FCM] iOS notification response → Chat");
+            Helpers.ChatNavigation.OpenChat();
             completionHandler();
         }
     }

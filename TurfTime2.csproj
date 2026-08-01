@@ -26,8 +26,10 @@
 		<ApplicationId>com.andrewestherhuysen.turftime</ApplicationId>
 
 		<!-- Versions -->
-		<ApplicationDisplayVersion>2.0.1</ApplicationDisplayVersion>
-		<ApplicationVersion>21</ApplicationVersion>
+		<!-- ApplicationDisplayVersion = marketing version (CFBundleShortVersionString / versionName).
+		     ApplicationVersion = integer build (CFBundleVersion / versionCode). Store rejects reuse. -->
+		<ApplicationDisplayVersion>2.1.0</ApplicationDisplayVersion>
+		<ApplicationVersion>22</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
