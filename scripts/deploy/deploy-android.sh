@@ -88,38 +88,69 @@ echo "Config:  $CONFIG | $TFM"
 echo "Targets: ${TARGET_DEVICES[*]}"
 echo
 
-echo "Building Debug APK..."
-dotnet build "$PROJECT_FILE" -f "$TFM" -c "$CONFIG"
+# Build the smallest APK(s) needed for the selected targets (phone=arm64, emulator=x64).
+need_arm64=0
+need_x64=0
+for device in "${TARGET_DEVICES[@]}"; do
+  if [[ "$device" == emulator-* ]]; then
+    need_x64=1
+  else
+    need_arm64=1
+  fi
+done
 
-# Prefer the signed fat APK at the TFM root (not nested android-arm64 copies).
-APK_DIR="$REPO_ROOT/bin/$CONFIG/$TFM"
-APK=""
-if [[ -f "$APK_DIR/${PACKAGE_ID}-Signed.apk" ]]; then
-  APK="$APK_DIR/${PACKAGE_ID}-Signed.apk"
-elif [[ -f "$APK_DIR/${PACKAGE_ID}.apk" ]]; then
-  APK="$APK_DIR/${PACKAGE_ID}.apk"
-else
-  APK="$(find "$APK_DIR" -maxdepth 1 -name '*-Signed.apk' -type f 2>/dev/null | head -1 || true)"
+build_and_find_apk() {
+  local rid="$1"
+  echo "Building Debug APK ($rid)..." >&2
+  dotnet build "$PROJECT_FILE" -f "$TFM" -c "$CONFIG" -p:RuntimeIdentifier="$rid" >&2
+
+  local search_root="$REPO_ROOT/bin/$CONFIG/$TFM"
+  local found=""
+  # Prefer RID-specific output, then TFM root signed APK.
+  if [[ -f "$search_root/$rid/${PACKAGE_ID}-Signed.apk" ]]; then
+    found="$search_root/$rid/${PACKAGE_ID}-Signed.apk"
+  elif [[ -f "$search_root/${PACKAGE_ID}-Signed.apk" ]]; then
+    found="$search_root/${PACKAGE_ID}-Signed.apk"
+  elif [[ -f "$search_root/$rid/${PACKAGE_ID}.apk" ]]; then
+    found="$search_root/$rid/${PACKAGE_ID}.apk"
+  else
+    found="$(find "$search_root" -name '*-Signed.apk' -type f 2>/dev/null | head -1 || true)"
+  fi
+
+  if [[ -z "$found" || ! -f "$found" ]]; then
+    echo "ERROR: Signed Debug APK not found under $search_root (rid=$rid)" >&2
+    find "$search_root" -name '*.apk' 2>/dev/null | head -20 >&2 || true
+    return 1
+  fi
+
+  echo "APK ($rid): $found ($(du -h "$found" | awk '{print $1}'))" >&2
+  # Only the path goes to stdout (for capture by callers).
+  printf '%s\n' "$found"
+}
+
+APK_ARM64=""
+APK_X64=""
+if [[ "$need_arm64" -eq 1 ]]; then
+  APK_ARM64="$(build_and_find_apk android-arm64)"
 fi
-
-if [[ -z "$APK" || ! -f "$APK" ]]; then
-  echo "ERROR: Signed Debug APK not found under $APK_DIR" >&2
-  find "$APK_DIR" -name '*.apk' 2>/dev/null | head -20 >&2 || true
-  exit 1
+if [[ "$need_x64" -eq 1 ]]; then
+  APK_X64="$(build_and_find_apk android-x64)"
 fi
-
-echo "APK: $APK ($(du -h "$APK" | awk '{print $1}'))"
 echo
 
 for device in "${TARGET_DEVICES[@]}"; do
   kind="Phone"
-  [[ "$device" == emulator-* ]] && kind="Emulator"
+  apk="$APK_ARM64"
+  if [[ "$device" == emulator-* ]]; then
+    kind="Emulator"
+    apk="$APK_X64"
+  fi
   echo "Deploying to $kind ($device)..."
 
   # Uninstall so Debug can replace release/store signature.
   adb -s "$device" uninstall "$PACKAGE_ID" >/dev/null 2>&1 || true
 
-  if ! adb -s "$device" install -r "$APK"; then
+  if ! adb -s "$device" install -r "$apk"; then
     echo "  ✗ install failed on $device" >&2
     exit 1
   fi

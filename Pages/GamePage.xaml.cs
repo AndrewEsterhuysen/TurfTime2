@@ -916,6 +916,8 @@ public partial class GamePage : ContentPage
     private async void OnPlayerNameTapped(object sender, TappedEventArgs e)
     {
         if (_vm is null) return;
+        // View-only: cloud members, Watch Only, or locked by another controller.
+        if (_vm.IsMember) return;
         if (sender is not BindableObject bindable) return;
         if (bindable.BindingContext is not Player player) return;
 

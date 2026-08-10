@@ -106,37 +106,24 @@
 		<!-- App Icon -->
 		<MauiIcon Include="Resources\AppIcon\appicon.svg" Color="#512BD4" />
 
-		<!-- Splash Screen -->
-		<MauiSplashScreen Include="Resources\Splash\turftimer_splash.svg" Color="#512BD4" BaseSize="620,620" />
+		<!-- Splash: small PNG + modest BaseSize keeps density variants small (old 1.7MB SVG @ 620 blew up to ~8MB of PNGs). -->
+		<MauiSplashScreen Include="Resources\Splash\turftimer_splash_256.png" Color="#512BD4" BaseSize="256,256" />
 
 		<!-- Images -->
 		<MauiImage Include="Resources\Images\*" />
-		<MauiImage Update="Resources\Images\dotnet_bot.png" Resize="True" BaseSize="300,185" />
+		<!-- Cap welcome/logo asset density packing -->
+		<MauiImage Update="Resources\Images\turftimer_splash_512_512.png" Resize="True" BaseSize="256,256" />
 		
 		<!-- Custom Fonts -->
 		<MauiFont Include="Resources\Fonts\*" />
 
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
-		<MauiAsset Include="wwwroot\**" />
+		<!-- wwwroot (legacy JS Firebase) is not packaged — cloud uses native Plugin.Firebase; Help/Reports use inline HTML. -->
 	</ItemGroup>
 
-	<!-- Ensure wwwroot is copied to output for Windows -->
-	<ItemGroup Condition="$(TargetFramework.Contains('windows'))">
-		<Content Include="wwwroot\**\*.*">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<Link>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</Link>
-		</Content>
-	</ItemGroup>
 	<ItemGroup>
 		<AndroidResource Include="Platforms\Android\Resources\values\crashlytics.xml" />
-	</ItemGroup>
-	<ItemGroup>
-		<MauiAsset Remove="wwwroot\js\.editorconfig" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<MauiCss Remove="wwwroot\css\styles-modern.css" />
 	</ItemGroup>
 
 	<!-- Firebase Configuration for Android -->
@@ -177,8 +164,7 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 		<PackageReference Include="Plugin.Firebase" Version="3.1.1" />
 		<PackageReference Include="Plugin.Firebase.CloudMessaging" Version="3.1.1" />
-		<PackageReference Include="QuestPDF" Version="2025.1.0" />
-		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.8" />
+		<!-- QuestPDF / ImageSharp removed: unused PDF stack + heavy QR helpers (QR uses ZXing + platform bitmaps). -->
 		<PackageReference Include="ZXing.Net" Version="0.16.10" />
 		<PackageReference Include="ZXing.Net.Maui" Version="0.6.0" />
 		<PackageReference Include="ZXing.Net.Maui.Controls" Version="0.6.0" />

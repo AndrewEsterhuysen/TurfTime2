@@ -1,8 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using TurfTime2.Helpers;
 using TurfTime2.Models;
 using ZXing;
@@ -96,10 +94,8 @@ public static class QrCodeService
         };
 
         var pixelData = writer.Write(content);
-        using var image = SixLabors.ImageSharp.Image.LoadPixelData<Bgra32>(pixelData.Pixels, pixelData.Width, pixelData.Height);
-        using var stream = new MemoryStream();
-        image.SaveAsPng(stream);
-        return stream.ToArray();
+        // ZXing PixelData is BGRA32; encode with a tiny PNG writer (no ImageSharp).
+        return PngEncoder.EncodeBgra32(pixelData.Pixels, pixelData.Width, pixelData.Height);
     }
 
     public static int GetApproximateEncodedSize(TeamShareData teamData)
@@ -141,22 +137,10 @@ public static class QrCodeService
 
     public static string? DecodeQrContentFromImage(Stream imageStream)
     {
-        imageStream.Position = 0;
-        using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(imageStream);
-        var pixels = new byte[image.Width * image.Height * 4];
-        image.CopyPixelDataTo(pixels);
+        if (imageStream.CanSeek)
+            imageStream.Position = 0;
 
-        var reader = new BarcodeReaderGeneric
-        {
-            AutoRotate = true,
-            Options = new DecodingOptions
-            {
-                TryHarder = true,
-                PossibleFormats = [BarcodeFormat.QR_CODE]
-            }
-        };
-
-        return reader.Decode(pixels, image.Width, image.Height, RGBLuminanceSource.BitmapFormat.RGBA32)?.Text;
+        return QrImageDecoder.DecodeQrFromImageStream(imageStream);
     }
 
     public static bool TryParseTeamShareData(string raw, out TeamShareData? teamData, out string error)

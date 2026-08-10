@@ -3007,9 +3007,12 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Applies a new name to the given player and auto-saves the roster.
     /// Does nothing when the trimmed name is empty or unchanged.
+    /// Blocked for view-only users (members, Watch Only, or controller lock).
     /// </summary>
     public void RenamePlayer(Player player, string newName)
     {
+        if (IsMember) return;
+
         var trimmed = newName.Trim();
         if (string.IsNullOrWhiteSpace(trimmed) || trimmed == player.Name) return;
 
