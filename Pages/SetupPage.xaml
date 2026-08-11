@@ -21,6 +21,19 @@
                        HorizontalTextAlignment="Center" />
             </Border>
 
+            <!-- Outdated / incomplete schedule -->
+            <Border x:Name="ScheduleStatusBanner"
+                    IsVisible="False"
+                    BackgroundColor="#FFF3E0"
+                    Padding="10,8"
+                    StrokeShape="RoundRectangle 6">
+                <Label x:Name="ScheduleStatusBannerLabel"
+                       TextColor="#E65100"
+                       FontAttributes="Bold"
+                       FontSize="12"
+                       HorizontalTextAlignment="Center" />
+            </Border>
+
             <!-- Group 1: Match Start + Arrive Time -->
             <Frame Padding="14"
                    CornerRadius="8"
@@ -52,6 +65,20 @@
                         <TimePicker x:Name="ArriveTimePicker"
                                     HorizontalOptions="Fill"
                                     PropertyChanged="OnFieldChanged" />
+                    </VerticalStackLayout>
+
+                    <!-- Confidence: status + last updated + source -->
+                    <VerticalStackLayout Spacing="2" Margin="0,4,0,0">
+                        <Label x:Name="ScheduleStatusLabel"
+                               FontSize="12"
+                               FontAttributes="Bold"
+                               TextColor="{AppThemeBinding Light=#2E7D32, Dark=#81C784}" />
+                        <Label x:Name="ScheduleUpdatedLabel"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Label x:Name="ScheduleSourceLabel"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
                     </VerticalStackLayout>
                 </VerticalStackLayout>
             </Frame>

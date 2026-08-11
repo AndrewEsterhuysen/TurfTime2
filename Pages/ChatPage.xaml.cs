@@ -48,6 +48,8 @@ public partial class ChatPage : ContentPage
 	{
 		base.OnAppearing();
 		DetailsPage.ApplyPageTeamTitle(this, "Chat");
+		// Always restore bottom tabs (Android often never fires Unfocused after keyboard hide).
+		RestoreChatChrome();
 		ResolveServices();
 		ApplyThemeToInputBar();
 		SubscribeKeyboardAvoidance();
@@ -849,15 +851,22 @@ public partial class ChatPage : ContentPage
 	private static string Truncate(string s, int max) =>
 		s.Length <= max ? s : s[..max];
 
-	private void OnMessageEntryFocused(object? sender, FocusEventArgs e) =>
+	private void OnMessageEntryFocused(object? sender, FocusEventArgs e)
+	{
+		// Only hide the Shell tab bar on iOS (keyboard covers less if tabs go away).
+		// On Android, Unfocused is unreliable when the soft keyboard dismisses, which left
+		// users with no bottom navigation until they left Chat entirely.
+#if IOS
 		SetChatTabBarVisible(false);
+#endif
+	}
 
 	private void OnMessageEntryUnfocused(object? sender, FocusEventArgs e)
 	{
+#if IOS
 		SetChatTabBarVisible(true);
-#if !IOS
-		RootGrid.Padding = default;
 #endif
+		RootGrid.Padding = default;
 	}
 
 	private void SetChatTabBarVisible(bool visible)
@@ -876,8 +885,8 @@ public partial class ChatPage : ContentPage
 	private void RestoreChatChrome()
 	{
 		RootGrid.Padding = default;
-		if (_tabBarHiddenForInput || !Shell.GetTabBarIsVisible(this))
-			SetChatTabBarVisible(true);
+		// Force tabs visible on every restore (do not trust GetTabBarIsVisible alone on Android).
+		SetChatTabBarVisible(true);
 		_tabBarHiddenForInput = false;
 	}
 

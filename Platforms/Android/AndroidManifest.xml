@@ -16,12 +16,18 @@
 			android:name="firebase_crashlytics_collection_enabled"
 			android:value="false" />
 
-		<!-- Do NOT declare base FirebaseMessagingService here — it steals MESSAGING_EVENT from
-		     Plugin.Firebase.CloudMessaging's MyFirebaseMessagingService (merged via the NuGet AAR).
-		     Only strip Crashlytics registrar and set default notification presentation. -->
+		<!-- Do NOT let the stock FirebaseMessagingService handle MESSAGING_EVENT — it steals
+		     delivery from Plugin.Firebase.CloudMessaging's MyFirebaseMessagingService.
+		     Strip Crashlytics registrar; disable the stock FCM service if the AAR re-merges it. -->
 		<meta-data
 			android:name="com.google.firebase.components:com.google.firebase.crashlytics.CrashlyticsRegistrar"
 			tools:node="remove" />
+		<service
+			android:name="com.google.firebase.messaging.FirebaseMessagingService"
+			android:enabled="false"
+			android:exported="false"
+			tools:replace="android:enabled,android:exported"
+			tools:node="merge" />
 
 		<!-- Small (status bar) icon: white silhouette. Full-color app art is LargeIcon in FcmService. -->
 		<meta-data
@@ -32,10 +38,10 @@
 			android:name="com.google.firebase.messaging.default_notification_color"
 			android:resource="@color/turftime_notification" />
 
-		<!-- Must match FcmService.ChatChannelId and Cloud Function android.notification.channelId -->
+		<!-- Must match FcmService.ChatChannelId (v2 — legacy turftime_chat was user-locked LOW on some devices) -->
 		<meta-data
 			android:name="com.google.firebase.messaging.default_notification_channel_id"
-			android:value="turftime_chat" />
+			android:value="turftime_chat_v2" />
 
 		
 	</application>
@@ -50,6 +56,9 @@
 	<uses-permission android:name="android.permission.WAKE_LOCK" />
 	<uses-permission android:name="android.permission.VIBRATE" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<!-- Local match reminders (Plugin.LocalNotification); exact alarms best-effort on modern Android -->
+	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+	<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 	<uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
 	<uses-permission android:name="android.permission.CAMERA" />
 

@@ -35,6 +35,8 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 | `PushTeamAlerts` | FCM / push for team events | Free (candidate paid) | Use no-op when disabled |
 | `CloudTeamJoin` | Join existing cloud team | Free (candidate paid) | **UI unlocked** |
 | `CloudLocationShare` | Location under Details tab (match venue / GPS) for shared teams | Free (candidate paid) | **Details tab unlocked** for shared mode; Location is a Details submenu |
+| `CloudMatchSchedule` | Sync match date/time/arrive/venue for shared teams (`teams/{id}/details/location`) + live watch | Free (candidate paid) | Admin writes; members watch; local Preferences mirror; status/updated UI on Location page |
+| `MatchReminders` | Local match reminders (day before / morning / leave before arrive) from Location schedule + Settings → Options | Free | Device-local notifications; reschedule on schedule sync + option changes; not system Clock alarms |
 | `TeamChat` | Chat tab for shared teams | Free (candidate paid) | **Tab unlocked** for shared mode. Identity: user-entered **display name** stored on `teams/{{id}}/members/{{uid}}.displayName` + local `user_name`; messages denormalize `senderName` for UI/push |
 | `TeamKit` | Kit under Details (arrive / warm-up / game / departure / non-playing / special event) | Free | Admin edit; members view-only; team-scoped Preferences (same pattern as Location) |
 | `TeamDuties` | Match-day duties under Details (duty officer, canteen, grounds setup/pack-up, other) | Free | Admin edit; members view-only; team-scoped Preferences |

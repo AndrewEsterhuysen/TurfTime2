@@ -38,6 +38,75 @@
                     </HorizontalStackLayout>
                 </VerticalStackLayout>
             </Frame>
+
+            <!-- Match reminders (local notifications) -->
+            <Frame BackgroundColor="#2e7d32"
+                   CornerRadius="10"
+                   Padding="20"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Match reminders"
+                           FontSize="18"
+                           FontAttributes="Bold"
+                           TextColor="White" />
+                    <Label Text="Uses Details → Location schedule. One tap enables day-before, morning, and leave reminders (arrive time minus buffer)."
+                           FontSize="12"
+                           TextColor="#C8E6C9" />
+
+                    <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
+                        <Label x:Name="RemindersMasterLabel"
+                               Text="OFF"
+                               FontSize="16"
+                               FontAttributes="Bold"
+                               TextColor="#A5D6A7"
+                               VerticalOptions="Center"
+                               WidthRequest="48" />
+                        <Switch x:Name="RemindersEnabledSwitch"
+                                Toggled="OnRemindersEnabledToggled"
+                                HorizontalOptions="Start"
+                                VerticalOptions="Center" />
+                        <Label Text="Enable reminders"
+                               FontSize="15"
+                               TextColor="White"
+                               VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+
+                    <VerticalStackLayout x:Name="ReminderDetailsPanel" Spacing="10" IsVisible="False">
+                        <HorizontalStackLayout Spacing="12">
+                            <Switch x:Name="DayBeforeSwitch" Toggled="OnReminderDetailToggled" />
+                            <Label Text="Day before"
+                                   TextColor="White"
+                                   VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Spacing="12">
+                            <Switch x:Name="MorningSwitch" Toggled="OnReminderDetailToggled" />
+                            <Label Text="Morning of match"
+                                   TextColor="White"
+                                   VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Spacing="12">
+                            <Switch x:Name="LeaveSwitch" Toggled="OnReminderDetailToggled" />
+                            <Label Text="Time to leave"
+                                   TextColor="White"
+                                   VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+
+                        <Label Text="Leave buffer (before arrive)"
+                               FontSize="13"
+                               TextColor="#C8E6C9" />
+                        <Picker x:Name="LeaveBufferPicker"
+                                Title="Buffer"
+                                TextColor="White"
+                                TitleColor="#A5D6A7"
+                                SelectedIndexChanged="OnLeaveBufferChanged" />
+                    </VerticalStackLayout>
+
+                    <Label x:Name="RemindersStatusLabel"
+                           FontSize="12"
+                           TextColor="#A5D6A7"
+                           Margin="0,4,0,0" />
+                </VerticalStackLayout>
+            </Frame>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

@@ -66,6 +66,8 @@ namespace TurfTime2
         public void RefreshMenu()
         {
             UpdateMenuItemAvailability();
+            // Team switch often goes through here — restart schedule watch for the new team.
+            _ = App.EnsureMatchScheduleSyncAsync();
         }
 
         private void UpdateMenuItemAvailability()

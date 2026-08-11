@@ -49,6 +49,13 @@ namespace TurfTime2
 #endif
             // Re-save FCM token after resume (token/permission may have changed; team may have been joined).
             _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+#if IOS
+            // LocalNotification / Plugin.Firebase may overwrite the notification center delegate.
+            FcmService.InstallIosNotificationDelegate();
+#endif
+            // Refresh shared match schedule watch after suspend (also reschedules reminders).
+            _ = EnsureMatchScheduleSyncAsync();
+            _ = RescheduleMatchRemindersAsync();
         }
 
         protected override Window CreateWindow(IActivationState? activationState)
@@ -63,6 +70,9 @@ namespace TurfTime2
                 // Check if a team was previously selected (after demo bootstrap).
                 var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
                 var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+
+                // Shared-team match schedule: load + live watch (fail soft).
+                _ = EnsureMatchScheduleSyncAsync();
 
                 // First-run / optional welcome modal (user can opt out permanently).
                 if (!Preferences.Get("welcome_dont_show", false))
@@ -219,6 +229,12 @@ namespace TurfTime2
                 {
                     System.Diagnostics.Debug.WriteLine("[App] ⚠️ FcmService.InitializeAsync returned false — push notifications may not work.");
                 }
+
+#if IOS
+                // After LocalNotification + FCM both touch the notification center, keep FCM last
+                // so chat foreground banners still work.
+                FcmService.InstallIosNotificationDelegate();
+#endif
             }
             catch (Exception ex)
             {
@@ -528,6 +544,39 @@ namespace TurfTime2
             }
 
             return page.DisplayAlert(title, message, "OK");
+        }
+
+        /// <summary>Start/refresh shared match schedule listener for current team (no-op for local).</summary>
+        internal static async Task EnsureMatchScheduleSyncAsync()
+        {
+            try
+            {
+                var services = Current?.Handler?.MauiContext?.Services
+                    ?? Shell.Current?.Handler?.MauiContext?.Services;
+                var host = services?.GetService<MatchScheduleSyncHost>();
+                if (host is null) return;
+                await host.EnsureForCurrentTeamAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Match schedule sync: {ex.Message}");
+            }
+        }
+
+        internal static async Task RescheduleMatchRemindersAsync()
+        {
+            try
+            {
+                var services = Current?.Handler?.MauiContext?.Services
+                    ?? Shell.Current?.Handler?.MauiContext?.Services;
+                var reminders = services?.GetService<IMatchReminderService>();
+                if (reminders is null) return;
+                await reminders.RescheduleForCurrentTeamAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Match reminders: {ex.Message}");
+            }
         }
     }
 }

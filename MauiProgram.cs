@@ -5,6 +5,7 @@ using Plugin.Firebase.Bundled.Shared;
 using Plugin.Firebase.CloudMessaging;
 using Plugin.Firebase.Firestore;
 using Plugin.Firebase.Functions;
+using Plugin.LocalNotification;
 using ZXing.Net.Maui;
 using ZXing.Net.Maui.Controls;
 #if ANDROID
@@ -64,6 +65,10 @@ namespace TurfTime2
             builder
                 .UseMauiApp<App>()
                 .UseBarcodeReader()
+                // Local match reminders. On iOS this plugin sets UNUserNotificationCenter.Delegate;
+                // FcmService.InstallIosNotificationDelegate() reclaims it after reminder APIs
+                // so chat FCM foreground banners keep working.
+                .UseLocalNotification()
                 .ConfigureFonts(fonts =>
                 {
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
@@ -90,6 +95,9 @@ namespace TurfTime2
             // Register native game services and view-model
             builder.Services.AddSingleton<Services.ISessionStorageService, Services.SessionStorageService>();
             builder.Services.AddSingleton<Services.ICloudRosterService,    Services.CloudRosterService>();
+            builder.Services.AddSingleton<Services.IMatchScheduleService,  Services.MatchScheduleService>();
+            builder.Services.AddSingleton<Services.MatchScheduleSyncHost>();
+            builder.Services.AddSingleton<Services.IMatchReminderService,  Services.MatchReminderService>();
             builder.Services.AddTransient<Services.IGameTimerService,      Services.GameTimerService>();
             builder.Services.AddTransient<Services.IGameLoggerService,     Services.GameLoggerService>();
             builder.Services.AddTransient<ViewModels.GameViewModel>();

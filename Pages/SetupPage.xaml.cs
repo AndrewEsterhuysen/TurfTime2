@@ -1,3 +1,8 @@
+using Microsoft.Extensions.DependencyInjection;
+using TurfTime2.Helpers;
+using TurfTime2.Models;
+using TurfTime2.Services;
+
 namespace TurfTime2;
 
 public partial class SetupPage : ContentPage
@@ -5,18 +10,23 @@ public partial class SetupPage : ContentPage
 	private const string LOCATION_PICK_KEY = "location_pick_coordinates";
 	private bool _isLoadingData;
 	private bool _isAdmin = true;
+	private IMatchScheduleService? _scheduleService;
+	private MatchSchedule? _currentSchedule;
 
-	// Helper to get team-specific key (uses same team_id as rest of app)
-	private string GetTeamKey(string baseKey)
+	private string GetTeamId() => Preferences.Get("team_id", string.Empty);
+
+	private static bool IsSharedTeam()
 	{
+		var mode = Preferences.Get("team_mode", string.Empty);
 		var teamId = Preferences.Get("team_id", string.Empty);
-		return string.IsNullOrEmpty(teamId) ? baseKey : $"{baseKey}_{teamId}";
+		if (string.Equals(mode, "local", StringComparison.OrdinalIgnoreCase)) return false;
+		if (teamId.StartsWith("local_", StringComparison.Ordinal)) return false;
+		return !string.IsNullOrWhiteSpace(teamId) && string.Equals(mode, "shared", StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static bool IsCurrentUserAdmin()
 	{
 		var role = Preferences.Get("user_role", "admin") ?? "admin";
-		// Local teams are always editable; shared members are view-only
 		var mode = Preferences.Get("team_mode", string.Empty);
 		if (string.Equals(mode, "local", StringComparison.OrdinalIgnoreCase))
 			return true;
@@ -26,26 +36,62 @@ public partial class SetupPage : ContentPage
 	public SetupPage()
 	{
 		InitializeComponent();
-		LoadMatchData();
 	}
 
-	protected override void OnAppearing()
+	protected override async void OnAppearing()
 	{
 		base.OnAppearing();
 		DetailsPage.ApplyPageTeamTitle(this, "Location");
 		ApplyEditPermissions();
-		// Check if returning from maps with coordinates (admin only will apply)
 		CheckForPickedLocation();
-		// Reload data in case it was updated elsewhere
-		LoadMatchData();
+
+		ResolveServices();
+		MatchScheduleSyncHost.ScheduleChanged += OnScheduleChangedFromSync;
+
+		// App-level host keeps shared teams in sync even when this page is closed.
+		var host = GetService<MatchScheduleSyncHost>();
+		if (host is not null)
+			_ = host.EnsureForCurrentTeamAsync();
+
+		await LoadMatchDataAsync();
 		ApplyEditPermissions();
 	}
 
 	protected override void OnDisappearing()
 	{
 		base.OnDisappearing();
+		MatchScheduleSyncHost.ScheduleChanged -= OnScheduleChangedFromSync;
 		if (_isAdmin)
-			SaveMatchData();
+			_ = SaveMatchDataAsync(forceCloud: true);
+	}
+
+	private void ResolveServices()
+	{
+		_scheduleService ??= GetService<IMatchScheduleService>();
+	}
+
+	private static T? GetService<T>() where T : class
+	{
+		var services = Application.Current?.Handler?.MauiContext?.Services
+			?? Shell.Current?.Handler?.MauiContext?.Services;
+		return services?.GetService<T>();
+	}
+
+	private void OnScheduleChangedFromSync(object? sender, MatchSchedule schedule)
+	{
+		var teamId = GetTeamId();
+		if (string.IsNullOrEmpty(teamId) || !string.Equals(schedule.TeamId, teamId, StringComparison.Ordinal))
+			return;
+		if (_isLoadingData) return;
+
+		// Don't clobber in-progress admin edits with a stale echo of their own save.
+		if (_isAdmin && _currentSchedule is not null
+		    && schedule.LastModifiedUtc != default
+		    && _currentSchedule.LastModifiedUtc != default
+		    && schedule.LastModifiedUtc < _currentSchedule.LastModifiedUtc)
+			return;
+
+		ApplyScheduleToUi(schedule);
 	}
 
 	private void ApplyEditPermissions()
@@ -53,7 +99,6 @@ public partial class SetupPage : ContentPage
 		_isAdmin = IsCurrentUserAdmin();
 		ViewOnlyBanner.IsVisible = !_isAdmin;
 
-		// Viewers can see all data; only admin can change it
 		MatchDatePicker.IsEnabled = _isAdmin;
 		MatchTimePicker.IsEnabled = _isAdmin;
 		ArriveTimePicker.IsEnabled = _isAdmin;
@@ -66,11 +111,9 @@ public partial class SetupPage : ContentPage
 		MapsLinkEntry.IsEnabled = _isAdmin;
 		MapsLinkEntry.IsReadOnly = !_isAdmin;
 
-		// Admin-only location capture controls
 		GetLocationButton.IsVisible = _isAdmin;
 		PickLocationButton.IsVisible = _isAdmin;
 
-		// Search / Open still useful for members navigating to the ground
 		SearchLocationButton.IsEnabled = true;
 		OpenLinkButton.IsEnabled = true;
 	}
@@ -79,39 +122,30 @@ public partial class SetupPage : ContentPage
 	{
 		if (_isLoadingData || !_isAdmin)
 			return;
-		SaveMatchData();
+		_ = SaveMatchDataAsync(forceCloud: false);
 	}
 
-	private void LoadMatchData()
+	private async Task LoadMatchDataAsync()
 	{
 		try
 		{
 			_isLoadingData = true;
+			ResolveServices();
+			var teamId = GetTeamId();
+			if (string.IsNullOrWhiteSpace(teamId) || _scheduleService is null)
+			{
+				ApplyScheduleToUi(null);
+				return;
+			}
 
-			var matchDate = Preferences.Get(GetTeamKey("setup_match_date"), DateTime.Today.ToString("O"));
-			var matchTime = Preferences.Get(GetTeamKey("setup_match_time"), DateTime.Now.ToString("HH:mm:ss"));
-			var arriveTime = Preferences.Get(GetTeamKey("setup_arrive_time"), string.Empty);
-			var locationName = Preferences.Get(GetTeamKey("setup_location_name"), string.Empty);
-			var latitude = Preferences.Get(GetTeamKey("setup_latitude"), string.Empty);
-			var longitude = Preferences.Get(GetTeamKey("setup_longitude"), string.Empty);
-			var mapsLink = Preferences.Get(GetTeamKey("setup_maps_link"), string.Empty);
+			var preferCloud = IsSharedTeam() && !IsCurrentUserAdmin();
+			// Admins also pull cloud once so co-admin edits show up.
+			if (IsSharedTeam())
+				preferCloud = true;
 
-			if (DateTime.TryParse(matchDate, out var parsedDate))
-				MatchDatePicker.Date = parsedDate;
-
-			if (TimeSpan.TryParse(matchTime, out var parsedTime))
-				MatchTimePicker.Time = parsedTime;
-
-			if (TimeSpan.TryParse(arriveTime, out var parsedArrive))
-				ArriveTimePicker.Time = parsedArrive;
-			else if (TimeSpan.TryParse(matchTime, out var fallbackArrive))
-				// Default arrive to match start if never set
-				ArriveTimePicker.Time = fallbackArrive;
-
-			LocationNameEntry.Text = locationName;
-			LatitudeEntry.Text = latitude;
-			LongitudeEntry.Text = longitude;
-			MapsLinkEntry.Text = mapsLink;
+			var schedule = await _scheduleService.LoadAsync(teamId, preferCloud).ConfigureAwait(true);
+			schedule ??= _scheduleService.LoadLocal(teamId);
+			ApplyScheduleToUi(schedule);
 		}
 		catch (Exception ex)
 		{
@@ -123,22 +157,131 @@ public partial class SetupPage : ContentPage
 		}
 	}
 
-	private void SaveMatchData()
+	private void ApplyScheduleToUi(MatchSchedule? schedule)
+	{
+		try
+		{
+			_isLoadingData = true;
+			_currentSchedule = schedule;
+
+			if (schedule is not null && DateTime.TryParse(schedule.MatchDate, out var parsedDate))
+				MatchDatePicker.Date = parsedDate;
+			else
+				MatchDatePicker.Date = DateTime.Today;
+
+			if (schedule is not null && TimeSpan.TryParse(schedule.MatchTime, out var parsedTime))
+				MatchTimePicker.Time = parsedTime;
+
+			if (schedule is not null && TimeSpan.TryParse(schedule.ArriveTime, out var parsedArrive))
+				ArriveTimePicker.Time = parsedArrive;
+			else if (schedule is not null && TimeSpan.TryParse(schedule.MatchTime, out var fallbackArrive))
+				ArriveTimePicker.Time = fallbackArrive;
+
+			LocationNameEntry.Text = schedule?.LocationName ?? string.Empty;
+			LatitudeEntry.Text = schedule?.Latitude ?? string.Empty;
+			LongitudeEntry.Text = schedule?.Longitude ?? string.Empty;
+			MapsLinkEntry.Text = schedule?.MapsLink ?? string.Empty;
+
+			UpdateStatusLabels(schedule);
+		}
+		finally
+		{
+			_isLoadingData = false;
+		}
+	}
+
+	private void UpdateStatusLabels(MatchSchedule? schedule)
+	{
+		var status = MatchScheduleEvaluator.Evaluate(schedule);
+		var statusText = MatchScheduleEvaluator.StatusLabel(status);
+		ScheduleStatusLabel.Text = string.IsNullOrEmpty(statusText) ? string.Empty : $"Status: {statusText}";
+
+		ScheduleStatusLabel.TextColor = status switch
+		{
+			MatchScheduleStatus.Upcoming => Color.FromArgb("#2E7D32"),
+			MatchScheduleStatus.Past => Color.FromArgb("#E65100"),
+			MatchScheduleStatus.Incomplete => Color.FromArgb("#F9A825"),
+			_ => Color.FromArgb("#757575")
+		};
+
+		var updated = MatchScheduleEvaluator.FormatLastUpdated(schedule);
+		ScheduleUpdatedLabel.Text = updated;
+		ScheduleUpdatedLabel.IsVisible = !string.IsNullOrEmpty(updated);
+
+		ScheduleSourceLabel.Text = MatchScheduleEvaluator.FormatSourceLine(schedule, IsSharedTeam());
+
+		var showBanner = status is MatchScheduleStatus.Past or MatchScheduleStatus.Incomplete;
+		ScheduleStatusBanner.IsVisible = showBanner;
+		ScheduleStatusBannerLabel.Text = status switch
+		{
+			MatchScheduleStatus.Past => "⚠ Past match — this schedule is outdated. Set the next fixture.",
+			MatchScheduleStatus.Incomplete => "⚠ Incomplete — set match date and kickoff time.",
+			_ => string.Empty
+		};
+		ScheduleStatusBanner.BackgroundColor = status == MatchScheduleStatus.Past
+			? Color.FromArgb("#FFF3E0")
+			: Color.FromArgb("#FFFDE7");
+	}
+
+	private MatchSchedule BuildScheduleFromUi()
+	{
+		var teamId = GetTeamId();
+		var uid = Preferences.Get("user_id", string.Empty);
+		var displayName = UserDisplayName.Get();
+
+		return new MatchSchedule
+		{
+			SchemaVersion = MatchSchedule.CurrentSchemaVersion,
+			TeamId = teamId,
+			MatchDate = $"{MatchDatePicker.Date:yyyy-MM-dd}",
+			MatchTime = MatchTimePicker.Time.ToString(),
+			ArriveTime = ArriveTimePicker.Time.ToString(),
+			LocationName = LocationNameEntry.Text ?? string.Empty,
+			Latitude = LatitudeEntry.Text ?? string.Empty,
+			Longitude = LongitudeEntry.Text ?? string.Empty,
+			MapsLink = MapsLinkEntry.Text ?? string.Empty,
+			LastModifiedUtc = DateTimeOffset.UtcNow,
+			UpdatedByUid = string.IsNullOrWhiteSpace(uid) ? null : uid,
+			UpdatedByDisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
+			FromCloud = false
+		};
+	}
+
+	private async Task SaveMatchDataAsync(bool forceCloud)
 	{
 		if (!_isAdmin)
 			return;
 
 		try
 		{
-			Preferences.Set(GetTeamKey("setup_match_date"), $"{MatchDatePicker.Date:yyyy-MM-dd}");
-			Preferences.Set(GetTeamKey("setup_match_time"), MatchTimePicker.Time.ToString());
-			Preferences.Set(GetTeamKey("setup_arrive_time"), ArriveTimePicker.Time.ToString());
-			Preferences.Set(GetTeamKey("setup_location_name"), LocationNameEntry.Text ?? string.Empty);
-			Preferences.Set(GetTeamKey("setup_latitude"), LatitudeEntry.Text ?? string.Empty);
-			Preferences.Set(GetTeamKey("setup_longitude"), LongitudeEntry.Text ?? string.Empty);
-			Preferences.Set(GetTeamKey("setup_maps_link"), MapsLinkEntry.Text ?? string.Empty);
+			ResolveServices();
+			var teamId = GetTeamId();
+			if (string.IsNullOrWhiteSpace(teamId))
+				return;
 
-			System.Diagnostics.Debug.WriteLine("Match data saved successfully");
+			var schedule = BuildScheduleFromUi();
+			_currentSchedule = schedule;
+			UpdateStatusLabels(schedule);
+
+			if (_scheduleService is null)
+			{
+				// Extremely defensive: persist keys the old way if DI not ready.
+				Preferences.Set($"setup_match_date_{teamId}", schedule.MatchDate);
+				Preferences.Set($"setup_match_time_{teamId}", schedule.MatchTime);
+				Preferences.Set($"setup_arrive_time_{teamId}", schedule.ArriveTime);
+				Preferences.Set($"setup_location_name_{teamId}", schedule.LocationName);
+				Preferences.Set($"setup_latitude_{teamId}", schedule.Latitude);
+				Preferences.Set($"setup_longitude_{teamId}", schedule.Longitude);
+				Preferences.Set($"setup_maps_link_{teamId}", schedule.MapsLink);
+				return;
+			}
+
+			if (forceCloud)
+				await _scheduleService.ForceSyncAsync(teamId, schedule);
+			else
+				await _scheduleService.SaveAsync(teamId, schedule, isAdmin: true);
+
+			System.Diagnostics.Debug.WriteLine("[SetupPage] Match schedule saved");
 		}
 		catch (Exception ex)
 		{
@@ -161,7 +304,7 @@ public partial class SetupPage : ContentPage
 				{
 					LatitudeEntry.Text = parts[0].Trim();
 					LongitudeEntry.Text = parts[1].Trim();
-					SaveMatchData();
+					_ = SaveMatchDataAsync(forceCloud: false);
 				}
 				Preferences.Remove(LOCATION_PICK_KEY);
 			}
@@ -196,7 +339,7 @@ public partial class SetupPage : ContentPage
 			{
 				LatitudeEntry.Text = location.Latitude.ToString("F6");
 				LongitudeEntry.Text = location.Longitude.ToString("F6");
-				SaveMatchData();
+				await SaveMatchDataAsync(forceCloud: false);
 			}
 			else
 			{
@@ -265,7 +408,6 @@ public partial class SetupPage : ContentPage
 				"OK");
 			return;
 #else
-			// Instructions first — open Maps only after the user acknowledges
 			await DisplayAlertAsync(
 				"Pick Location",
 				"1. Find your desired location on the map\n" +
@@ -327,14 +469,13 @@ public partial class SetupPage : ContentPage
 				return;
 			}
 
-			// Extract coordinates when possible (admin gets fields updated; members still open the link)
 			if (TryExtractCoordinatesFromLink(link, out double lat, out double lon))
 			{
 				if (_isAdmin)
 				{
 					LatitudeEntry.Text = lat.ToString("F6");
 					LongitudeEntry.Text = lon.ToString("F6");
-					SaveMatchData();
+					await SaveMatchDataAsync(forceCloud: false);
 				}
 			}
 

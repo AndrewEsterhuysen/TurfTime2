@@ -22,8 +22,13 @@ namespace TurfTime2.Services;
 /// </summary>
 public class FcmService
 {
-    /// <summary>Must match Cloud Function android.notification.channelId and AndroidManifest meta-data.</summary>
-    public const string ChatChannelId = "turftime_chat";
+    /// <summary>
+    /// Must match AndroidManifest default_notification_channel_id.
+    /// v2: prior id "turftime_chat" was user-locked to LOW importance on some devices
+    /// (Android preserves user channel prefs even after delete+recreate with the same id).
+    /// </summary>
+    public const string ChatChannelId = "turftime_chat_v2";
+    private const string LegacyChatChannelId = "turftime_chat";
 
     private static FcmService? _instance;
     public static FcmService Instance => _instance ??= new FcmService();
@@ -207,6 +212,13 @@ public class FcmService
     private void ShowLocalNotification(string title, string body)
     {
 #if ANDROID
+        // NotificationManager / channels must be touched on the main thread on some OEMs.
+        if (!MainThread.IsMainThread)
+        {
+            MainThread.BeginInvokeOnMainThread(() => ShowLocalNotification(title, body));
+            return;
+        }
+
         EnsureAndroidNotificationChannel();
         var context = AndroidApp.Context;
         var packageName = context.PackageName ?? "";
@@ -242,7 +254,8 @@ public class FcmService
             .SetPriority(NotificationCompat.PriorityHigh)
             .SetCategory(NotificationCompat.CategoryMessage)
             .SetVisibility(NotificationCompat.VisibilityPublic)
-            .SetDefaults((int)(NotificationDefaults.Sound | NotificationDefaults.Vibrate))
+            .SetDefaults((int)(NotificationDefaults.Sound | NotificationDefaults.Vibrate | NotificationDefaults.Lights))
+            .SetOnlyAlertOnce(false)
             .SetNumber(Math.Max(1, Helpers.ChatBadgeHelper.UnreadCount));
 
         // Full-color Turf Time app icon (right side of notification, similar to iOS).
@@ -254,10 +267,19 @@ public class FcmService
             builder.SetContentIntent(pending);
 
         var manager = NotificationManagerCompat.From(context);
+        if (!manager.AreNotificationsEnabled())
+        {
+            System.Diagnostics.Debug.WriteLine(
+                "[FCM] ⚠️ App notifications disabled in system settings — cannot show chat alert");
+        }
+
+        LogAndroidZenState();
+
         var id = Interlocked.Increment(ref _localNotifyId);
-        manager.Notify(id, builder.Build());
+        var notification = builder.Build();
+        manager.Notify(id, notification);
         System.Diagnostics.Debug.WriteLine(
-            $"[FCM] ✅ Local Android notification posted id={id} largeIcon={(large != null)}");
+            $"[FCM] ✅ Local Android notification posted id={id} channel={ChatChannelId} largeIcon={(large != null)}");
 #elif IOS
         var content = new UNMutableNotificationContent
         {
@@ -332,21 +354,28 @@ public class FcmService
             var manager = (NotificationManager?)context.GetSystemService(Context.NotificationService);
             if (manager == null) return;
 
-            // New channel id — existing "general" may have been auto-created at LOW/DEFAULT
-            // importance (Android never upgrades importance after create).
-            var existing = manager.GetNotificationChannel(ChatChannelId);
-            if (existing != null && existing.Importance >= NotificationImportance.High)
-                return;
-
-            if (existing != null)
-            {
-                manager.DeleteNotificationChannel(ChatChannelId);
-                System.Diagnostics.Debug.WriteLine($"[FCM] Deleted stale channel '{ChatChannelId}' (importance={existing.Importance})");
-            }
-
-            // Also remove legacy auto-channel if present (optional cleanup).
+            // Drop legacy channels. User can lock importance permanently for a given channel id;
+            // Android restores that lock even after delete+recreate of the *same* id — so we
+            // moved chat to ChatChannelId (v2) when turftime_chat was stuck at LOW.
+            try { manager.DeleteNotificationChannel(LegacyChatChannelId); } catch { /* ignore */ }
             try { manager.DeleteNotificationChannel("general"); } catch { /* ignore */ }
 
+            var existing = manager.GetNotificationChannel(ChatChannelId);
+            if (existing != null)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[FCM] Channel '{ChatChannelId}' exists importance={existing.Importance}");
+                // Never delete+recreate same id — Android restores user-lowered importance.
+                if (existing.Importance >= NotificationImportance.Default)
+                    return;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[FCM] ⚠️ Channel '{ChatChannelId}' importance too low — open App notifications → Team Chat → set to High");
+                return;
+            }
+
+            // HIGH for heads-up when DND is off. We intentionally do NOT bypass Do Not Disturb /
+            // Sleeping schedules — the user owns those system quiet hours.
             var channel = new NotificationChannel(ChatChannelId, "Team Chat", NotificationImportance.High)
             {
                 Description = "Chat messages from shared teams",
@@ -367,6 +396,31 @@ public class FcmService
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[FCM] Channel: {ex.Message}");
+        }
+    }
+
+    private static void LogAndroidZenState()
+    {
+        try
+        {
+            if (!OperatingSystem.IsAndroidVersionAtLeast(23)) return;
+            var context = AndroidApp.Context;
+            var manager = (NotificationManager?)context.GetSystemService(Context.NotificationService);
+            if (manager == null) return;
+
+            var filter = manager.CurrentInterruptionFilter;
+            // 1=ALL, 2=PRIORITY, 3=NONE, 4=ALARMS — DND/Sleeping silences chat by design.
+            System.Diagnostics.Debug.WriteLine(
+                $"[FCM] Zen/DND interruptionFilter={(int)filter} ({filter})");
+            if (filter != InterruptionFilter.All && filter != InterruptionFilter.Unknown)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "[FCM] ℹ️ Do Not Disturb / Sleeping is active — chat alerts are quiet until DND ends (we do not bypass).");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[FCM] Zen log: {ex.Message}");
         }
     }
 #endif

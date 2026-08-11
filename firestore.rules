@@ -7,6 +7,7 @@ rules_version = '2';
 //   teams/{teamId}/metadata/info
 //   teams/{teamId}/members/{uid}
 //   teams/{teamId}/roster/data
+//   teams/{teamId}/details/location  (match schedule / venue — admin write, member read)
 //   teams/{teamId}/messages/{messageId}
 //   teams/{teamId}/sessions/{sessionId}
 //   teams/{teamId}/public/invite     (join reverse-lookup under team tree)
@@ -96,6 +97,14 @@ service cloud.firestore {
     match /teams/{teamId}/roster/data {
       allow read: if signedIn();
       allow write: if signedIn();
+    }
+
+    // Match schedule / Location (Details → Location)
+    // Members read; admins write. Keep in sync with IMatchScheduleService.
+    match /teams/{teamId}/details/location {
+      allow read: if isTeamMember(teamId) || signedIn();
+      allow create, update: if isTeamAdmin(teamId);
+      allow delete: if isTeamAdmin(teamId);
     }
 
     // Chat messages
