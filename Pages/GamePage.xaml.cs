@@ -14,7 +14,14 @@ public partial class GamePage : ContentPage
 
     private CancellationTokenSource? _startLongPressCts;
     private CancellationTokenSource? _rotateLongPressCts;
+    private CancellationTokenSource? _tapToRotateLongPressCts;
     private CancellationTokenSource? _rolePollCts;
+
+    /// <summary>True when Rotate long-press opened the count dialog — suppress the following Clicked rotate.</summary>
+    private bool _rotateLongPressHandled;
+
+    /// <summary>True when Tap-to-Rotate long-press opened the count dialog — suppress short-tap rotate on release.</summary>
+    private bool _tapToRotateLongPressHandled;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -1128,57 +1135,113 @@ public partial class GamePage : ContentPage
 
     private void OnRotateClicked(object sender, EventArgs e)
     {
+        // Long-press already opened the rotation-count sheet — do not also rotate.
+        if (_rotateLongPressHandled)
+        {
+            _rotateLongPressHandled = false;
+            return;
+        }
+
         ExecuteRotationTrigger("button");
     }
 
-    private void OnRotatePressed(object sender, EventArgs e)
+    private async void OnRotatePressed(object sender, EventArgs e)
     {
-        // RotationCount is now controlled by tapping players on the Team page.
-        // Long-press on Rotate is intentionally a no-op.
+        _rotateLongPressHandled = false;
         _rotateLongPressCts?.Cancel();
+        _rotateLongPressCts = new CancellationTokenSource();
+        var token = _rotateLongPressCts.Token;
+        try
+        {
+            await Task.Delay(1000, token);
+            if (_vm is null || _vm.IsMember) return;
+
+            _rotateLongPressHandled = true;
+            await ShowRotationCountDialog();
+        }
+        catch (OperationCanceledException) { /* short press — Clicked will rotate */ }
     }
 
     private void OnRotateReleased(object sender, EventArgs e)
         => _rotateLongPressCts?.Cancel();
 
-    private void OnRotationLowerHalfTapped(object sender, TappedEventArgs e)
-        => ExecuteRotationTrigger("lower-half tap zone");
+    private void OnTapToRotateClicked(object sender, EventArgs e)
+    {
+        if (_tapToRotateLongPressHandled)
+        {
+            _tapToRotateLongPressHandled = false;
+            return;
+        }
+
+        ExecuteRotationTrigger("tap-to-rotate zone");
+    }
+
+    private async void OnTapToRotatePressed(object sender, EventArgs e)
+    {
+        _tapToRotateLongPressHandled = false;
+        _tapToRotateLongPressCts?.Cancel();
+        _tapToRotateLongPressCts = new CancellationTokenSource();
+        var token = _tapToRotateLongPressCts.Token;
+        try
+        {
+            await Task.Delay(1000, token);
+            if (_vm is null || _vm.IsMember) return;
+
+            _tapToRotateLongPressHandled = true;
+            await ShowRotationCountDialog();
+        }
+        catch (OperationCanceledException) { /* short press — Clicked will rotate */ }
+    }
+
+    private void OnTapToRotateReleased(object sender, EventArgs e)
+        => _tapToRotateLongPressCts?.Cancel();
 
     private void ExecuteRotationTrigger(string source)
     {
+        if (_vm is null || _vm.IsMember) return;
+
         System.Diagnostics.Debug.WriteLine($"[GamePage] 👆 Rotate triggered from {source}");
-        _vm?.ExecuteRotations();
-        if (_vm is not null) _vm.RotationDue = false;
+        _vm.ExecuteRotations();
+        _vm.RotationDue = false;
         AnimateRotateBtn();
 
         // Resync: scroll the roster back to the first row so the user can
         // immediately see who has just rotated onto the field.
-        if (SwipeableRoster.IsVisible && _vm?.DisplayItems.Count > 0)
+        if (SwipeableRoster.IsVisible && _vm.DisplayItems.Count > 0)
             SwipeableRoster.ScrollTo(0, position: ScrollToPosition.Start, animate: false);
     }
 
+    /// <summary>
+    /// Value selector: 1 … max bench players. Full FIFO reseed on change (no extra AutoSave).
+    /// </summary>
     private async Task ShowRotationCountDialog()
     {
-        if (_vm is null) return;
+        if (_vm is null || _vm.IsMember) return;
+
         var max = _vm.MaxRotationCount;
         if (max < 1)
         {
-            await DisplayAlert("Rotation Count", "Assign bench players first.", "OK");
+            await DisplayAlertAsync("Rotation Count", "Assign bench players first.", "OK");
             return;
         }
+
         var options = Enumerable.Range(1, max).Select(n => n.ToString()).ToArray();
-        var result  = await DisplayActionSheet("Rotate how many players?", "Cancel", null, options);
+        var result = await DisplayActionSheetAsync(
+            "Rotate how many players?",
+            "Cancel",
+            destruction: null,
+            options);
+
         if (result is null || result == "Cancel") return;
-        if (int.TryParse(result, out var count))
+        if (!int.TryParse(result, out var count)) return;
+
+        var previous = _vm.RotationCount;
+        _vm.RotationCount = count;
+        if (count != previous)
         {
-            var previous = _vm.RotationCount;
-            _vm.RotationCount = count;
-            if (count != previous)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[GamePage] 🔢 RotationCount changed {previous} → {count} — re-seeding queues");
-                _vm.ReseedRotationQueues();
-            }
+            System.Diagnostics.Debug.WriteLine(
+                $"[GamePage] 🔢 RotationCount changed {previous} → {count} — full reseed");
+            _vm.ReseedRotationQueues();
         }
     }
 

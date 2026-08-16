@@ -181,15 +181,18 @@ public partial class HelpPage : ContentPage
         <li><strong>Start</strong> (left):
             <ul>
                 <li>Starts or pauses the match timer.</li>
+                <li>When you <em>Start</em> from setup (kickoff), the app automatically switches to the <strong>Rotation</strong> view so the next swaps are visible immediately.</li>
                 <li>Shows <em>½ Time</em> at half-time — tap to begin the second half.</li>
                 <li><em>Hold 1 second</em> to fully restart / reset the game (resets timers and scores; releases match control on shared teams).</li>
             </ul>
         </li>
         <li><strong>Rotate</strong> (centre):
             <ul>
-                <li>Executes the next rotation — swaps the selected number of field players off and bench players on.</li>
+                <li><strong>Tap</strong> executes the next rotation — swaps the selected number of field players off and bench players on.</li>
                 <li>Resets the rotation countdown.</li>
-                <li>You can rotate <em>any number of players at once</em>, from 1 up to the total number of bench players available.</li>
+                <li>Button label shows the current count, e.g. <span class='key'>Rotate 2</span>.</li>
+                <li><em>Hold ~1 second</em> to open the <strong>rotation count</strong> selector (1 up to the number of bench players). Choosing a new count fully re-seeds the next-up FIFO queues from automatic order (manual queue picks are not kept).</li>
+                <li>Controller only on shared teams (view-only devices cannot rotate or change the count).</li>
             </ul>
         </li>
         <li><strong>View: Rotation / View: Team</strong> (right):
@@ -202,10 +205,11 @@ public partial class HelpPage : ContentPage
 
     <!-- ═══════════════════════════════════════════════════ -->
     <h3>🔄 Rotation View</h3>
-    <p>Press <span class='key'>View: Rotation</span> to see the substitution call-out screen:</p>
+    <p>Opens automatically when you Start a match from setup, or press <span class='key'>View: Rotation</span> anytime:</p>
     <ul>
-        <li><strong>Centre panel:</strong> Lists each upcoming swap — bench player coming <em>on</em> (blue, left-aligned) and field player going <em>off</em> (orange, right-aligned).</li>
+        <li><strong>Centre panel:</strong> Lists each upcoming swap — bench player coming <em>on</em> (blue, left-aligned) and field player going <em>off</em> (orange, right-aligned). How many pairs appear matches the rotation count.</li>
         <li><strong>Tap to Rotate:</strong> Tap the centre panel to execute the same rotation as the bottom <span class='key'>Rotate</span> button (controller only on shared teams).</li>
+        <li><strong>Hold ~1 second</strong> on the centre panel (or on <span class='key'>Rotate</span>) to choose how many players to rotate (1 … max on the bench). Same full FIFO reseed as holding Rotate.</li>
         <li><strong>Left strip (green — Us):</strong> Shows your score. Tap to +1, double-tap to −1 (controller only on shared teams).</li>
         <li><strong>Right strip (red — Them):</strong> Shows opponent score. Tap to +1, double-tap to −1 (controller only on shared teams).</li>
         <li>Designed for sideline communication — large text, high contrast.</li>
@@ -216,10 +220,20 @@ public partial class HelpPage : ContentPage
     <ul>
         <li>The app uses a <strong>FIFO queue</strong>: players who have been on the bench longest rotate on first; players who have been on the field longest rotate off first.</li>
         <li>Field time (MM:SS) on each row reflects this — higher time = next to come off.</li>
-        <li><strong>Manual override:</strong> Tap a bench player during a match to move them to the front of the rotation-in queue. Tap a field player to move them to the front of the rotation-out queue. The cyan ➤ arrow shows the queued selection.</li>
+        <li><strong>Manual override (Team view):</strong> During a match, tap a bench player to queue them on, or a field player to queue them off. Queues grow/shrink and the rotation count follows. The cyan ➤ arrow marks queued players.</li>
+        <li><strong>Rotation count (Rotate / Tap to Rotate hold):</strong> Sets how many pairs will swap. Changing the count re-seeds both next-up queues from automatic FIFO (does not keep a prior manual queue order).</li>
+        <li>Team-view taps and long-press count selection share the same queues — the last action you take wins until you change it again.</li>
         <li><strong>Reorder by dragging:</strong> Long-press and drag any row to permanently reposition the player in the rotation sequence.</li>
-        <li>Manual queue selections are cleared after each rotation executes, returning to automatic FIFO.</li>
+        <li>After each rotation executes, queues are re-seeded for the next cycle.</li>
         <li><strong>Rotation alert:</strong> Before a rotation is due, a short vibration fires, giving you a heads-up before the rotation is due.</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>👤 Your Display Name</h3>
+    <ul>
+        <li>On first launch (or whenever no name is set), Turf Time asks for a <strong>display name</strong> before you continue.</li>
+        <li>Used in Chat, push notifications, member lists, and when you join a shared team.</li>
+        <li>Edit anytime under Team Details → Current Team.</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
@@ -229,6 +243,8 @@ public partial class HelpPage : ContentPage
         <li>Choose <strong>Local</strong> for device-only teams (no cloud sync). Chat and Details tabs appear only for shared teams.</li>
         <li>Set a <strong>display name</strong> when you create or join a shared team (editable under Current Team). That name appears in Chat, push notifications, and the member list — not a device ID.</li>
         <li>Roster, timers, and scores sync so everyone can follow the match on their devices.</li>
+        <li><strong>Share invite (QR + link):</strong> From Team Details, share a QR image that includes a short “press and hold” note under the code, plus a <code>turf://v1/join?invite=…</code> link for email or SMS. The receiver needs Turf Time installed; tapping the link (or opening the QR) starts join as a Member.</li>
+        <li>Local team QR import is still scan/photo via Import Team (full roster offline copy).</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
