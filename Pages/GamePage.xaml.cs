@@ -1090,8 +1090,19 @@ public partial class GamePage : ContentPage
             return;
         }
 
+        // Capture before toggle so we only auto-switch on the real "Start" from setup.
+        var startingFromSetup = _vm.Phase == GamePhase.Setup;
+
         _vm.ToggleStartPause();
         _vm.RotationDue = false;
+
+        // After kickoff, show the next-rotation call-out immediately.
+        if (startingFromSetup
+            && _vm.Phase is GamePhase.FirstHalf or GamePhase.SecondHalf)
+        {
+            _vm.ViewMode = TeamViewMode.Rotation;
+            ApplyViewMode(TeamViewMode.Rotation);
+        }
     }
 
     private async void OnStartPressed(object sender, EventArgs e)

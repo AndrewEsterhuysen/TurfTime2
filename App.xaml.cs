@@ -19,6 +19,12 @@ namespace TurfTime2
         private const int DEMO_ROTATION_SECONDS = 20;
         private static int _importCounter;
 
+        /// <summary>Deep link waiting for Shell / first page (cold start from Messages etc.).</summary>
+        private static Uri? _pendingDeepLink;
+        private static readonly object PendingDeepLinkLock = new();
+        private static string? _lastHandledDeepLink;
+        private static DateTime _lastHandledDeepLinkUtc = DateTime.MinValue;
+
         /// <summary>Raised when the app is backgrounded (process may be suspended).</summary>
         public static event EventHandler? Sleeping;
 
@@ -31,6 +37,29 @@ namespace TurfTime2
 
             // Initialize FCM
             _ = InitializeFcmAsync();
+        }
+
+        /// <summary>
+        /// Queue a deep link before <see cref="Application.Current"/> is ready
+        /// (platform open can race app construction).
+        /// </summary>
+        public static void EnqueuePendingDeepLink(Uri uri)
+        {
+            if (uri is null) return;
+            lock (PendingDeepLinkLock)
+                _pendingDeepLink = uri;
+            System.Diagnostics.Debug.WriteLine($"[App] Enqueued pending deep link: {uri}");
+        }
+
+        /// <summary>
+        /// Entry point for platform code (iOS OpenUrl / Android VIEW intent) and MAUI app links.
+        /// </summary>
+        public void HandleIncomingDeepLink(Uri uri)
+        {
+            if (uri is null) return;
+            System.Diagnostics.Debug.WriteLine($"[App] HandleIncomingDeepLink: {uri}");
+            EnqueuePendingDeepLink(uri);
+            _ = ProcessPendingDeepLinkAsync();
         }
 
         protected override void OnSleep()
@@ -67,6 +96,10 @@ namespace TurfTime2
             {
                 await EnsureDemoTeamOnFirstRunAsync();
 
+                // Require a display name before Welcome / deep-link join so Chat and
+                // shared-team join always have a name ready (first launch or cleared prefs).
+                await EnsureDisplayNameOnLaunchAsync();
+
                 // Check if a team was previously selected (after demo bootstrap).
                 var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
                 var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
@@ -74,8 +107,13 @@ namespace TurfTime2
                 // Shared-team match schedule: load + live watch (fail soft).
                 _ = EnsureMatchScheduleSyncAsync();
 
+                // If we launched from a deep link, skip Welcome so join/import alerts can show.
+                var hasPendingLink = false;
+                lock (PendingDeepLinkLock)
+                    hasPendingLink = _pendingDeepLink is not null;
+
                 // First-run / optional welcome modal (user can opt out permanently).
-                if (!Preferences.Get("welcome_dont_show", false))
+                if (!hasPendingLink && !Preferences.Get("welcome_dont_show", false))
                 {
                     await appShell.Navigation.PushModalAsync(new WelcomePage(), animated: true);
                 }
@@ -90,9 +128,86 @@ namespace TurfTime2
                 {
                     System.Diagnostics.Debug.WriteLine($"[App] Team selected: {teamId} - starting at Game page");
                 }
+
+                // Cold-start deep links (Messages → turf://…) often arrive before Shell is ready.
+                await ProcessPendingDeepLinkAsync();
             };
 
             return window;
+        }
+
+        /// <summary>
+        /// Blocks until the user has a valid display name (Preferences <c>user_name</c>).
+        /// Shown as a small prompt on first launch (and whenever the name is missing).
+        /// </summary>
+        private static async Task EnsureDisplayNameOnLaunchAsync()
+        {
+            if (UserDisplayName.TryValidate(UserDisplayName.Get(), out _, out _))
+                return;
+
+            await WaitForUiReadyAsync();
+
+            var page = Current?.Windows.FirstOrDefault()?.Page
+                       ?? Shell.Current?.CurrentPage
+                       ?? Shell.Current;
+            if (page is null)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "[App] EnsureDisplayNameOnLaunch: no page yet — will not block startup");
+                return;
+            }
+
+            // Loop until a valid personal name is saved (required for Chat / shared join).
+            while (!UserDisplayName.TryValidate(UserDisplayName.Get(), out _, out _))
+            {
+                string? entered;
+                try
+                {
+                    // cancel: null → platform may still show a dismiss control; treat dismiss as retry.
+                    entered = await page.DisplayPromptAsync(
+                        title: "Your name",
+                        message:
+                            "Before you start, enter the name teammates will see in Chat and when you join a shared team " +
+                            $"(at least {UserDisplayName.MinLength} characters). You can change it later under Team Details.",
+                        accept: "Continue",
+                        cancel: null,
+                        placeholder: "e.g. Alex or Coach Sam",
+                        maxLength: UserDisplayName.MaxLength,
+                        keyboard: Keyboard.Text,
+                        initialValue: UserDisplayName.Get());
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[App] Display name prompt failed: {ex.Message}");
+                    return;
+                }
+
+                if (entered is null)
+                {
+                    await page.DisplayAlert(
+                        "Name required",
+                        "A display name is required so teammates know who you are when you join or chat.",
+                        "OK");
+                    continue;
+                }
+
+                if (!UserDisplayName.TryValidate(entered, out var normalized, out var error))
+                {
+                    await page.DisplayAlert(
+                        "Name required",
+                        string.IsNullOrWhiteSpace(error)
+                            ? $"Enter a name of at least {UserDisplayName.MinLength} characters."
+                            : error,
+                        "OK");
+                    continue;
+                }
+
+                UserDisplayName.Set(normalized);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[App] ✅ Display name set on launch: {normalized}");
+                return;
+            }
         }
 
         private static Task EnsureDemoTeamOnFirstRunAsync()
@@ -249,40 +364,114 @@ namespace TurfTime2
         protected override void OnAppLinkRequestReceived(Uri uri)
         {
             base.OnAppLinkRequestReceived(uri);
+            System.Diagnostics.Debug.WriteLine($"[App] OnAppLinkRequestReceived: {uri}");
+            HandleIncomingDeepLink(uri);
+        }
 
-            _ = MainThread.InvokeOnMainThreadAsync(async () =>
+        private async Task ProcessPendingDeepLinkAsync()
+        {
+            Uri? uri;
+            lock (PendingDeepLinkLock)
+            {
+                uri = _pendingDeepLink;
+                _pendingDeepLink = null;
+            }
+
+            if (uri is null)
+                return;
+
+            // Deduplicate: platform OpenUrl + MAUI OnAppLinkRequestReceived often both fire.
+            var key = uri.ToString();
+            if (string.Equals(key, _lastHandledDeepLink, StringComparison.OrdinalIgnoreCase) &&
+                (DateTime.UtcNow - _lastHandledDeepLinkUtc).TotalSeconds < 4)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Skipping duplicate deep link: {key}");
+                return;
+            }
+
+            _lastHandledDeepLink = key;
+            _lastHandledDeepLinkUtc = DateTime.UtcNow;
+
+            await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 try
                 {
-                    if (!QrCodeService.TryParseTeamShareData(uri.ToString(), out var teamData, out var parseError) || teamData is null)
+                    await WaitForUiReadyAsync();
+
+                    // Welcome modal blocks alerts — pop it so join/import is visible.
+                    await DismissWelcomeModalIfPresentAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[App] Processing deep link: {uri}");
+
+                    if (!QrCodeService.TryParseTeamShareData(uri.ToString(), out var teamData, out var parseError) ||
+                        teamData is null)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[App] Import payload parse failed: {parseError}");
-                        await ShowAlertAsync("Invalid QR Link", "This QR code doesn't contain valid Turf Time team data.");
+                        System.Diagnostics.Debug.WriteLine($"[App] Deep link parse failed: {parseError}");
+                        await ShowAlertAsync(
+                            "Invalid Link",
+                            string.IsNullOrWhiteSpace(parseError)
+                                ? "This link is not a valid Turf Time team invite or import."
+                                : parseError);
                         return;
                     }
 
                     if (teamData.IsSharedJoin)
                     {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[App] Deep link shared join invite={teamData.InviteCode}");
                         await HandleSharedJoinAppLinkAsync(teamData.InviteCode);
                         return;
                     }
 
                     var importedTeamId = QrCodeService.ImportTeamToLocal(teamData);
-                    await ShowAlertAsync("Team Imported", $"Imported '{teamData.TeamName}' and switched to that team.");
+                    await ShowAlertAsync(
+                        "Team Imported",
+                        $"Imported '{teamData.TeamName}' and switched to that team.");
 
                     if (Shell.Current is not null)
-                    {
                         await Shell.Current.GoToAsync(AppShell.TeamDetailsRoute);
-                    }
 
-                    System.Diagnostics.Debug.WriteLine($"[App] ✅ Imported local team via app link. TeamId={importedTeamId}");
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[App] ✅ Imported local team via deep link. TeamId={importedTeamId}");
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[App] OnAppLinkRequestReceived error: {ex.GetType().FullName}: {ex.Message}");
-                    await ShowAlertAsync("Import Failed", "Could not import team from link.");
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[App] ProcessPendingDeepLink error: {ex.GetType().FullName}: {ex.Message}");
+                    await ShowAlertAsync("Import Failed", "Could not process team link.");
                 }
             });
+        }
+
+        private static async Task WaitForUiReadyAsync()
+        {
+            for (var i = 0; i < 40; i++)
+            {
+                var page = Current?.Windows.FirstOrDefault()?.Page ?? Shell.Current?.CurrentPage;
+                if (page is not null && Shell.Current is not null)
+                    return;
+                await Task.Delay(100);
+            }
+        }
+
+        private static async Task DismissWelcomeModalIfPresentAsync()
+        {
+            try
+            {
+                var nav = Shell.Current?.Navigation;
+                if (nav is null)
+                    return;
+
+                while (nav.ModalStack.Count > 0 &&
+                       nav.ModalStack[^1] is WelcomePage)
+                {
+                    await nav.PopModalAsync(animated: false);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Dismiss welcome: {ex.Message}");
+            }
         }
 
         private async Task HandleSharedJoinAppLinkAsync(string inviteCode)
@@ -294,12 +483,16 @@ namespace TurfTime2
                 return;
             }
 
+            System.Diagnostics.Debug.WriteLine($"[App] HandleSharedJoinAppLinkAsync code={code}");
+
             var displayName = UserDisplayName.Get();
             if (!UserDisplayName.TryValidate(displayName, out displayName, out _))
             {
+                // Keep invite so user can re-open link after setting a name; also show clear UI.
+                Preferences.Set("pending_join_invite", code);
                 await ShowAlertAsync(
                     "Display Name Required",
-                    "Open Team Details → set your display name, then scan the invite QR again (or join with the invite code).");
+                    $"To join with invite {code}, open Team Details → set your display name, then open the invite link again (or use Join with invite code).");
                 if (Shell.Current is not null)
                     await Shell.Current.GoToAsync(AppShell.TeamDetailsRoute);
                 return;
@@ -314,14 +507,18 @@ namespace TurfTime2
             }
 
             var result = await cloud.JoinByInviteCodeAsync(code, displayName);
+            System.Diagnostics.Debug.WriteLine($"[App] JoinByInvite result: {result}");
+
             if (result.StartsWith("success:", StringComparison.Ordinal) ||
                 result.StartsWith("already_member:", StringComparison.Ordinal))
             {
                 var parts = result.Split(':', 3);
                 if (parts.Length >= 3)
                 {
+                    Preferences.Remove("pending_join_invite");
                     QrCodeService.ApplySharedJoinLocalState(parts[1], parts[2], displayName);
                     _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+                    _ = EnsureMatchScheduleSyncAsync();
                     await ShowAlertAsync(
                         result.StartsWith("success:", StringComparison.Ordinal) ? "Joined Team!" : "Already a Member",
                         $"Team: {parts[2]}\nChat name: {displayName}");

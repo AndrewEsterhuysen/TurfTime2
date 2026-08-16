@@ -107,7 +107,9 @@
                             <Span Text="&#10;&#10;" />
                             <Span Text="👕  " /><Span Text="Kit &amp; duties" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — kit colours and match-day duties (officer, canteen, grounds, pack-up) under Details — Admin-editable, members can view." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="🔔  " /><Span Text="Team push alerts" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — stay in the loop with notifications for team events when permissions allow." />
+                            <Span Text="🔔  " /><Span Text="Team chat push alerts" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — get notified when teammates message on a shared team (when notification permission is allowed)." />
+                            <Span Text="&#10;&#10;" />
+                            <Span Text="⏰  " /><Span Text="Match reminder notifications" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — optional device reminders from your Details → Location schedule: day before, morning of match, and time-to-leave (arrive minus buffer). Turn on under Settings → Options." />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>
@@ -150,12 +152,25 @@
                        FontSize="14"
                        LineBreakMode="WordWrap"
                        HorizontalTextAlignment="Center"
-                       Margin="0,0,0,36">
+                       Margin="0,0,0,16">
                     <Label.FormattedText>
                         <FormattedString>
                             <Span Text="Turf Time is actively growing, and your experience on the pitch shapes every feature we build. You're not just using an app — " />
                             <Span Text="you're part of its story." FontAttributes="Bold" TextColor="#FFFFFF" />
                             <Span Text=" Share feedback and ideas anytime — they help us prioritise what truly adds value. Game on! 🎉" />
+                        </FormattedString>
+                    </Label.FormattedText>
+                </Label>
+
+                <Label TextColor="#A0A0A0"
+                       FontSize="13"
+                       LineBreakMode="WordWrap"
+                       HorizontalTextAlignment="Center"
+                       Margin="0,0,0,36">
+                    <Label.FormattedText>
+                        <FormattedString>
+                            <Span Text="Feature requests &amp; bug reports: " TextColor="#A0A0A0" />
+                            <Span Text="andrew.esterhuysen00@gmail.com" FontAttributes="Bold" TextColor="#7CDB9B" />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>

@@ -28,10 +28,35 @@
         <Frame BorderColor="#000000" CornerRadius="10" Padding="10" HasShadow="True" HorizontalOptions="Center">
             <Image
                 Source="{Binding QrImage}"
-                WidthRequest="250"
-                HeightRequest="250"
+                WidthRequest="280"
+                HeightRequest="360"
                 Aspect="AspectFit" />
         </Frame>
+
+        <!-- Shared team: tappable join deep link for email / SMS -->
+        <VerticalStackLayout IsVisible="{Binding ShowJoinLink}" Spacing="6">
+            <Label Text="Join link (email or text message)"
+                   FontSize="13"
+                   FontAttributes="Bold"
+                   TextColor="#333"
+                   HorizontalTextAlignment="Center" />
+            <Label Text="{Binding JoinLink}"
+                   FontSize="12"
+                   TextColor="#1565C0"
+                   HorizontalTextAlignment="Center"
+                   LineBreakMode="CharacterWrap">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Command="{Binding CopyJoinLinkCommand}" />
+                </Label.GestureRecognizers>
+            </Label>
+            <Button Text="Copy join link"
+                    Command="{Binding CopyJoinLinkCommand}"
+                    BackgroundColor="#455A64"
+                    TextColor="White"
+                    CornerRadius="8"
+                    Padding="12,10"
+                    FontSize="14" />
+        </VerticalStackLayout>
 
         <Label
             Text="{Binding Instructions}"
@@ -42,7 +67,7 @@
 
         <VerticalStackLayout Spacing="10">
             <Button
-                Text="Share QR Image"
+                Text="{Binding ShareButtonText}"
                 Command="{Binding ShareQrImageCommand}"
                 BackgroundColor="#673AB7"
                 TextColor="White"

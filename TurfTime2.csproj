@@ -28,8 +28,8 @@
 		<!-- Versions -->
 		<!-- ApplicationDisplayVersion = marketing version (CFBundleShortVersionString / versionName).
 		     ApplicationVersion = integer build (CFBundleVersion / versionCode). Store rejects reuse. -->
-		<ApplicationDisplayVersion>2.1.0</ApplicationDisplayVersion>
-		<ApplicationVersion>22</ApplicationVersion>
+		<ApplicationDisplayVersion>2.4.0</ApplicationDisplayVersion>
+		<ApplicationVersion>25</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>

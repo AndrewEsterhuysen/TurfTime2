@@ -80,7 +80,7 @@ public static class QrCodeService
         return GenerateDeepLink(teamData);
     }
 
-    public static byte[] GenerateQrPng(string content, int size = 500)
+    public static byte[] GenerateQrPng(string content, int size = 500, string? captionBelow = null)
     {
         var writer = new BarcodeWriterPixelData
         {
@@ -95,7 +95,26 @@ public static class QrCodeService
 
         var pixelData = writer.Write(content);
         // ZXing PixelData is BGRA32; encode with a tiny PNG writer (no ImageSharp).
-        return PngEncoder.EncodeBgra32(pixelData.Pixels, pixelData.Width, pixelData.Height);
+        if (string.IsNullOrWhiteSpace(captionBelow))
+            return PngEncoder.EncodeBgra32(pixelData.Pixels, pixelData.Width, pixelData.Height);
+
+        // Messaging apps share the image only — bake receiver instructions under the QR.
+        return QrCaptionComposer.ComposeQrWithCaption(
+            pixelData.Pixels,
+            pixelData.Width,
+            pixelData.Height,
+            captionBelow);
+    }
+
+    /// <summary>
+    /// QR PNG for sharing. Shared-team invites include a hold-to-open caption under the code.
+    /// </summary>
+    public static byte[] GenerateShareQrPng(TeamShareData teamData, int size = 500)
+    {
+        var link = GenerateQrLink(teamData);
+        if (teamData.IsSharedJoin)
+            return GenerateQrPng(link, size, QrCaptionComposer.SharedJoinCaption);
+        return GenerateQrPng(link, size);
     }
 
     public static int GetApproximateEncodedSize(TeamShareData teamData)

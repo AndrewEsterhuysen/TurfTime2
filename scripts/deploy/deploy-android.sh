@@ -88,15 +88,28 @@ echo "Config:  $CONFIG | $TFM"
 echo "Targets: ${TARGET_DEVICES[*]}"
 echo
 
-# Build the smallest APK(s) needed for the selected targets (phone=arm64, emulator=x64).
+# Build the APK ABI(s) needed for the selected targets.
+# Physical phones are almost always arm64; emulators may be arm64 (Apple Silicon)
+# or x86_64 (Intel / some AVDs) — probe each device's primary ABI.
 need_arm64=0
 need_x64=0
+device_rid_for() {
+  local device="$1"
+  local abi
+  abi="$(adb -s "$device" shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r' || true)"
+  case "$abi" in
+    x86_64|x86) echo "android-x64" ;;
+    *)          echo "android-arm64" ;;  # arm64-v8a, armeabi-v7a, unknown → arm64
+  esac
+}
 for device in "${TARGET_DEVICES[@]}"; do
-  if [[ "$device" == emulator-* ]]; then
+  rid="$(device_rid_for "$device")"
+  if [[ "$rid" == "android-x64" ]]; then
     need_x64=1
   else
     need_arm64=1
   fi
+  echo "Device $device ABI → $rid"
 done
 
 build_and_find_apk() {
@@ -140,12 +153,18 @@ echo
 
 for device in "${TARGET_DEVICES[@]}"; do
   kind="Phone"
-  apk="$APK_ARM64"
-  if [[ "$device" == emulator-* ]]; then
-    kind="Emulator"
+  [[ "$device" == emulator-* ]] && kind="Emulator"
+  rid="$(device_rid_for "$device")"
+  if [[ "$rid" == "android-x64" ]]; then
     apk="$APK_X64"
+  else
+    apk="$APK_ARM64"
   fi
-  echo "Deploying to $kind ($device)..."
+  if [[ -z "$apk" || ! -f "$apk" ]]; then
+    echo "ERROR: No APK built for $rid (device $device)" >&2
+    exit 1
+  fi
+  echo "Deploying to $kind ($device) with $rid ..."
 
   # Uninstall so Debug can replace release/store signature.
   adb -s "$device" uninstall "$PACKAGE_ID" >/dev/null 2>&1 || true

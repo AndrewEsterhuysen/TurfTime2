@@ -120,6 +120,17 @@ public partial class HelpPage : ContentPage
         <div style='color:#00d9ff;font-size:0.9em;font-family:monospace;word-break:break-all;'>{GetBuildDateTime()}</div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>✉️ Feature Requests &amp; Bug Reports</h3>
+    <p>Found a bug or have an idea that would help on the sideline? Email:</p>
+    <p style='text-align:center;margin:12px 0;'>
+        <a href='mailto:andrew.esterhuysen00@gmail.com'
+           style='color:#00d9ff;font-weight:bold;font-size:1.05em;word-break:break-all;'>
+            andrew.esterhuysen00@gmail.com
+        </a>
+    </p>
+    <p style='color:#ccc;font-size:0.9em;'>Include your device type (iPhone / Android), app version from the build box above, and steps to reproduce when reporting a bug.</p>
+
     <h1>⚽ Turf Timer Help 🥅</h1>
 
     <!-- ═══════════════════════════════════════════════════ -->
@@ -258,10 +269,31 @@ public partial class HelpPage : ContentPage
     <!-- ═══════════════════════════════════════════════════ -->
     <h3>📍 Details: Location · Kit · Duties</h3>
     <ul>
-        <li><strong>Location</strong> — match date/time, venue name, coordinates, maps link.</li>
+        <li><strong>Location</strong> — match date/time, arrive time, venue name, coordinates, and maps link. On shared teams this schedule syncs; it also drives local match reminders.</li>
         <li><strong>Kit</strong> — arrive / warm-up / game / departure kit notes and special events.</li>
         <li><strong>Duties</strong> — duty officer, canteen, grounds setup / pack-up, other notes.</li>
         <li>Admins edit; Members see a view-only banner on these pages.</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>⏰ Match Reminder Notifications</h3>
+    <p>Optional <strong>device-local</strong> reminders so you don’t miss match day. They are <em>not</em> system Clock alarms and are separate from team chat push alerts.</p>
+    <ul>
+        <li><strong>Where to enable:</strong> Settings → Options → <em>Match reminders</em>.</li>
+        <li><strong>What they use:</strong> the schedule on Details → Location (kickoff, arrive time, venue). On shared teams, schedule updates reschedule reminders automatically.</li>
+        <li><strong>Day before</strong> — evening before kickoff (default 6&nbsp;pm local).</li>
+        <li><strong>Morning of match</strong> — morning on match day (default 7&nbsp;am local).</li>
+        <li><strong>Time to leave</strong> — fires before arrive time using your leave buffer (30 / 45 / 60 / 90 minutes).</li>
+        <li>One master switch can enable all three kinds; you can turn individual kinds on or off.</li>
+        <li>Allow notification permission in system Settings when prompted, or reminders cannot fire.</li>
+        <li>Reminders follow the <em>current team</em> on this device. Switch teams or change the schedule to refresh them.</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>🔔 Team Chat Push Alerts</h3>
+    <ul>
+        <li>On shared teams, new Chat messages can raise a push / local notification when the app is in the background (and banners when allowed in the foreground).</li>
+        <li>Requires notification permission. Distinct from match reminders above.</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
