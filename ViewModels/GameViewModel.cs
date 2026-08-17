@@ -34,8 +34,23 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     public ObservableCollection<object> DisplayItems { get; } = [];
 
+    /// <summary>Field View: outfield players on the pitch (Field only — goalie is separate).</summary>
+    public ObservableCollection<Player> FieldBandPlayers { get; } = [];
+
+    /// <summary>Field View: goalie token(s) fixed just above the field/bench divider.</summary>
+    public ObservableCollection<Player> GoalieBandPlayers { get; } = [];
+
+    /// <summary>Field View: players on the bench. Inactive excluded.</summary>
+    public ObservableCollection<Player> BenchBandPlayers { get; } = [];
+
     /// <summary>True when the roster has no items to show; drives the empty-state label.</summary>
     public bool IsRosterEmpty => DisplayItems.Count == 0;
+
+    /// <summary>True when Field View pitch has no outfield or goalie tokens.</summary>
+    public bool IsFieldBandEmpty => FieldBandPlayers.Count == 0 && GoalieBandPlayers.Count == 0;
+
+    /// <summary>True when Field View bench has no bench tokens.</summary>
+    public bool IsBenchBandEmpty => BenchBandPlayers.Count == 0;
 
     // Singleton header object so bindings survive list rebuilds.
     private readonly InactiveGroupHeader _inactiveHeader = new();
@@ -446,6 +461,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // Members must not re-apply empty local layout over the admin's cloud roster.
         if (!IsMember)
             RestoreStartConfigurationIfAvailable();
+        else
+            ViewMode = TeamViewMode.Field;
 
         NotifyRoleProperties();
         UpdateStartButtonState();
@@ -499,6 +516,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         _sessionViewOnly = enabled;
         Preferences.Set(SessionViewOnlyKey(_currentTeamId), enabled);
+        if (enabled)
+            ViewMode = TeamViewMode.Field;
         NotifyRoleProperties();
         UpdateStartButtonState();
 
@@ -1187,7 +1206,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // Only do this when both indices mapped to valid display slots (i.e. the
         // player is active/visible and the header is not involved).
         if (displayFrom >= 0 && displayTo >= 0 && displayFrom != displayTo)
+        {
             DisplayItems.Move(displayFrom, displayTo);
+            RefreshFieldBands(); // keep Field View token order in sync
+        }
         else
             RefreshDisplayItems(); // fallback for edge cases (inactive players, etc.)
 
@@ -1436,13 +1458,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             Preferences.Set("game.countdownPresetSeconds", s.CountdownPresetSeconds);
         TeamAScore = s.TeamAScore;
         TeamBScore = s.TeamBScore;
-        // View-only members stay on the swipeable roster (no Rotation control).
+        // View-only members always use Field View (no Team/Rotation control surfaces).
         if (IsMember)
-            ViewMode = TeamViewMode.Swipeable;
+            ViewMode = TeamViewMode.Field;
         else
-            ViewMode = (TeamViewMode)s.ViewMode == TeamViewMode.Rotation
-                           ? TeamViewMode.Rotation
-                           : TeamViewMode.Swipeable;
+            ViewMode = (TeamViewMode)s.ViewMode switch
+            {
+                TeamViewMode.Rotation => TeamViewMode.Rotation,
+                TeamViewMode.Field    => TeamViewMode.Field,
+                _                     => TeamViewMode.Swipeable
+            };
 
         var rosterChanged = false;
         if (s.Players.Count > 0)
@@ -1721,7 +1746,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         // Became locked: next cloud apply should re-hydrate full match state.
         if (_forceLockedByController && !wasLocked)
+        {
             _controllerHydrated = false;
+            ViewMode = TeamViewMode.Field;
+        }
 
         var lockChanged = wasLocked != _forceLockedByController || wasController != IsGameController;
         if (lockChanged || prevController != _controllerUid || prevRequestId != _controlRequestId)
@@ -2995,11 +3023,69 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         }
 
         OnPropertyChanged(nameof(IsRosterEmpty));
+        RefreshFieldBands();
 
 #if DEBUG
         sw.Stop();
         System.Diagnostics.Debug.WriteLine($"[PERF] RefreshDisplayItems (surgical): {sw.ElapsedMilliseconds} ms  items={DisplayItems.Count}");
 #endif
+    }
+
+    /// <summary>
+    /// Rebuilds Field View pitch/bench token lists from current positions.
+    /// Outfield and goalie are separate so the goalie can sit just above the divider.
+    /// </summary>
+    private void RefreshFieldBands()
+    {
+        var fieldDesired = Players
+            .Where(p => p.Position == PlayerPosition.Field)
+            .ToList();
+
+        var goalieDesired = Players
+            .Where(p => p.Position == PlayerPosition.Goalie)
+            .ToList();
+
+        var benchDesired = Players
+            .Where(p => p.Position == PlayerPosition.Bench)
+            .ToList();
+
+        SyncPlayerBand(FieldBandPlayers, fieldDesired);
+        SyncPlayerBand(GoalieBandPlayers, goalieDesired);
+        SyncPlayerBand(BenchBandPlayers, benchDesired);
+        OnPropertyChanged(nameof(IsFieldBandEmpty));
+        OnPropertyChanged(nameof(IsBenchBandEmpty));
+    }
+
+    private static void SyncPlayerBand(ObservableCollection<Player> band, List<Player> desired)
+    {
+        var desiredSet = new HashSet<Player>(desired);
+        for (int i = band.Count - 1; i >= 0; i--)
+        {
+            if (!desiredSet.Contains(band[i]))
+                band.RemoveAt(i);
+        }
+
+        var currentSet = new HashSet<Player>(band);
+        for (int i = 0; i < desired.Count; i++)
+        {
+            if (!currentSet.Contains(desired[i]))
+                band.Insert(i, desired[i]);
+        }
+
+        for (int i = 0; i < desired.Count; i++)
+        {
+            if (!ReferenceEquals(band[i], desired[i]))
+            {
+                int from = -1;
+                for (int j = i + 1; j < band.Count; j++)
+                {
+                    if (ReferenceEquals(band[j], desired[i]))
+                    { from = j; break; }
+                }
+                if (from >= 0)
+                    band.Move(from, i);
+            }
+        }
     }
 
     // ── Player rename ─────────────────────────────────────────────────────

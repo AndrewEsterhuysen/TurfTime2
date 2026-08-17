@@ -21,7 +21,24 @@ public sealed class Player : INotifyPropertyChanged
     public string Name
     {
         get => _name;
-        set => SetField(ref _name, value);
+        set
+        {
+            if (SetField(ref _name, value))
+                OnPropertyChanged(nameof(ShortName));
+        }
+    }
+
+    /// <summary>First up to 3 letters of <see cref="Name"/> for Field View tokens (uppercase).</summary>
+    public string ShortName
+    {
+        get
+        {
+            var n = (_name ?? string.Empty).Trim();
+            if (n.Length == 0) return "?";
+            return n.Length <= 3
+                ? n.ToUpperInvariant()
+                : n[..3].ToUpperInvariant();
+        }
     }
 
     public PlayerPosition Position

@@ -566,6 +566,130 @@
                 </Grid>
             </Grid>
 
+            <!-- VIEW_B: Field View — pitch (2/3) + bench (1/3), all active players at a glance.
+                 Goalie sits centre just above the divider (goal-box impression).
+                 View-only members are always shown this mode (Team/Rotation hidden).
+                 Next-to-rotate tokens get a cyan circumference highlight. -->
+            <Grid x:Name="FieldView"
+                  IsVisible="False">
+                <Grid.Resources>
+                    <!-- Shared Field View player token (field / goalie / bench) -->
+                    <DataTemplate x:Key="FieldViewTokenTemplate" x:DataType="models:Player">
+                        <Border WidthRequest="48"
+                                HeightRequest="48"
+                                Margin="5"
+                                Stroke="#66FFFFFF"
+                                StrokeThickness="1.5"
+                                StrokeShape="RoundRectangle 24"
+                                BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
+                                HorizontalOptions="Center"
+                                VerticalOptions="Center">
+                            <Border.Triggers>
+                                <!-- Highlight circumference when this player is next to rotate -->
+                                <DataTrigger TargetType="Border"
+                                             Binding="{Binding IsNextToRotate}"
+                                             Value="{x:Boolean True}">
+                                    <Setter Property="Stroke" Value="{StaticResource CyanHighlight}" />
+                                    <Setter Property="StrokeThickness" Value="3.5" />
+                                </DataTrigger>
+                            </Border.Triggers>
+                            <Label Text="{Binding ShortName}"
+                                   TextColor="White"
+                                   FontSize="12"
+                                   FontAttributes="Bold"
+                                   HorizontalOptions="Center"
+                                   VerticalOptions="Center"
+                                   HorizontalTextAlignment="Center"
+                                   VerticalTextAlignment="Center" />
+                        </Border>
+                    </DataTemplate>
+                </Grid.Resources>
+
+                <Image Source="field_view_bg.png"
+                       Aspect="AspectFill"
+                       HorizontalOptions="Fill"
+                       VerticalOptions="Fill"
+                       InputTransparent="True" />
+                <Grid RowDefinitions="2*,Auto,*"
+                      Padding="8,8,8,8">
+                    <!-- Pitch band: outfield above, goalie fixed just above divider -->
+                    <Grid Grid.Row="0"
+                          RowDefinitions="*,Auto">
+                        <!-- Outfield players (Field only) -->
+                        <ScrollView Grid.Row="0"
+                                    Orientation="Vertical"
+                                    VerticalOptions="Fill"
+                                    HorizontalOptions="Fill">
+                            <FlexLayout BindableLayout.ItemsSource="{Binding FieldBandPlayers}"
+                                        BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
+                                        Wrap="Wrap"
+                                        JustifyContent="Center"
+                                        AlignItems="Center"
+                                        AlignContent="Center"
+                                        Direction="Row"
+                                        HorizontalOptions="Center"
+                                        VerticalOptions="Center"
+                                        Padding="4" />
+                        </ScrollView>
+
+                        <!-- Goalie: centre of pitch, just above field/bench dividing line -->
+                        <FlexLayout Grid.Row="1"
+                                    BindableLayout.ItemsSource="{Binding GoalieBandPlayers}"
+                                    BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
+                                    Wrap="NoWrap"
+                                    JustifyContent="Center"
+                                    AlignItems="Center"
+                                    Direction="Row"
+                                    HorizontalOptions="Center"
+                                    VerticalOptions="End"
+                                    Margin="0,0,0,2"
+                                    MinimumHeightRequest="0"
+                                    Padding="0,2,0,0" />
+
+                        <Label Grid.Row="0"
+                               Grid.RowSpan="2"
+                               Text="No players on field"
+                               TextColor="#ccffcc"
+                               FontSize="13"
+                               HorizontalOptions="Center"
+                               VerticalOptions="Center"
+                               InputTransparent="True"
+                               IsVisible="{Binding IsFieldBandEmpty}" />
+                    </Grid>
+
+                    <!-- Clear divider between field and bench -->
+                    <BoxView Grid.Row="1"
+                             HeightRequest="4"
+                             Color="#ECEFF1"
+                             Margin="0,4,0,4"
+                             HorizontalOptions="Fill" />
+
+                    <!-- Bench band -->
+                    <Grid Grid.Row="2">
+                        <ScrollView Orientation="Vertical"
+                                    VerticalOptions="Fill"
+                                    HorizontalOptions="Fill">
+                            <FlexLayout BindableLayout.ItemsSource="{Binding BenchBandPlayers}"
+                                        BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
+                                        Wrap="Wrap"
+                                        JustifyContent="Center"
+                                        AlignItems="Center"
+                                        AlignContent="Center"
+                                        Direction="Row"
+                                        HorizontalOptions="Center"
+                                        VerticalOptions="Center"
+                                        Padding="4" />
+                        </ScrollView>
+                        <Label Text="Bench empty"
+                               TextColor="#90CAF9"
+                               FontSize="13"
+                               HorizontalOptions="Center"
+                               VerticalOptions="Center"
+                               IsVisible="{Binding IsBenchBandEmpty}" />
+                    </Grid>
+                </Grid>
+            </Grid>
+
         </Grid>
 
         <!-- ══ BOTTOM CONTROLS (admin only — view-only members hide these) ══ -->

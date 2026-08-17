@@ -1247,15 +1247,15 @@ public partial class GamePage : ContentPage
 
     private void OnViewButtonClicked(object sender, EventArgs e)
     {
-        if (_vm is null) return;
+        if (_vm is null || _vm.IsMember) return;
         var next = _vm.ViewMode switch
         {
             TeamViewMode.Swipeable => TeamViewMode.Rotation,
+            TeamViewMode.Rotation  => TeamViewMode.Field,
             _                      => TeamViewMode.Swipeable
         };
         _vm.ViewMode = next;
         ApplyViewMode(next);
-        UpdateViewButtonText(next);
     }
 
     // ── Score buttons ─────────────────────────────────────────────────────
@@ -1345,17 +1345,22 @@ public partial class GamePage : ContentPage
 
     private void ApplyViewMode(TeamViewMode mode)
     {
-        SwipeableRoster.IsVisible = mode == TeamViewMode.Swipeable;
-        RotationView.IsVisible    = mode == TeamViewMode.Rotation;
-        UpdateViewButtonText(mode);
+        // View-only always stays on Field View (no Team / Rotation access).
+        var effective = _vm?.IsMember == true ? TeamViewMode.Field : mode;
+
+        SwipeableRoster.IsVisible = effective == TeamViewMode.Swipeable;
+        RotationView.IsVisible    = effective == TeamViewMode.Rotation;
+        FieldView.IsVisible       = effective == TeamViewMode.Field;
+        UpdateViewButtonText(effective);
     }
 
     private void UpdateViewButtonText(TeamViewMode mode)
     {
-        // Button text shows what view will be shown when pressed
+        // Button text shows what view will be shown when pressed (admin only).
         ViewBtn.Text = mode switch
         {
             TeamViewMode.Swipeable => "View: Rotation",
+            TeamViewMode.Rotation  => "View: Field",
             _                      => "View: Team"
         };
     }
@@ -1404,6 +1409,15 @@ public partial class GamePage : ContentPage
 
         if (e.PropertyName == nameof(GameViewModel.CountdownOverdue))
             HandleCountdownOverdue(_vm?.CountdownOverdue == true);
+
+        // Role or shared ViewMode changes: re-apply Team / Rotation / Field visibility.
+        if (e.PropertyName is nameof(GameViewModel.IsMember)
+            or nameof(GameViewModel.IsAdmin)
+            or nameof(GameViewModel.ViewMode))
+        {
+            if (_vm is not null)
+                ApplyViewMode(_vm.ViewMode);
+        }
     }
 
     /// <summary>
