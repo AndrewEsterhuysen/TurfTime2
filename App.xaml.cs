@@ -281,7 +281,7 @@ namespace TurfTime2
                 .Select(i => new PlayerSnapshot
                 {
                     SlotId = i,
-                    Name = $"Player {i}",
+                    Name = Player.DefaultName(i),
                     Field = i is >= 1 and <= 5,
                     Goalie = i == 6,
                     Bench = i is >= 7 and <= 9,
@@ -516,12 +516,30 @@ namespace TurfTime2
                 if (parts.Length >= 3)
                 {
                     Preferences.Remove("pending_join_invite");
-                    QrCodeService.ApplySharedJoinLocalState(parts[1], parts[2], displayName);
+                    var teamId = parts[1];
+                    var teamName = parts[2];
+                    var role = "member";
+                    var isOwner = false;
+                    if (result.StartsWith("already_member:", StringComparison.Ordinal))
+                    {
+                        try
+                        {
+                            role = await cloud.GetMyRoleAsync(teamId) ?? "member";
+                            isOwner = await cloud.IsTeamOwnerAsync(teamId);
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[App] already_member role: {ex.Message}");
+                        }
+                    }
+
+                    QrCodeService.ApplySharedJoinLocalState(
+                        teamId, teamName, displayName, code, role, isOwner);
                     _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
                     _ = EnsureMatchScheduleSyncAsync();
                     await ShowAlertAsync(
-                        result.StartsWith("success:", StringComparison.Ordinal) ? "Joined Team!" : "Already a Member",
-                        $"Team: {parts[2]}\nChat name: {displayName}");
+                        result.StartsWith("success:", StringComparison.Ordinal) ? "Joined Team!" : "Team Restored",
+                        $"Team: {teamName}\nChat name: {displayName}");
                     if (Shell.Current is not null)
                         await Shell.Current.GoToAsync(AppShell.TeamDetailsRoute);
                     return;
@@ -620,7 +638,9 @@ namespace TurfTime2
             int slot = 1;
             foreach (var sharePlayer in teamData.Players)
             {
-                var playerName = string.IsNullOrWhiteSpace(sharePlayer.Name) ? $"Player {slot}" : sharePlayer.Name.Trim();
+                var playerName = string.IsNullOrWhiteSpace(sharePlayer.Name)
+                    ? Player.DefaultName(slot)
+                    : sharePlayer.Name.Trim();
                 var position = ParsePosition(sharePlayer.Position);
 
                 players.Add(new Player
@@ -647,8 +667,8 @@ namespace TurfTime2
             while (players.Count < 16)
             {
                 var fillerSlot = players.Count + 1;
-                players.Add(new Player { SlotId = fillerSlot, Name = $"Player {fillerSlot}", Position = PlayerPosition.None });
-                snapshots.Add(new PlayerSnapshot { SlotId = fillerSlot, Name = $"Player {fillerSlot}" });
+                players.Add(new Player { SlotId = fillerSlot, Name = Player.DefaultName(fillerSlot), Position = PlayerPosition.None });
+                snapshots.Add(new PlayerSnapshot { SlotId = fillerSlot, Name = Player.DefaultName(fillerSlot) });
             }
 
             var snapshot = new RosterSnapshot

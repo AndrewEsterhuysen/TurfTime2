@@ -21,7 +21,10 @@ public interface ICloudTeamService
     Task<string> JoinByInviteCodeAsync(string inviteCode, string displayName);
 
     /// <summary>
-    /// Rejoin as admin with recovery code. Returns success:teamId:teamName or error:…
+    /// Owner recovery: valid Admin Recovery Code elevates the current Firebase UID to
+    /// <c>role=admin</c> and rebinds <c>metadata.createdBy</c> (Owner) to this UID.
+    /// Treats the recovery code as a master key (can replace a prior Owner).
+    /// Returns success:teamId:teamName or error:…
     /// </summary>
     Task<string> RejoinAsAdminAsync(string teamId, string adminCode, string displayName, Func<string, string> hashAdminCode);
 
@@ -73,6 +76,12 @@ public interface ICloudTeamService
 
     /// <summary>Cloud role for the signed-in user on this team, or null if not a member / error.</summary>
     Task<string?> GetMyRoleAsync(string teamId);
+
+    /// <summary>
+    /// Invite code from <c>teams/{id}/metadata/info</c> (for Admins who joined as members and never stored it locally).
+    /// Returns null if missing / unreachable.
+    /// </summary>
+    Task<string?> GetTeamInviteCodeAsync(string teamId);
 }
 
 public sealed class CloudTeamLookup

@@ -28,6 +28,12 @@ public sealed class Player : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Default roster label for slot <paramref name="slotId"/> (1–16).
+    /// Zero-padded so Field View <see cref="ShortName"/> is unique (#01…#16).
+    /// </summary>
+    public static string DefaultName(int slotId) => $"#{slotId:D2} Player";
+
     /// <summary>First up to 3 letters of <see cref="Name"/> for Field View tokens (uppercase).</summary>
     public string ShortName
     {

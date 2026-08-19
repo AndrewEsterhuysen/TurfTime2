@@ -146,9 +146,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             _timer.ResetCountdown(continueRunning: false);
         }
 
-        // Build default 16-player roster
+        // Build default 16-player roster (#01 Player … #16 Player for unique Field View tokens)
         for (int i = 1; i <= 16; i++)
-            Players.Add(new Player { SlotId = i, Name = $"Player {i}" });
+            Players.Add(new Player { SlotId = i, Name = Player.DefaultName(i) });
 
         // Wire timer events
         _timer.MatchTickOccurred      += OnMatchTick;
@@ -454,18 +454,25 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // Shared teams: prefer cloud so controller lock + live match state are current.
         var preferCloud = IsMember || !isLocal;
         var snapshot = await _cloud.LoadAsync(teamId, preferCloud: preferCloud).ConfigureAwait(false);
-        if (snapshot is not null)
-            ApplySnapshot(snapshot);
 
-        // Start-configuration is admin-local only (field/bench layout remembered on this device).
-        // Members must not re-apply empty local layout over the admin's cloud roster.
-        if (!IsMember)
-            RestoreStartConfigurationIfAvailable();
-        else
-            ViewMode = TeamViewMode.Field;
+        // ApplySnapshot mutates ObservableCollections bound to CollectionView / BindableLayout.
+        // After ConfigureAwait(false) we are often off the UI thread — must marshal or iOS aborts
+        // with UIKitThreadAccessException when Field View tokens are created.
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            if (snapshot is not null)
+                ApplySnapshot(snapshot);
 
-        NotifyRoleProperties();
-        UpdateStartButtonState();
+            // Start-configuration is admin-local only (field/bench layout remembered on this device).
+            // Members must not re-apply empty local layout over the admin's cloud roster.
+            if (!IsMember)
+                RestoreStartConfigurationIfAvailable();
+            else
+                ViewMode = TeamViewMode.Field;
+
+            NotifyRoleProperties();
+            UpdateStartButtonState();
+        }).ConfigureAwait(false);
 
         // Shared: always watch (members mirror; controllers receive control-request patches).
         if (!isLocal)
@@ -701,7 +708,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         Players.Clear();
         for (int i = 1; i <= 16; i++)
-            Players.Add(new Player { SlotId = i, Name = $"Player {i}" });
+            Players.Add(new Player { SlotId = i, Name = Player.DefaultName(i) });
 
         TeamAScore = 0;
         TeamBScore = 0;
@@ -1624,7 +1631,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 Players.Add(new Player
                 {
                     SlotId = ps.SlotId > 0 ? ps.SlotId : Players.Count + 1,
-                    Name = string.IsNullOrWhiteSpace(ps.Name) ? $"Player {Players.Count + 1}" : ps.Name,
+                    Name = string.IsNullOrWhiteSpace(ps.Name) ? Player.DefaultName(Players.Count + 1) : ps.Name,
                     FieldSeconds = ps.CounterSeconds,
                     Position = ps.Field ? PlayerPosition.Field
                              : ps.Bench ? PlayerPosition.Bench
@@ -2962,6 +2969,13 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     private void RefreshDisplayItems()
     {
+        // Bound CollectionView / Field View BindableLayouts require UI-thread mutations on iOS.
+        if (!MainThread.IsMainThread)
+        {
+            MainThread.BeginInvokeOnMainThread(RefreshDisplayItems);
+            return;
+        }
+
 #if DEBUG
         var sw = System.Diagnostics.Stopwatch.StartNew();
 #endif
@@ -3037,6 +3051,13 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     private void RefreshFieldBands()
     {
+        // Field View BindableLayout creates UIViews on collection change — UI thread only on iOS.
+        if (!MainThread.IsMainThread)
+        {
+            MainThread.BeginInvokeOnMainThread(RefreshFieldBands);
+            return;
+        }
+
         var fieldDesired = Players
             .Where(p => p.Position == PlayerPosition.Field)
             .ToList();

@@ -1345,6 +1345,14 @@ public partial class GamePage : ContentPage
 
     private void ApplyViewMode(TeamViewMode mode)
     {
+        // Cloud snapshot / InitialiseAsync can raise ViewMode/IsMember off the UI thread.
+        // Touching IsVisible there crashes iOS with UIKitThreadAccessException (SIGABRT).
+        if (!MainThread.IsMainThread)
+        {
+            MainThread.BeginInvokeOnMainThread(() => ApplyViewMode(mode));
+            return;
+        }
+
         // View-only always stays on Field View (no Team / Rotation access).
         var effective = _vm?.IsMember == true ? TeamViewMode.Field : mode;
 

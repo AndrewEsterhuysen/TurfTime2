@@ -471,7 +471,9 @@ public static class QrCodeService
         int slot = 1;
         foreach (var sharePlayer in teamData.Players)
         {
-            var playerName = string.IsNullOrWhiteSpace(sharePlayer.Name) ? $"Player {slot}" : sharePlayer.Name.Trim();
+            var playerName = string.IsNullOrWhiteSpace(sharePlayer.Name)
+                ? Player.DefaultName(slot)
+                : sharePlayer.Name.Trim();
             var position = ParsePosition(sharePlayer.Position);
 
             players.Add(new Player
@@ -498,8 +500,8 @@ public static class QrCodeService
         while (players.Count < 16)
         {
             var fillerSlot = players.Count + 1;
-            players.Add(new Player { SlotId = fillerSlot, Name = $"Player {fillerSlot}", Position = PlayerPosition.None });
-            snapshots.Add(new PlayerSnapshot { SlotId = fillerSlot, Name = $"Player {fillerSlot}" });
+            players.Add(new Player { SlotId = fillerSlot, Name = Player.DefaultName(fillerSlot), Position = PlayerPosition.None });
+            snapshots.Add(new PlayerSnapshot { SlotId = fillerSlot, Name = Player.DefaultName(fillerSlot) });
         }
 
         var snapshot = new RosterSnapshot
@@ -532,18 +534,36 @@ public static class QrCodeService
     }
 
     /// <summary>
-    /// Apply local prefs after a successful cloud join (member role).
+    /// Apply local prefs after a successful cloud join, or after <c>already_member</c> recovery
+    /// (e.g. Debug reinstall wiped Preferences but Firebase Auth UID still matches <c>members/{uid}</c>).
     /// </summary>
-    public static void ApplySharedJoinLocalState(string teamId, string teamName, string displayName)
+    public static void ApplySharedJoinLocalState(
+        string teamId,
+        string teamName,
+        string displayName,
+        string? inviteCode = null,
+        string role = "member",
+        bool isOwner = false)
     {
+        var normalizedRole = string.IsNullOrWhiteSpace(role)
+            ? "member"
+            : role.Trim().ToLowerInvariant();
+        if (normalizedRole is not ("admin" or "member"))
+            normalizedRole = "member";
+
         Preferences.Set(TeamModeKey, "shared");
         Preferences.Set(TeamIdKey, teamId);
         Preferences.Set(TeamNameKey, teamName);
-        Preferences.Set(UserRoleKey, "member");
-        Preferences.Set($"{teamId}_role", "member");
+        Preferences.Set(UserRoleKey, normalizedRole);
+        Preferences.Set($"{teamId}_role", normalizedRole);
         Preferences.Set($"{teamId}_name", teamName);
+        Preferences.Set($"{teamId}_isOwner", isOwner);
         Preferences.Set($"team_mode_{teamId}", "shared");
-        Preferences.Set($"user_role_{teamId}", "member");
+        Preferences.Set($"user_role_{teamId}", normalizedRole);
+        // Persist invite so a later Promote-to-Admin can show/share it without recreating the team.
+        var code = NormalizeInviteCode(inviteCode);
+        if (!string.IsNullOrEmpty(code))
+            Preferences.Set($"{teamId}_invite_code", code);
         UserDisplayName.Set(displayName);
         RegisterSharedTeamId(teamId);
     }

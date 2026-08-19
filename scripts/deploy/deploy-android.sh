@@ -166,14 +166,19 @@ for device in "${TARGET_DEVICES[@]}"; do
   fi
   echo "Deploying to $kind ($device) with $rid ..."
 
-  # Uninstall so Debug can replace release/store signature.
-  adb -s "$device" uninstall "$PACKAGE_ID" >/dev/null 2>&1 || true
-
-  if ! adb -s "$device" install -r "$apk"; then
-    echo "  ✗ install failed on $device" >&2
-    exit 1
+  # Prefer in-place reinstall so Preferences + Firebase Auth (shared team Owner/Admin) survive.
+  # Only uninstall when signatures conflict (e.g. replacing a Play Store / release build).
+  if adb -s "$device" install -r "$apk"; then
+    echo "  ✓ installed (data preserved)"
+  else
+    echo "  install -r failed — uninstalling then reinstalling (local app data will be cleared)..."
+    adb -s "$device" uninstall "$PACKAGE_ID" >/dev/null 2>&1 || true
+    if ! adb -s "$device" install -r "$apk"; then
+      echo "  ✗ install failed on $device" >&2
+      exit 1
+    fi
+    echo "  ✓ installed (after uninstall — local Preferences were wiped)"
   fi
-  echo "  ✓ installed"
 
   # Resolve launcher activity (crc* can change between builds).
   ACTIVITY="$(adb -s "$device" shell cmd package resolve-activity --brief "$PACKAGE_ID" 2>/dev/null | tail -1 | tr -d '\r' || true)"

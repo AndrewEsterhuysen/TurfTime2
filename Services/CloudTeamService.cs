@@ -527,12 +527,30 @@ public sealed class CloudTeamService : ICloudTeamService
             var storedHash = ReadString(data, "adminCodeHash");
             var teamName = ReadString(data, "teamName");
             if (string.IsNullOrEmpty(storedHash))
-                return "error: This team does not have an admin recovery code configured.";
+                return "error: This team does not have an Owner recovery code configured.";
 
             var suppliedHash = hashAdminCode(adminCode.Trim());
             if (!string.Equals(suppliedHash, storedHash, StringComparison.OrdinalIgnoreCase))
                 return "error: Invalid admin code. Please check the code and try again.";
 
+            var previousOwnerUid = ReadString(data, "createdBy");
+            var inviteCode = NormalizeInviteCode(ReadString(data, "inviteCode"));
+            if (string.IsNullOrEmpty(inviteCode))
+            {
+                try
+                {
+                    var restMeta = await GetTeamMetadataViaRestAsync(teamId).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(teamName) && !string.IsNullOrWhiteSpace(restMeta?.TeamName))
+                        teamName = restMeta.TeamName;
+                    if (string.IsNullOrEmpty(inviteCode))
+                        inviteCode = NormalizeInviteCode(restMeta?.InviteCode);
+                    if (string.IsNullOrEmpty(previousOwnerUid))
+                        previousOwnerUid = restMeta?.CreatedBy ?? "";
+                }
+                catch { /* optional fill-in */ }
+            }
+
+            // Elevate this device's Auth UID to Admin.
             await _db.GetDocument($"teams/{teamId}/members/{uid}")
                 .SetDataAsync(new Dictionary<object, object>
                 {
@@ -540,6 +558,44 @@ public sealed class CloudTeamService : ICloudTeamService
                     ["displayName"] = displayName ?? "",
                     ["rejoinedAt"] = DateTimeOffset.UtcNow
                 }, SetOptions.Merge()).ConfigureAwait(false);
+
+            // Policy A: recovery code is the master key — reclaim Owner on this UID.
+            var ownershipFields = new Dictionary<object, object>
+            {
+                ["createdBy"] = uid,
+                ["lastActivityUtc"] = DateTimeOffset.UtcNow,
+                ["ownershipRecoveredAt"] = DateTimeOffset.UtcNow
+            };
+            if (!string.IsNullOrEmpty(previousOwnerUid)
+                && !string.Equals(previousOwnerUid, uid, StringComparison.Ordinal))
+            {
+                ownershipFields["previousOwnerUid"] = previousOwnerUid;
+            }
+
+            await _db.GetDocument($"teams/{teamId}/metadata/info")
+                .SetDataAsync(ownershipFields, SetOptions.Merge())
+                .ConfigureAwait(false);
+
+            // Retarget invite_codes ownership so regenerate/delete works for the new Owner.
+            if (!string.IsNullOrEmpty(inviteCode))
+            {
+                try
+                {
+                    await UpsertInviteCodeLookupAsync(inviteCode, teamId, teamName, uid)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception invEx)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CloudTeam] Owner recovery invite rebind non-fatal: {invEx.Message}");
+                }
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudTeam] Owner recovery team={teamId} uid={uid[..Math.Min(6, uid.Length)]}…" +
+                (string.IsNullOrEmpty(previousOwnerUid)
+                    ? ""
+                    : $" previousOwner={previousOwnerUid[..Math.Min(6, previousOwnerUid.Length)]}…"));
 
             return $"success:{teamId}:{teamName}";
         }
@@ -1133,6 +1189,32 @@ public sealed class CloudTeamService : ICloudTeamService
         var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
         if (uid is null) return null;
         return await GetMemberRoleViaRestAsync(teamId, uid).ConfigureAwait(false);
+    }
+
+    public async Task<string?> GetTeamInviteCodeAsync(string teamId)
+    {
+        if (string.IsNullOrWhiteSpace(teamId)) return null;
+        if (await _auth.EnsureSignedInAsync().ConfigureAwait(false) is null) return null;
+
+        try
+        {
+            var meta = await GetTeamMetadataViaRestAsync(teamId).ConfigureAwait(false);
+            var code = NormalizeInviteCode(meta?.InviteCode);
+            if (!string.IsNullOrEmpty(code))
+                return code;
+
+            // SDK fallback if REST fields empty
+            var snap = await _db.GetDocument($"teams/{teamId}/metadata/info")
+                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
+                .ConfigureAwait(false);
+            code = NormalizeInviteCode(ReadString(snap?.Data, "inviteCode"));
+            return string.IsNullOrEmpty(code) ? null : code;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] GetTeamInviteCodeAsync: {ex.Message}");
+            return null;
+        }
     }
 
     public async Task<string> PromoteMemberToAdminAsync(string teamId, string memberUid)

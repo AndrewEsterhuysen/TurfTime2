@@ -221,7 +221,7 @@ public partial class QrImportPage : ContentPage
             {
                 var teamId = parts[1];
                 var teamName = parts[2];
-                QrCodeService.ApplySharedJoinLocalState(teamId, teamName, displayName);
+                QrCodeService.ApplySharedJoinLocalState(teamId, teamName, displayName, code);
                 RefreshAppShellMenu();
                 _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
 
@@ -241,11 +241,29 @@ public partial class QrImportPage : ContentPage
                 var teamId = parts[1];
                 var teamName = parts[2];
                 UserDisplayName.Set(displayName);
-                QrCodeService.ApplySharedJoinLocalState(teamId, teamName, displayName);
+
+                var role = "member";
+                var isOwner = false;
+                try
+                {
+                    role = await cloud.GetMyRoleAsync(teamId) ?? "member";
+                    isOwner = await cloud.IsTeamOwnerAsync(teamId);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[QrImportPage] already_member role: {ex.Message}");
+                }
+
+                QrCodeService.ApplySharedJoinLocalState(
+                    teamId, teamName, displayName, code, role, isOwner);
                 RefreshAppShellMenu();
+                _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+
+                var roleLabel = char.ToUpperInvariant(role[0]) + role[1..];
                 await DisplayAlert(
-                    "Already a Member",
-                    $"You are already a member of '{teamName}'. Switched to that team and updated your display name.",
+                    "Team Restored",
+                    $"You were already on '{teamName}' in the cloud.\n\n" +
+                    $"Local team selection was rebuilt.\nRole: {roleLabel}\nChat name: {displayName}",
                     "OK");
                 return true;
             }

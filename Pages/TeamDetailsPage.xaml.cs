@@ -1170,8 +1170,8 @@ public partial class TeamDetailsPage : ContentPage
 							$"Team ID: {teamId}\n\n" +
 							$"Your chat name: {displayName}\n\n" +
 							$"Invite Code (members): {inviteCode}\n\n" +
-							$"⚠️ ADMIN RECOVERY CODE:\n{adminCode}\n\n" +
-							"Save this admin code in a secure location outside this device (e.g. a password manager). " +
+							$"⚠️ OWNER RECOVERY CODE:\n{adminCode}\n\n" +
+							"Save this Owner recovery code in a secure location outside this device (e.g. a password manager). " +
 							"You will need it to regain admin access if you reinstall the app or change devices.\n\n" +
 							"Next: Open the Game screen to name players, assign positions (field = swipe left, bench = swipe right, goalie = swipe left twice), and set timers." +
 							emailNote,
@@ -1328,6 +1328,7 @@ private void RegisterTeamId(string teamId)
 					Preferences.Set($"{teamId}_role", "member");
 					Preferences.Set($"{teamId}_name", teamName);
 					Preferences.Set($"{teamId}_isOwner", false);
+					Preferences.Set($"{teamId}_invite_code", QrCodeService.NormalizeInviteCode(inviteCode));
 					UserDisplayName.Set(displayName);
 
 					// ALSO store per-team keys for GamePage polling
@@ -1357,17 +1358,29 @@ private void RegisterTeamId(string teamId)
 				var parts = result.Split(':', 3);
 				if (parts.Length >= 3)
 				{
-					// Still persist local name and refresh member profile for this device
-					UserDisplayName.Set(displayName);
+					// Common after Debug reinstall: Preferences wiped, but Firebase Auth UID
+					// still matches teams/{id}/members/{uid}. Re-bind local team selection.
 					var existingTeamId = parts[1];
-					_ = UpdateMemberDisplayNameInFirestore(existingTeamId, displayName);
-
 					var teamName = parts[2];
-					await DisplayAlert("Already a Member", 
-						$"You are already a member of '{teamName}'. Your display name was updated.", 
+					await RestoreExistingSharedMembershipAsync(
+						existingTeamId, teamName, displayName, inviteCode);
+
+					var role = Preferences.Get(USER_ROLE_KEY, "member");
+					var roleLabel = string.IsNullOrEmpty(role)
+						? "Member"
+						: char.ToUpperInvariant(role[0]) + role[1..];
+					var ownerNote = Preferences.Get($"{existingTeamId}_isOwner", false)
+						? "\nOwner: Yes (club manager)"
+						: string.Empty;
+
+					await DisplayAlert(
+						"Team Restored",
+						$"You were already on '{teamName}' in the cloud.\n\n" +
+						$"This device's local team list was rebuilt.\n" +
+						$"Role: {roleLabel}{ownerNote}\n" +
+						$"Chat name: {displayName}",
 						"OK");
 					InviteCodeEntry.Text = string.Empty;
-					LoadCurrentTeam();
 					return;
 				}
 			}
@@ -1432,7 +1445,7 @@ private void RegisterTeamId(string teamId)
 
 					if (string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(adminCode))
 					{
-						await DisplayAlert("Missing Info", "Please enter both the Team ID and your Admin Recovery Code.", "OK");
+						await DisplayAlert("Missing Info", "Please enter both the Team ID and your Owner Recovery Code.", "OK");
 						return;
 					}
 
@@ -1460,23 +1473,23 @@ private void RegisterTeamId(string teamId)
 						Preferences.Set($"team_mode_{restoredTeamId}", "shared");
 						Preferences.Set($"user_role_{restoredTeamId}", "admin");
 						Preferences.Set($"{restoredTeamId}_name", restoredTeamName);
-						// Owner only if this Firebase user is metadata.createdBy (club manager)
-						var isOwner = false;
+						// Recovery code reclaims Owner (createdBy) for this Firebase UID.
+						var isOwner = true;
 						try
 						{
 							var c = ResolveCloudTeam();
 							if (c is not null)
 								isOwner = await c.IsTeamOwnerAsync(restoredTeamId);
 						}
-						catch { /* non-fatal */ }
+						catch { /* non-fatal — still treat as owner after successful reclaim */ }
 						Preferences.Set($"{restoredTeamId}_isOwner", isOwner);
 						UserDisplayName.Set(displayName);
 						RegisterTeamId(restoredTeamId);
 
-						await DisplayAlert("Admin Access Restored",
-							$"You have rejoined '{restoredTeamName}' as Admin.\n\n" +
+						await DisplayAlert("Owner Access Restored",
+							$"You have rejoined '{restoredTeamName}' as Owner (and Admin).\n\n" +
 							$"Chat name: {displayName}\n\n" +
-							"Your team data is intact in the cloud.",
+							"Your team data is intact in the cloud. This device is now the club-manager Owner account.",
 							"OK");
 
 						SyncTeamIdToLocalStorage(restoredTeamId);
@@ -1587,6 +1600,69 @@ private void RegisterTeamId(string teamId)
 			}
 		}
 		return result;
+	}
+
+	/// <summary>
+	/// Rebuilds Preferences / team switcher after cloud says already_member
+	/// (local data lost, Firebase identity still linked to the team).
+	/// </summary>
+	private async Task RestoreExistingSharedMembershipAsync(
+		string teamId,
+		string teamName,
+		string displayName,
+		string? inviteCode)
+	{
+		UserDisplayName.Set(displayName);
+		_ = UpdateMemberDisplayNameInFirestore(teamId, displayName);
+
+		var role = "member";
+		var isOwner = false;
+		var cloud = ResolveCloudTeam();
+		if (cloud is not null)
+		{
+			try
+			{
+				role = await cloud.GetMyRoleAsync(teamId) ?? "member";
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Restore role: {ex.Message}");
+			}
+
+			try
+			{
+				isOwner = await cloud.IsTeamOwnerAsync(teamId);
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Restore owner: {ex.Message}");
+			}
+		}
+
+		QrCodeService.ApplySharedJoinLocalState(
+			teamId, teamName, displayName, inviteCode, role, isOwner);
+
+		// If join did not carry a code, pull metadata.inviteCode (Owner/Admin panel + Share).
+		if (string.IsNullOrWhiteSpace(Preferences.Get($"{teamId}_invite_code", string.Empty)))
+			await EnsureLocalInviteCodeAsync(teamId);
+
+		try
+		{
+			var services = Application.Current?.Handler?.MauiContext?.Services;
+			var rosterSvc = services?.GetService<Services.ICloudRosterService>();
+			if (rosterSvc is not null)
+				await rosterSvc.LoadAsync(teamId, preferCloud: true);
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Restore roster: {ex.Message}");
+		}
+
+		SyncTeamIdToLocalStorage(teamId);
+		RefreshAppShellMenu();
+		LoadCurrentTeam();
+		_ = LoadSharedTeamsAsync();
+		_ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
 	}
 
 	private TeamInfo? FindTeamByInviteCode(string inviteCode)
@@ -2314,12 +2390,14 @@ private void RegisterTeamId(string teamId)
 			// Shared (cloud) team: QR carries only kind + invite code — roster/metadata come from Firestore.
 			if (teamMode == "shared")
 			{
-				var inviteCode = Preferences.Get($"{teamId}_invite_code", string.Empty);
+				// Always refresh from cloud so we don't share a stale code after another Admin regenerates.
+				var inviteCode = await EnsureLocalInviteCodeAsync(teamId) ?? string.Empty;
+
 				if (string.IsNullOrWhiteSpace(inviteCode) || inviteCode == "N/A")
 				{
 					await DisplayAlert(
 						"No Invite Code",
-						"This shared team has no invite code on this device. Open Admin Panel (as admin) or regenerate the invite code, then try again.",
+						"Could not load this team's invite code from the cloud. Check your connection, or ask the Owner to open Team Admin (which publishes the code), then try again.",
 						"OK");
 					return;
 				}
@@ -2355,7 +2433,7 @@ private void RegisterTeamId(string teamId)
 			{
 				for (var i = 1; i <= 16; i++)
 				{
-					players.Add(new Player { Name = $"Player {i}", Position = PlayerPosition.None });
+					players.Add(new Player { Name = Player.DefaultName(i), Position = PlayerPosition.None });
 				}
 			}
 
@@ -2676,34 +2754,90 @@ private void RegisterTeamId(string teamId)
 	private void LoadInviteCode()
 	{
 		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
-		if (!string.IsNullOrEmpty(teamId))
-		{
-			var inviteCode = Preferences.Get($"{teamId}_invite_code", "N/A");
-			InviteCodeDisplay.Text = inviteCode;
+		if (string.IsNullOrEmpty(teamId))
+			return;
 
-			// Self-heal: ensure invite_codes/{code} exists in Firestore so other devices can join.
-			// Teams created when that write failed silently cannot be joined until this runs.
-			if (!string.IsNullOrEmpty(inviteCode) && inviteCode != "N/A")
+		// Show cached value immediately, then always refresh from cloud so a code
+		// regenerated on another Admin device appears here.
+		var inviteCode = Preferences.Get($"{teamId}_invite_code", string.Empty);
+		InviteCodeDisplay.Text = !string.IsNullOrWhiteSpace(inviteCode) && inviteCode != "N/A"
+			? inviteCode
+			: "Loading…";
+
+		_ = RefreshInviteCodeFromCloudAsync(teamId);
+	}
+
+	/// <summary>
+	/// Loads <c>metadata.inviteCode</c> from Firestore into Preferences.
+	/// Cloud wins when available so regenerated codes sync across Admin devices.
+	/// Falls back to the local cache if cloud is unreachable or empty.
+	/// </summary>
+	private async Task<string?> EnsureLocalInviteCodeAsync(string teamId)
+	{
+		var existing = Preferences.Get($"{teamId}_invite_code", string.Empty);
+		var existingNorm = (!string.IsNullOrWhiteSpace(existing) && existing != "N/A")
+			? QrCodeService.NormalizeInviteCode(existing)
+			: string.Empty;
+
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null)
+				return string.IsNullOrEmpty(existingNorm) ? null : existingNorm;
+
+			var code = QrCodeService.NormalizeInviteCode(await cloud.GetTeamInviteCodeAsync(teamId));
+			if (!string.IsNullOrEmpty(code))
 			{
-				var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
-				_ = Task.Run(async () =>
+				if (!string.Equals(code, existingNorm, StringComparison.Ordinal))
 				{
-					try
-					{
-						var cloud = ResolveCloudTeam();
-						if (cloud is null) return;
-						var ok = await cloud.EnsureInviteCodePublishedAsync(teamId, inviteCode, teamName);
-						System.Diagnostics.Debug.WriteLine(
-							ok ? $"[TeamDetails] Invite code published for join: {inviteCode}"
-							   : $"[TeamDetails] Invite code publish failed: {inviteCode}");
-					}
-					catch (Exception ex)
-					{
-						System.Diagnostics.Debug.WriteLine($"[TeamDetails] Invite publish: {ex.Message}");
-					}
-				});
+					Preferences.Set($"{teamId}_invite_code", code);
+					System.Diagnostics.Debug.WriteLine(
+						$"[TeamDetails] Invite code refreshed from cloud: {existingNorm} → {code}");
+				}
+				return code;
 			}
+
+			return string.IsNullOrEmpty(existingNorm) ? null : existingNorm;
 		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] EnsureLocalInviteCode: {ex.Message}");
+			return string.IsNullOrEmpty(existingNorm) ? null : existingNorm;
+		}
+	}
+
+	private async Task RefreshInviteCodeFromCloudAsync(string teamId)
+	{
+		var code = await EnsureLocalInviteCodeAsync(teamId);
+		await MainThread.InvokeOnMainThreadAsync(() =>
+		{
+			InviteCodeDisplay.Text = string.IsNullOrEmpty(code) ? "N/A" : code;
+		});
+
+		if (!string.IsNullOrEmpty(code))
+			PublishInviteCodeBestEffort(teamId, code);
+	}
+
+	private void PublishInviteCodeBestEffort(string teamId, string inviteCode)
+	{
+		// Self-heal: ensure invite_codes/{code} exists in Firestore so other devices can join.
+		var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
+		_ = Task.Run(async () =>
+		{
+			try
+			{
+				var cloud = ResolveCloudTeam();
+				if (cloud is null) return;
+				var ok = await cloud.EnsureInviteCodePublishedAsync(teamId, inviteCode, teamName);
+				System.Diagnostics.Debug.WriteLine(
+					ok ? $"[TeamDetails] Invite code published for join: {inviteCode}"
+					   : $"[TeamDetails] Invite code publish failed: {inviteCode}");
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Invite publish: {ex.Message}");
+			}
+		});
 	}
 
 	// Team ID generation with auto-suffix to prevent conflicts
