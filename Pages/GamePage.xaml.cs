@@ -1678,18 +1678,87 @@ public partial class GamePage : ContentPage
         _vm.PlaceOrSwapOnFieldCell(player, slot.CellNumber);
     }
 
+    private void OnBenchBandDragOver(object? sender, DragEventArgs e)
+    {
+        OnFieldCellDragOver(sender, e);
+        if (BenchDropHint is not null)
+            BenchDropHint.IsVisible = CanAcceptFieldDrop(e);
+    }
+
+    private void OnBenchBandDragLeave(object? sender, DragEventArgs e)
+    {
+        if (BenchDropHint is not null)
+            BenchDropHint.IsVisible = false;
+    }
+
     private void OnBenchBandDrop(object? sender, DropEventArgs e)
     {
+        if (BenchDropHint is not null)
+            BenchDropHint.IsVisible = false;
         if (_vm is null || _vm.IsMember) return;
         if (!TryGetDraggedPlayer(e, out var player)) return;
         _vm.SetPlayerPosition(player, PlayerPosition.Bench);
     }
 
+    private void OnGoalieBandDragOver(object? sender, DragEventArgs e)
+    {
+        OnFieldCellDragOver(sender, e);
+        if (GoalieDropHint is not null)
+            GoalieDropHint.IsVisible = CanAcceptFieldDrop(e);
+    }
+
+    private void OnGoalieBandDragLeave(object? sender, DragEventArgs e)
+    {
+        if (GoalieDropHint is not null)
+            GoalieDropHint.IsVisible = false;
+    }
+
     private void OnGoalieBandDrop(object? sender, DropEventArgs e)
     {
+        if (GoalieDropHint is not null)
+            GoalieDropHint.IsVisible = false;
         if (_vm is null || _vm.IsMember) return;
         if (!TryGetDraggedPlayer(e, out var player)) return;
         _vm.SetPlayerPosition(player, PlayerPosition.Goalie);
+    }
+
+    private bool CanAcceptFieldDrop(DragEventArgs e)
+        => _vm is not null && !_vm.IsMember
+           && e.Data.Properties.ContainsKey(FieldDragSlotIdKey);
+
+    /// <summary>
+    /// Field View tap: same as Team View — rename in Setup, toggle next-rotation queue live.
+    /// </summary>
+    private async void OnFieldViewPlayerTapped(object? sender, TappedEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if (sender is not BindableObject bindable) return;
+
+        var player = bindable.BindingContext switch
+        {
+            Player p => p,
+            FieldCellSlot slot => slot.Player,
+            _ => null
+        };
+        if (player is null) return;
+
+        if (_vm.Phase == GamePhase.Setup)
+        {
+            var result = await DisplayPromptAsync(
+                title: "Rename Player",
+                message: string.Empty,
+                accept: "Save",
+                cancel: "Cancel",
+                placeholder: player.Name,
+                initialValue: player.Name,
+                keyboard: Keyboard.Default);
+            if (result is null) return;
+            _vm.RenamePlayer(player, result);
+        }
+        else
+        {
+            _vm.TapPlayerQueue(player);
+        }
     }
 
     private bool TryGetDraggedPlayer(DropEventArgs e, out Player player)

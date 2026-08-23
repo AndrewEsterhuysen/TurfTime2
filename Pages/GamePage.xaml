@@ -585,6 +585,7 @@
                                 VerticalOptions="Center">
                             <Border.GestureRecognizers>
                                 <DragGestureRecognizer DragStarting="OnFieldPlayerDragStarting" />
+                                <TapGestureRecognizer Tapped="OnFieldViewPlayerTapped" />
                             </Border.GestureRecognizers>
                             <Border.Triggers>
                                 <DataTrigger TargetType="Border"
@@ -672,6 +673,7 @@
                                                     VerticalOptions="Center">
                                                 <Border.GestureRecognizers>
                                                     <DragGestureRecognizer DragStarting="OnFieldPlayerDragStarting" />
+                                                    <TapGestureRecognizer Tapped="OnFieldViewPlayerTapped" />
                                                 </Border.GestureRecognizers>
                                                 <Border.Triggers>
                                                     <DataTrigger TargetType="Border"
@@ -736,7 +738,7 @@
                             </Border>
                         </VerticalStackLayout>
 
-                        <!-- Goalie allocation zone: sits over the pitch goal box; always visible drop target -->
+                        <!-- Goalie drop zone over the goal box — invisible chrome; "+" only while a valid drag is over it -->
                         <Border x:Name="GoalieDropBand"
                                 Grid.Row="1"
                                 Grid.Column="0"
@@ -744,26 +746,27 @@
                                 HeightRequest="72"
                                 Margin="28,0,28,4"
                                 Padding="6"
-                                Stroke="#F57F17"
-                                StrokeThickness="2"
-                                StrokeShape="RoundRectangle 10"
-                                BackgroundColor="#66F57F17"
+                                Stroke="Transparent"
+                                StrokeThickness="0"
+                                BackgroundColor="Transparent"
                                 HorizontalOptions="Fill"
                                 VerticalOptions="End">
                             <Border.GestureRecognizers>
                                 <DropGestureRecognizer AllowDrop="True"
-                                                       DragOver="OnFieldZoneDragOver"
+                                                       DragOver="OnGoalieBandDragOver"
+                                                       DragLeave="OnGoalieBandDragLeave"
                                                        Drop="OnGoalieBandDrop" />
                             </Border.GestureRecognizers>
                             <Grid>
-                                <Label Text="Goalie"
-                                       TextColor="#FFF3E0"
-                                       FontSize="11"
+                                <Label x:Name="GoalieDropHint"
+                                       Text="+"
+                                       TextColor="#EEFFFFFF"
+                                       FontSize="36"
                                        FontAttributes="Bold"
                                        HorizontalOptions="Center"
                                        VerticalOptions="Center"
                                        InputTransparent="True"
-                                       IsVisible="{Binding IsGoalieBandEmpty}" />
+                                       IsVisible="False" />
                                 <FlexLayout BindableLayout.ItemsSource="{Binding GoalieBandPlayers}"
                                             BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
                                             Wrap="NoWrap"
@@ -800,7 +803,8 @@
                           Padding="0,0,0,2">
                         <Grid.GestureRecognizers>
                             <DropGestureRecognizer AllowDrop="True"
-                                                   DragOver="OnFieldZoneDragOver"
+                                                   DragOver="OnBenchBandDragOver"
+                                                   DragLeave="OnBenchBandDragLeave"
                                                    Drop="OnBenchBandDrop" />
                         </Grid.GestureRecognizers>
                         <FlexLayout BindableLayout.ItemsSource="{Binding BenchBandPlayers}"
@@ -813,13 +817,15 @@
                                     HorizontalOptions="Fill"
                                     VerticalOptions="End"
                                     Padding="2" />
-                        <Label Text="Bench — drop here"
-                               TextColor="#90CAF9"
-                               FontSize="12"
+                        <Label x:Name="BenchDropHint"
+                               Text="+"
+                               TextColor="#AA90CAF9"
+                               FontSize="28"
+                               FontAttributes="Bold"
                                HorizontalOptions="Center"
                                VerticalOptions="Center"
                                InputTransparent="True"
-                               IsVisible="{Binding IsBenchBandEmpty}" />
+                               IsVisible="False" />
                     </Grid>
                 </Grid>
             </Grid>
