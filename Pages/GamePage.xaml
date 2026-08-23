@@ -612,28 +612,108 @@
                        InputTransparent="True" />
                 <Grid RowDefinitions="2*,Auto,*"
                       Padding="8,8,8,8">
-                    <!-- Pitch band: outfield above, goalie fixed just above divider -->
+                    <!-- Pitch band: 4×4 formation grid + unpositioned stack | goalie above divider -->
                     <Grid Grid.Row="0"
-                          RowDefinitions="*,Auto">
-                        <!-- Outfield players (Field only) -->
-                        <ScrollView Grid.Row="0"
-                                    Orientation="Vertical"
-                                    VerticalOptions="Fill"
-                                    HorizontalOptions="Fill">
-                            <FlexLayout BindableLayout.ItemsSource="{Binding FieldBandPlayers}"
-                                        BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
-                                        Wrap="Wrap"
-                                        JustifyContent="Center"
-                                        AlignItems="Center"
-                                        AlignContent="Center"
-                                        Direction="Row"
-                                        HorizontalOptions="Center"
-                                        VerticalOptions="Center"
-                                        Padding="4" />
-                        </ScrollView>
+                          RowDefinitions="*,Auto"
+                          ColumnDefinitions="*,56">
+                        <!-- Outfield 4×4 cells (Field only) -->
+                        <CollectionView Grid.Row="0"
+                                        Grid.Column="0"
+                                        ItemsSource="{Binding FieldGridCells}"
+                                        SelectionMode="None"
+                                        BackgroundColor="Transparent"
+                                        VerticalOptions="Fill"
+                                        HorizontalOptions="Fill">
+                            <CollectionView.ItemsLayout>
+                                <GridItemsLayout Orientation="Vertical"
+                                                 Span="4"
+                                                 HorizontalItemSpacing="2"
+                                                 VerticalItemSpacing="2" />
+                            </CollectionView.ItemsLayout>
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="models:FieldCellSlot">
+                                    <Border Stroke="#55FFFFFF"
+                                            StrokeThickness="1"
+                                            StrokeShape="RoundRectangle 6"
+                                            BackgroundColor="#22000000"
+                                            Margin="1"
+                                            MinimumHeightRequest="56"
+                                            MinimumWidthRequest="56">
+                                        <Grid>
+                                            <Label Text="{Binding CellLabel}"
+                                                   TextColor="#66FFFFFF"
+                                                   FontSize="10"
+                                                   Margin="4,2,0,0"
+                                                   HorizontalOptions="Start"
+                                                   VerticalOptions="Start"
+                                                   InputTransparent="True" />
+                                            <Border IsVisible="{Binding HasPlayer}"
+                                                    WidthRequest="44"
+                                                    HeightRequest="44"
+                                                    Stroke="#66FFFFFF"
+                                                    StrokeThickness="1.5"
+                                                    StrokeShape="RoundRectangle 22"
+                                                    BackgroundColor="{Binding Player.Position, Converter={StaticResource PositionToColor}}"
+                                                    HorizontalOptions="Center"
+                                                    VerticalOptions="Center">
+                                                <Border.Triggers>
+                                                    <DataTrigger TargetType="Border"
+                                                                 Binding="{Binding Player.IsNextToRotate}"
+                                                                 Value="{x:Boolean True}">
+                                                        <Setter Property="Stroke" Value="{StaticResource CyanHighlight}" />
+                                                        <Setter Property="StrokeThickness" Value="3.5" />
+                                                    </DataTrigger>
+                                                </Border.Triggers>
+                                                <Label Text="{Binding Player.ShortName}"
+                                                       TextColor="White"
+                                                       FontSize="11"
+                                                       FontAttributes="Bold"
+                                                       HorizontalOptions="Center"
+                                                       VerticalOptions="Center"
+                                                       HorizontalTextAlignment="Center"
+                                                       VerticalTextAlignment="Center" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+
+                        <!-- Unpositioned stack: right margin, only top chip visible -->
+                        <VerticalStackLayout Grid.Row="0"
+                                             Grid.Column="1"
+                                             VerticalOptions="Center"
+                                             HorizontalOptions="Center"
+                                             Spacing="4"
+                                             Padding="2,0,0,0">
+                            <Label Text="Stack"
+                                   TextColor="#AAFFFFFF"
+                                   FontSize="9"
+                                   HorizontalOptions="Center"
+                                   IsVisible="{Binding HasUnpositionedStack}" />
+                            <Border IsVisible="{Binding HasUnpositionedStack}"
+                                    WidthRequest="48"
+                                    HeightRequest="48"
+                                    Stroke="#AAFFFFFF"
+                                    StrokeThickness="2"
+                                    StrokeShape="RoundRectangle 24"
+                                    BackgroundColor="{Binding UnpositionedStackTop.Position, Converter={StaticResource PositionToColor}}"
+                                    HorizontalOptions="Center">
+                                <Label Text="{Binding UnpositionedStackTop.ShortName}"
+                                       TextColor="White"
+                                       FontSize="12"
+                                       FontAttributes="Bold"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center"
+                                       HorizontalTextAlignment="Center"
+                                       VerticalTextAlignment="Center" />
+                            </Border>
+                        </VerticalStackLayout>
 
                         <!-- Goalie: centre of pitch, just above field/bench dividing line -->
                         <FlexLayout Grid.Row="1"
+                                    Grid.Column="0"
+                                    Grid.ColumnSpan="2"
                                     BindableLayout.ItemsSource="{Binding GoalieBandPlayers}"
                                     BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
                                     Wrap="NoWrap"
@@ -647,7 +727,7 @@
                                     Padding="0,2,0,0" />
 
                         <Label Grid.Row="0"
-                               Grid.RowSpan="2"
+                               Grid.Column="0"
                                Text="No players on field"
                                TextColor="#ccffcc"
                                FontSize="13"

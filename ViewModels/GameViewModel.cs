@@ -37,11 +37,33 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Field View: outfield players on the pitch (Field only — goalie is separate).</summary>
     public ObservableCollection<Player> FieldBandPlayers { get; } = [];
 
+    /// <summary>Field View: fixed 4×4 pitch cells (1–16) for formation placement.</summary>
+    public ObservableCollection<FieldCellSlot> FieldGridCells { get; } = [];
+
     /// <summary>Field View: goalie token(s) fixed just above the field/bench divider.</summary>
     public ObservableCollection<Player> GoalieBandPlayers { get; } = [];
 
     /// <summary>Field View: players on the bench. Inactive excluded.</summary>
     public ObservableCollection<Player> BenchBandPlayers { get; } = [];
+
+    private Player? _unpositionedStackTop;
+
+    /// <summary>
+    /// Top of the unpositioned (Position=None) stack on Field View — only this chip is shown.
+    /// </summary>
+    public Player? UnpositionedStackTop
+    {
+        get => _unpositionedStackTop;
+        private set
+        {
+            if (ReferenceEquals(_unpositionedStackTop, value)) return;
+            _unpositionedStackTop = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasUnpositionedStack));
+        }
+    }
+
+    public bool HasUnpositionedStack => UnpositionedStackTop is not null;
 
     /// <summary>True when the roster has no items to show; drives the empty-state label.</summary>
     public bool IsRosterEmpty => DisplayItems.Count == 0;
@@ -149,6 +171,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // Build default 16-player roster (#01 Player … #16 Player for unique Field View tokens)
         for (int i = 1; i <= 16; i++)
             Players.Add(new Player { SlotId = i, Name = Player.DefaultName(i) });
+
+        for (int cell = FieldGrid.MinCell; cell <= FieldGrid.MaxCell; cell++)
+            FieldGridCells.Add(new FieldCellSlot(cell));
 
         // Wire timer events
         _timer.MatchTickOccurred      += OnMatchTick;
@@ -3135,6 +3160,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>
     /// Rebuilds Field View pitch/bench token lists from current positions.
     /// Outfield and goalie are separate so the goalie can sit just above the divider.
+    /// Also refreshes 4×4 cell occupancy and the unpositioned stack top.
     /// </summary>
     private void RefreshFieldBands()
     {
@@ -3149,6 +3175,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             .Where(p => p.Position == PlayerPosition.Field)
             .ToList();
 
+        // Heal older Field players that lack a cell so the grid has somewhere to put them.
+        foreach (var p in fieldDesired.Where(p => p.FieldCell is null))
+            p.FieldCell = FindFirstFreeFieldCell(except: p);
+
         var goalieDesired = Players
             .Where(p => p.Position == PlayerPosition.Goalie)
             .ToList();
@@ -3160,6 +3190,15 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         SyncPlayerBand(FieldBandPlayers, fieldDesired);
         SyncPlayerBand(GoalieBandPlayers, goalieDesired);
         SyncPlayerBand(BenchBandPlayers, benchDesired);
+
+        foreach (var slot in FieldGridCells)
+        {
+            slot.Player = fieldDesired.FirstOrDefault(p => p.FieldCell == slot.CellNumber);
+        }
+
+        // Roster order — same order as Team View list.
+        UnpositionedStackTop = Players.FirstOrDefault(p => p.Position == PlayerPosition.None);
+
         OnPropertyChanged(nameof(IsFieldBandEmpty));
         OnPropertyChanged(nameof(IsBenchBandEmpty));
     }
