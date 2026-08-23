@@ -13,10 +13,12 @@ public sealed class Player : INotifyPropertyChanged
 
     private string _name = string.Empty;
     private PlayerPosition _position = PlayerPosition.None;
+    private int? _fieldCell;
     private int _fieldSeconds;
     private bool _isNextToRotate;
     private bool _isDragTarget;
     private bool _isDragging;
+    private int _rotationPairIndex = -1;
 
     public string Name
     {
@@ -53,8 +55,23 @@ public sealed class Player : INotifyPropertyChanged
         set
         {
             if (SetField(ref _position, value))
+            {
                 OnPropertyChanged(nameof(PositionIcon));
+                // Pitch cell is only meaningful for outfield Field players.
+                if (value != PlayerPosition.Field && _fieldCell is not null)
+                    FieldCell = null;
+            }
         }
+    }
+
+    /// <summary>
+    /// Outfield formation cell 1–16 when <see cref="Position"/> is <see cref="PlayerPosition.Field"/>;
+    /// otherwise null. Synced via roster snapshot for shared teams.
+    /// </summary>
+    public int? FieldCell
+    {
+        get => _fieldCell;
+        set => SetField(ref _fieldCell, FieldGrid.Normalize(value));
     }
 
     /// <summary>Accumulated seconds on field (or as goalie) during the current session.</summary>
@@ -73,6 +90,15 @@ public sealed class Player : INotifyPropertyChanged
     {
         get => _isNextToRotate;
         set => SetField(ref _isNextToRotate, value);
+    }
+
+    /// <summary>
+    /// Index into the rotation-pair colour palette when next to rotate; -1 if not paired.
+    /// </summary>
+    public int RotationPairIndex
+    {
+        get => _rotationPairIndex;
+        set => SetField(ref _rotationPairIndex, value);
     }
 
     /// <summary>Highlighted as the current drop target during drag-to-reorder.</summary>

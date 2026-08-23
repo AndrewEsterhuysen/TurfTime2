@@ -1095,7 +1095,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (IsMember) return;
 
         var oldPosition = player.Position;
-        if (oldPosition == newPosition) return;
+        if (oldPosition == newPosition)
+        {
+            // Same role: still ensure Field players have a cell when possible (Team swipe → Field).
+            if (newPosition == PlayerPosition.Field && player.FieldCell is null)
+            {
+                player.FieldCell = FindFirstFreeFieldCell(except: player);
+                AfterPositionMutation(player, oldPosition, newPosition);
+            }
+            return;
+        }
 
 #if DEBUG
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -1110,7 +1119,68 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         player.Position = newPosition;
 
-        // Capture logger args now (immutable) — the actual write happens off the UI thread at the end.
+        if (newPosition == PlayerPosition.Field && player.FieldCell is null)
+            player.FieldCell = FindFirstFreeFieldCell(except: player);
+        // Leaving Field clears FieldCell via Player.Position setter.
+
+        AfterPositionMutation(player, oldPosition, newPosition);
+
+#if DEBUG
+        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] SetPlayerPosition total: {sw.ElapsedMilliseconds} ms");
+#endif
+    }
+
+    /// <summary>
+    /// Place <paramref name="player"/> on outfield cell 1–16 (sets Field).
+    /// If the cell is occupied, swap cells/roles with the occupant.
+    /// </summary>
+    public void PlaceOrSwapOnFieldCell(Player player, int cell)
+    {
+        if (IsMember) return;
+        var target = FieldGrid.Normalize(cell);
+        if (target is null) return;
+
+        var oldPosition = player.Position;
+        var occupant = Players.FirstOrDefault(p =>
+            p != player && p.Position == PlayerPosition.Field && p.FieldCell == target);
+
+        if (occupant is null)
+        {
+            // Enforce single-goalie if coming from Goalie is N/A; just move to Field.
+            if (player.Position == PlayerPosition.Goalie)
+            {
+                // no-op special
+            }
+
+            player.Position = PlayerPosition.Field;
+            player.FieldCell = target;
+            AfterPositionMutation(player, oldPosition, PlayerPosition.Field);
+            return;
+        }
+
+        // Swap: exchange FieldCell when both Field; otherwise give target cell to incoming
+        // and move occupant to the incoming player's previous Field cell (or first free / None→stack).
+        var incomingCell = player.Position == PlayerPosition.Field ? player.FieldCell : null;
+
+        player.Position = PlayerPosition.Field;
+        player.FieldCell = target;
+
+        if (incomingCell is int backCell)
+        {
+            occupant.Position = PlayerPosition.Field;
+            occupant.FieldCell = backCell;
+        }
+        else
+        {
+            // Incoming came from stack/bench/goalie — send occupant back to unpositioned stack.
+            occupant.Position = PlayerPosition.None;
+        }
+
+        AfterPositionMutation(player, oldPosition, PlayerPosition.Field);
+    }
+
+    private void AfterPositionMutation(Player player, PlayerPosition oldPosition, PlayerPosition newPosition)
+    {
         var logEventType = newPosition switch
         {
             PlayerPosition.Field    => GameEventType.PlayerToField,
@@ -1124,36 +1194,36 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         var logTo         = newPosition.ToString();
 
         MarkNextPlayers();
-
-#if DEBUG
-        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] MarkNextPlayers: {sw.ElapsedMilliseconds} ms"); sw.Restart();
-#endif
-
         RefreshRotationPairs();
-
-#if DEBUG
-        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] RefreshRotationPairs: {sw.ElapsedMilliseconds} ms"); sw.Restart();
-#endif
-
-        // Single RefreshDisplayItems call after all state mutations are complete.
         RefreshDisplayItems();
-
-#if DEBUG
-        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] RefreshDisplayItems: {sw.ElapsedMilliseconds} ms"); sw.Restart();
-#endif
-
         UpdateStartButtonState();
         _ = AutoSaveAsync();
 
-        // Fire-and-forget: log off the UI thread so Preferences.Set never blocks rendering.
         _ = Task.Run(() => _logger.Log(logEventType,
             $"{logPlayerName} moved to {logTo}",
             logPlayerName,
-            new Dictionary<string, object?> { ["from"] = logFrom, ["to"] = logTo }));
+            new Dictionary<string, object?>
+            {
+                ["from"] = logFrom,
+                ["to"] = logTo,
+                ["fieldCell"] = player.FieldCell
+            }));
+    }
 
-#if DEBUG
-        sw.Stop(); System.Diagnostics.Debug.WriteLine($"[PERF] UpdateStartButtonState+AutoSave fire: {sw.ElapsedMilliseconds} ms");
-#endif
+    private int? FindFirstFreeFieldCell(Player? except = null)
+    {
+        var used = Players
+            .Where(p => p != except && p.Position == PlayerPosition.Field && p.FieldCell is int)
+            .Select(p => p.FieldCell!.Value)
+            .ToHashSet();
+
+        for (var c = FieldGrid.MinCell; c <= FieldGrid.MaxCell; c++)
+        {
+            if (!used.Contains(c))
+                return c;
+        }
+
+        return null;
     }
 
     public void ReorderPlayer(int fromIndex, int toIndex)
@@ -1389,6 +1459,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             ControllerHeartbeatUtc = IsGameController
                 ? DateTimeOffset.UtcNow
                 : _controllerHeartbeatUtc,
+            Version                = 3,
             Players                = Players.Select(p => new PlayerSnapshot
             {
                 SlotId         = p.SlotId,
@@ -1397,7 +1468,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 Bench          = p.Position == PlayerPosition.Bench,
                 Goalie         = p.Position == PlayerPosition.Goalie,
                 Inactive       = p.Position == PlayerPosition.Inactive,
-                CounterSeconds = p.FieldSeconds
+                CounterSeconds = p.FieldSeconds,
+                FieldCell      = p.Position == PlayerPosition.Field
+                    ? (p.FieldCell ?? 0)
+                    : 0
             }).ToList()
         };
     }
@@ -1628,16 +1702,18 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             Players.Clear();
             foreach (var ps in s.Players)
             {
+                var pos = ps.Field ? PlayerPosition.Field
+                        : ps.Bench ? PlayerPosition.Bench
+                        : ps.Goalie ? PlayerPosition.Goalie
+                        : ps.Inactive ? PlayerPosition.Inactive
+                        : PlayerPosition.None;
                 Players.Add(new Player
                 {
                     SlotId = ps.SlotId > 0 ? ps.SlotId : Players.Count + 1,
                     Name = string.IsNullOrWhiteSpace(ps.Name) ? Player.DefaultName(Players.Count + 1) : ps.Name,
                     FieldSeconds = ps.CounterSeconds,
-                    Position = ps.Field ? PlayerPosition.Field
-                             : ps.Bench ? PlayerPosition.Bench
-                             : ps.Goalie ? PlayerPosition.Goalie
-                             : ps.Inactive ? PlayerPosition.Inactive
-                             : PlayerPosition.None
+                    Position = pos,
+                    FieldCell = pos == PlayerPosition.Field ? FieldGrid.Normalize(ps.FieldCell) : null
                 });
             }
             return true;
@@ -1666,6 +1742,13 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             if (p.Position != newPos)
             {
                 p.Position = newPos;
+                displayDirty = true;
+            }
+
+            var newCell = newPos == PlayerPosition.Field ? FieldGrid.Normalize(ps.FieldCell) : null;
+            if (p.FieldCell != newCell)
+            {
+                p.FieldCell = newCell;
                 displayDirty = true;
             }
 
@@ -1965,7 +2048,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 Rows = Players.Select(p => new StartConfigurationRow
                 {
                     SlotId = p.SlotId,
-                    Position = (int)p.Position
+                    Position = (int)p.Position,
+                    FieldCell = p.Position == PlayerPosition.Field ? (p.FieldCell ?? 0) : 0
                 }).ToList()
             };
 
@@ -2002,6 +2086,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 player.Position = Enum.IsDefined(typeof(PlayerPosition), row.Position)
                     ? (PlayerPosition)row.Position
                     : PlayerPosition.None;
+                player.FieldCell = player.Position == PlayerPosition.Field
+                    ? FieldGrid.Normalize(row.FieldCell)
+                    : null;
                 restoredOrder.Add(player);
             }
 
@@ -3176,6 +3263,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         public int SlotId { get; set; }
         public int Position { get; set; }
+        /// <summary>1–16 when Position is Field; 0 = unset (older saved configs).</summary>
+        public int FieldCell { get; set; }
     }
 
     // ── IDisposable ───────────────────────────────────────────────────────

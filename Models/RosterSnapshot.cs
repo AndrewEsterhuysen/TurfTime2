@@ -6,7 +6,8 @@ namespace TurfTime2.Models;
 /// </summary>
 public sealed class RosterSnapshot
 {
-    public int Version { get; set; } = 2;
+    /// <summary>Schema version. v3 adds per-player <see cref="PlayerSnapshot.FieldCell"/>.</summary>
+    public int Version { get; set; } = 3;
     public DateTimeOffset LastModifiedUtc { get; set; } = DateTimeOffset.UtcNow;
     public int MatchDurationSeconds { get; set; } = 90 * 60;
     public int HalfDurationSeconds { get; set; }
@@ -72,4 +73,9 @@ public sealed class PlayerSnapshot
     public bool Goalie { get; set; }
     public bool Inactive { get; set; }
     public int CounterSeconds { get; set; }
+
+    /// <summary>
+    /// Outfield grid cell 1–16 when <see cref="Field"/> is true; 0/omitted = unset (older clients).
+    /// </summary>
+    public int FieldCell { get; set; }
 }

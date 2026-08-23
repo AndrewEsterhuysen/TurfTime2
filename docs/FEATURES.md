@@ -26,6 +26,7 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 |------------|-------------|--------------|--------|
 | `LocalGame` | Match timer, rotation, on-field play | Free | Never gate |
 | `FieldView` | Game tab Field View (pitch + bench tokens; all field/bench at a glance) | Free | Default surface for view-only; admin third View toggle; never gate |
+| `FieldViewPlacement` | Interactive Field View: unpositioned stack, 4×4 pitch cells, drag to Field/Bench/Goalie; roster `fieldCell` sync (schema v3) | Free (in progress on `field-view-player-positioning`) | Reuses `SetPlayerPosition`; pair outline colours planned; never gate |
 | `LocalReports` | Reports from on-device session history | Free | Never gate |
 | `LocalTeams` | Create/edit teams stored on device | Free | Never gate |
 | `QrTeamShare` | Share/import team via QR (device-to-device) | Free | Offline-friendly; keep free |

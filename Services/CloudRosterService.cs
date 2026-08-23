@@ -514,7 +514,8 @@ public sealed class CloudRosterService : ICloudRosterService
                     ["bench"] = new Dictionary<string, object> { ["booleanValue"] = p.Bench },
                     ["goalie"] = new Dictionary<string, object> { ["booleanValue"] = p.Goalie },
                     ["inactive"] = new Dictionary<string, object> { ["booleanValue"] = p.Inactive },
-                    ["counterSeconds"] = new Dictionary<string, object> { ["integerValue"] = p.CounterSeconds.ToString() }
+                    ["counterSeconds"] = new Dictionary<string, object> { ["integerValue"] = p.CounterSeconds.ToString() },
+                    ["fieldCell"] = new Dictionary<string, object> { ["integerValue"] = p.FieldCell.ToString() }
                 }
             }
         }).ToList();
@@ -702,7 +703,8 @@ public sealed class CloudRosterService : ICloudRosterService
             ["bench"] = p.Bench,
             ["goalie"] = p.Goalie,
             ["inactive"] = p.Inactive,
-            ["counterSeconds"] = p.CounterSeconds
+            ["counterSeconds"] = p.CounterSeconds,
+            ["fieldCell"] = p.FieldCell
         }).ToList();
 
         var utc = s.LastModifiedUtc;
@@ -812,7 +814,8 @@ public sealed class CloudRosterService : ICloudRosterService
                             Bench = ReadBool(map, "bench", false),
                             Goalie = ReadBool(map, "goalie", false),
                             Inactive = ReadBool(map, "inactive", false),
-                            CounterSeconds = ReadInt(map, "counterSeconds", 0)
+                            CounterSeconds = ReadInt(map, "counterSeconds", 0),
+                            FieldCell = ReadInt(map, "fieldCell", 0)
                         });
                     }
                 }
@@ -905,7 +908,8 @@ public sealed class CloudRosterService : ICloudRosterService
                         Bench = ReadRestBool(pf, "bench", false),
                         Goalie = ReadRestBool(pf, "goalie", false),
                         Inactive = ReadRestBool(pf, "inactive", false),
-                        CounterSeconds = ReadRestInt(pf, "counterSeconds", 0)
+                        CounterSeconds = ReadRestInt(pf, "counterSeconds", 0),
+                        FieldCell = ReadRestInt(pf, "fieldCell", 0)
                     });
                 }
             }
