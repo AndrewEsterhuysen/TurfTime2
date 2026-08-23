@@ -207,7 +207,8 @@ public partial class HelpPage : ContentPage
     <h3>🏟️ Field View</h3>
     <ul>
         <li><strong>4×4 pitch grid</strong> (cells 1–16, top-left = 1): drop a player onto a cell to put them on the field in that spot (one player per cell; dropping on an occupied cell swaps).</li>
-        <li><strong>Stack</strong> (right edge): players with no position yet appear one at a time in roster order. Drag the top chip onto a grid cell (Field), the bench band, or the goalie band — same outcomes as Team View swipes.</li>
+        <li><strong>Goalie zone</strong> (orange box over the goal area): drop a player here to assign Goalie (same as two left swipes on Team View). Empty cells on the grid stay empty across rotations.</li>
+        <li><strong>Stack</strong> (right edge): players with no position yet appear one at a time in roster order. Drag the top chip onto a grid cell, the goalie zone, or the bench strip at the bottom.</li>
         <li>When you <strong>Start</strong> the match, any players still in the stack become Absent/Inactive (same as Team View).</li>
         <li><strong>Matching outline colours</strong> mark which bench player replaces which field player on the next rotation.</li>
         <li>Formation cells sync on shared teams with the roster. View-only members can watch but cannot drag.</li>

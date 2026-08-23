@@ -567,10 +567,8 @@
                 </Grid>
             </Grid>
 
-            <!-- VIEW_B: Field View — pitch (2/3) + bench (1/3), all active players at a glance.
-                 Goalie sits centre just above the divider (goal-box impression).
-                 View-only members are always shown this mode (Team/Rotation hidden).
-                 Next-to-rotate tokens get a cyan circumference highlight. -->
+            <!-- VIEW_B: Field View — pitch fills space; goalie zone over goal box; compact bench at bottom.
+                 View-only members are always shown this mode (Team/Rotation hidden). -->
             <Grid x:Name="FieldView"
                   IsVisible="False">
                 <Grid.Resources>
@@ -585,8 +583,10 @@
                                 BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
                                 HorizontalOptions="Center"
                                 VerticalOptions="Center">
+                            <Border.GestureRecognizers>
+                                <DragGestureRecognizer DragStarting="OnFieldPlayerDragStarting" />
+                            </Border.GestureRecognizers>
                             <Border.Triggers>
-                                <!-- Thicker pair-coloured circumference when next to rotate -->
                                 <DataTrigger TargetType="Border"
                                              Binding="{Binding IsNextToRotate}"
                                              Value="{x:Boolean True}">
@@ -605,7 +605,8 @@
                                    HorizontalOptions="Center"
                                    VerticalOptions="Center"
                                    HorizontalTextAlignment="Center"
-                                   VerticalTextAlignment="Center" />
+                                   VerticalTextAlignment="Center"
+                                   InputTransparent="True" />
                         </Border>
                     </DataTemplate>
                 </Grid.Resources>
@@ -615,12 +616,15 @@
                        HorizontalOptions="Fill"
                        VerticalOptions="Fill"
                        InputTransparent="True" />
-                <Grid RowDefinitions="2*,Auto,*"
-                      Padding="8,8,8,8">
-                    <!-- Pitch band: 4×4 formation grid + unpositioned stack | goalie above divider -->
+                <!-- Pitch stretches; divider + bench hug the bottom of the Field View area -->
+                <Grid RowDefinitions="*,Auto,Auto"
+                      Padding="8,8,8,4"
+                      RowSpacing="0">
+                    <!-- Pitch: outfield grid (top) + visible goalie drop zone over the goal box (bottom) -->
                     <Grid Grid.Row="0"
                           RowDefinitions="*,Auto"
-                          ColumnDefinitions="*,56">
+                          ColumnDefinitions="*,56"
+                          RowSpacing="4">
                         <!-- Outfield 4×4 cells (Field only) -->
                         <CollectionView Grid.Row="0"
                                         Grid.Column="0"
@@ -642,8 +646,8 @@
                                             StrokeShape="RoundRectangle 6"
                                             BackgroundColor="#22000000"
                                             Margin="1"
-                                            MinimumHeightRequest="56"
-                                            MinimumWidthRequest="56">
+                                            MinimumHeightRequest="52"
+                                            MinimumWidthRequest="52">
                                         <Border.GestureRecognizers>
                                             <DropGestureRecognizer AllowDrop="True"
                                                                    DragOver="OnFieldCellDragOver"
@@ -732,28 +736,45 @@
                             </Border>
                         </VerticalStackLayout>
 
-                        <!-- Goalie: centre of pitch, just above field/bench dividing line -->
-                        <FlexLayout x:Name="GoalieDropBand"
-                                    Grid.Row="1"
-                                    Grid.Column="0"
-                                    Grid.ColumnSpan="2"
-                                    BindableLayout.ItemsSource="{Binding GoalieBandPlayers}"
-                                    BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
-                                    Wrap="NoWrap"
-                                    JustifyContent="Center"
-                                    AlignItems="Center"
-                                    Direction="Row"
-                                    HorizontalOptions="Center"
-                                    VerticalOptions="End"
-                                    Margin="0,0,0,2"
-                                    MinimumHeightRequest="48"
-                                    Padding="0,2,0,0">
-                            <FlexLayout.GestureRecognizers>
+                        <!-- Goalie allocation zone: sits over the pitch goal box; always visible drop target -->
+                        <Border x:Name="GoalieDropBand"
+                                Grid.Row="1"
+                                Grid.Column="0"
+                                Grid.ColumnSpan="2"
+                                HeightRequest="72"
+                                Margin="28,0,28,4"
+                                Padding="6"
+                                Stroke="#F57F17"
+                                StrokeThickness="2"
+                                StrokeShape="RoundRectangle 10"
+                                BackgroundColor="#66F57F17"
+                                HorizontalOptions="Fill"
+                                VerticalOptions="End">
+                            <Border.GestureRecognizers>
                                 <DropGestureRecognizer AllowDrop="True"
                                                        DragOver="OnFieldZoneDragOver"
                                                        Drop="OnGoalieBandDrop" />
-                            </FlexLayout.GestureRecognizers>
-                        </FlexLayout>
+                            </Border.GestureRecognizers>
+                            <Grid>
+                                <Label Text="Goalie"
+                                       TextColor="#FFF3E0"
+                                       FontSize="11"
+                                       FontAttributes="Bold"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center"
+                                       InputTransparent="True"
+                                       IsVisible="{Binding IsGoalieBandEmpty}" />
+                                <FlexLayout BindableLayout.ItemsSource="{Binding GoalieBandPlayers}"
+                                            BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
+                                            Wrap="NoWrap"
+                                            JustifyContent="Center"
+                                            AlignItems="Center"
+                                            Direction="Row"
+                                            HorizontalOptions="Center"
+                                            VerticalOptions="Center"
+                                            InputTransparent="False" />
+                            </Grid>
+                        </Border>
 
                         <Label Grid.Row="0"
                                Grid.Column="0"
@@ -763,42 +784,41 @@
                                HorizontalOptions="Center"
                                VerticalOptions="Center"
                                InputTransparent="True"
-                               IsVisible="{Binding IsFieldBandEmpty}" />
+                               IsVisible="{Binding IsOutfieldBandEmpty}" />
                     </Grid>
 
-                    <!-- Clear divider between field and bench -->
+                    <!-- Divider sits immediately above the compact bench strip -->
                     <BoxView Grid.Row="1"
-                             HeightRequest="4"
+                             HeightRequest="3"
                              Color="#ECEFF1"
-                             Margin="0,4,0,4"
+                             Margin="0,2,0,2"
                              HorizontalOptions="Fill" />
 
-                    <!-- Bench band (drop target for Field View placement) -->
-                    <Grid Grid.Row="2">
+                    <!-- Bench: compact strip at the bottom of the available Field View area -->
+                    <Grid Grid.Row="2"
+                          MinimumHeightRequest="56"
+                          Padding="0,0,0,2">
                         <Grid.GestureRecognizers>
                             <DropGestureRecognizer AllowDrop="True"
                                                    DragOver="OnFieldZoneDragOver"
                                                    Drop="OnBenchBandDrop" />
                         </Grid.GestureRecognizers>
-                        <ScrollView Orientation="Vertical"
-                                    VerticalOptions="Fill"
-                                    HorizontalOptions="Fill">
-                            <FlexLayout BindableLayout.ItemsSource="{Binding BenchBandPlayers}"
-                                        BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
-                                        Wrap="Wrap"
-                                        JustifyContent="Center"
-                                        AlignItems="Center"
-                                        AlignContent="Center"
-                                        Direction="Row"
-                                        HorizontalOptions="Center"
-                                        VerticalOptions="Center"
-                                        Padding="4" />
-                        </ScrollView>
-                        <Label Text="Bench empty"
+                        <FlexLayout BindableLayout.ItemsSource="{Binding BenchBandPlayers}"
+                                    BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
+                                    Wrap="Wrap"
+                                    JustifyContent="Center"
+                                    AlignItems="Center"
+                                    AlignContent="Center"
+                                    Direction="Row"
+                                    HorizontalOptions="Fill"
+                                    VerticalOptions="End"
+                                    Padding="2" />
+                        <Label Text="Bench — drop here"
                                TextColor="#90CAF9"
-                               FontSize="13"
+                               FontSize="12"
                                HorizontalOptions="Center"
                                VerticalOptions="Center"
+                               InputTransparent="True"
                                IsVisible="{Binding IsBenchBandEmpty}" />
                     </Grid>
                 </Grid>

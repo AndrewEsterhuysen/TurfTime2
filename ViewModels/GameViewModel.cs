@@ -71,6 +71,12 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>True when Field View pitch has no outfield or goalie tokens.</summary>
     public bool IsFieldBandEmpty => FieldBandPlayers.Count == 0 && GoalieBandPlayers.Count == 0;
 
+    /// <summary>True when the 4×4 outfield grid has no Field players.</summary>
+    public bool IsOutfieldBandEmpty => FieldBandPlayers.Count == 0;
+
+    /// <summary>True when the goalie allocation zone has no goalie.</summary>
+    public bool IsGoalieBandEmpty => GoalieBandPlayers.Count == 0;
+
     /// <summary>True when Field View bench has no bench tokens.</summary>
     public bool IsBenchBandEmpty => BenchBandPlayers.Count == 0;
 
@@ -3197,6 +3203,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         UnpositionedStackTop = Players.FirstOrDefault(p => p.Position == PlayerPosition.None);
 
         OnPropertyChanged(nameof(IsFieldBandEmpty));
+        OnPropertyChanged(nameof(IsOutfieldBandEmpty));
+        OnPropertyChanged(nameof(IsGoalieBandEmpty));
         OnPropertyChanged(nameof(IsBenchBandEmpty));
     }
 
