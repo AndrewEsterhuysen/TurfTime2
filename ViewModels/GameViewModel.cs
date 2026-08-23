@@ -2802,12 +2802,18 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 ["rotationNumber"] = rotNum
             });
 
-        System.Diagnostics.Debug.WriteLine(
-            $"[GameViewModel] ⇄ Swap #{rotNum}: {fieldPlayer.Name} (Field→Bench) ↔ {benchPlayer.Name} (Bench→Field)");
+        // Capture the pitch cell before role change — Position=Bench clears FieldCell.
+        // Incoming bench player inherits that cell so empty grid slots stay empty across rotations.
+        var formationCell = fieldPlayer.FieldCell;
 
-        // Swap positions only — do not reorder the list.
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] ⇄ Swap #{rotNum}: {fieldPlayer.Name} (Field→Bench) ↔ {benchPlayer.Name} (Bench→Field)" +
+            $" cell={formationCell?.ToString() ?? "none"}");
+
+        // Swap roles only — do not reorder the list or repack the formation grid.
         fieldPlayer.Position = PlayerPosition.Bench;
         benchPlayer.Position = PlayerPosition.Field;
+        benchPlayer.FieldCell = formationCell;
 
         _lastFieldIdx = fieldIdx;
         _lastBenchIdx = benchIdx;
@@ -3167,9 +3173,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             .Where(p => p.Position == PlayerPosition.Field)
             .ToList();
 
-        // Heal older Field players that lack a cell so the grid has somewhere to put them.
-        foreach (var p in fieldDesired.Where(p => p.FieldCell is null))
-            p.FieldCell = FindFirstFreeFieldCell(except: p);
+        // Do NOT auto-fill FieldCell here — that packed gaps (e.g. empty cell 3) after rotation.
+        // Empty cells stay empty unless the user places someone, or RotateOnce transfers a cell.
 
         var goalieDesired = Players
             .Where(p => p.Position == PlayerPosition.Goalie)
