@@ -73,6 +73,15 @@
                                     FontSize="14"/>
                         </StackLayout>
 
+                        <!-- Popular action: directly under display-name save (still visible for local teams). -->
+                        <Button x:Name="ShareTeamButton"
+                                Text="Share Team (QR)"
+                                Clicked="OnShareTeamClicked"
+                                BackgroundColor="#2196F3"
+                                TextColor="White"
+                                HeightRequest="44"
+                                FontSize="14"/>
+
                         <VerticalStackLayout x:Name="SharedAdminTools"
                                              IsVisible="False"
                                              Spacing="8">
@@ -93,6 +102,12 @@
                                            TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
                                 </VerticalStackLayout>
                             </Frame>
+                            <Button Text="Regenerate Invite Code"
+                                    Clicked="OnRegenerateCodeClicked"
+                                    BackgroundColor="#E65100"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
                             <Button Text="View Team Members"
                                     Clicked="OnViewMembersClicked"
                                     BackgroundColor="#9C27B0"
@@ -132,22 +147,9 @@
                                     TextColor="White"
                                     HeightRequest="44"
                                     FontSize="14"/>
-                            <Button Text="Regenerate Invite Code"
-                                    Clicked="OnRegenerateCodeClicked"
-                                    BackgroundColor="#E65100"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
                         </VerticalStackLayout>
 
                         <VerticalStackLayout Spacing="8" Margin="0,4,0,0">
-                            <Button x:Name="ShareTeamButton"
-                                    Text="Share Team (QR)"
-                                    Clicked="OnShareTeamClicked"
-                                    BackgroundColor="#2196F3"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
                             <Button x:Name="LeaveTeamButton"
                                     Text="Leave Team"
                                     IsVisible="False"
@@ -273,6 +275,9 @@
                                                         <Label Text="{Binding TeamName}"
                                                                FontSize="16"
                                                                FontAttributes="Bold"/>
+                                                        <Label Text="{Binding TeamId}"
+                                                               FontSize="10"
+                                                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
                                                         <Label Text="{Binding RoleLabel}"
                                                                FontSize="10"
                                                                TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>

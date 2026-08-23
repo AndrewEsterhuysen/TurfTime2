@@ -16,6 +16,11 @@ public partial class TeamDetailsPage : ContentPage
 	private ObservableCollection<LocalTeamItem> _localTeams = new();
 	private ObservableCollection<SharedTeamItem> _sharedTeams = new();
 
+	/// <summary>Avoid re-publishing the same invite index on every Appear / LoadCurrentTeam.</summary>
+	private string? _lastPublishedInviteKey;
+	private DateTimeOffset _lastInvitePublishUtc = DateTimeOffset.MinValue;
+	private static readonly TimeSpan InvitePublishMinInterval = TimeSpan.FromMinutes(5);
+
 	public TeamDetailsPage()
 	{
 		InitializeComponent();
@@ -24,25 +29,50 @@ public partial class TeamDetailsPage : ContentPage
 		LoadCurrentTeam();
 	}
 
-	protected override async void OnAppearing()
+	protected override void OnAppearing()
 	{
 		base.OnAppearing();
 		DetailsPage.ApplyPageTeamTitle(this, "Team");
 
-		// Shared teams: always re-fetch cloud role so Promote to Admin is reflected locally.
 		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
 		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
-		if (teamMode == "shared" && !string.IsNullOrEmpty(teamId))
-			await RefreshMyRoleFromCloudAsync(teamId);
 
+		// Paint from local Preferences first so Team Admin taps stay responsive.
+		// Cloud role / invite refresh runs in the background (was awaited and blocked UI).
 		LoadCurrentTeam();
 
 		if (!string.IsNullOrEmpty(teamMode))
 		{
-			if (teamMode == "local")
-				LocalCheckbox.IsChecked = true;   // triggers LoadLocalTeamsAsync
-			else if (teamMode == "shared")
-				SharedCheckbox.IsChecked = true;  // triggers LoadSharedTeamsAsync
+			// Only set when unset — re-assigning true re-fires CheckedChanged and reloads lists every visit.
+			if (teamMode == "local" && !LocalCheckbox.IsChecked)
+				LocalCheckbox.IsChecked = true;
+			else if (teamMode == "shared" && !SharedCheckbox.IsChecked)
+				SharedCheckbox.IsChecked = true;
+		}
+
+		if (teamMode == "shared" && !string.IsNullOrEmpty(teamId))
+			_ = RefreshRoleAndAdminToolsInBackgroundAsync(teamId);
+	}
+
+	/// <summary>
+	/// Soft-refresh role (and invite display) without gating the page on network.
+	/// </summary>
+	private async Task RefreshRoleAndAdminToolsInBackgroundAsync(string teamId)
+	{
+		try
+		{
+			var role = await RefreshMyRoleFromCloudAsync(teamId).ConfigureAwait(false);
+			if (role is null) return;
+
+			await MainThread.InvokeOnMainThreadAsync(() =>
+			{
+				LoadCurrentTeam(refreshInviteFromCloud: true);
+			});
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine(
+				$"[TeamDetails] Background role refresh: {ex.Message}");
 		}
 	}
 
@@ -101,7 +131,7 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
-	private void LoadCurrentTeam()
+	private void LoadCurrentTeam(bool refreshInviteFromCloud = false)
 	{
 		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
 		var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
@@ -146,7 +176,7 @@ public partial class TeamDetailsPage : ContentPage
 			var isAdmin = isShared && userRole == "admin";
 			SharedAdminTools.IsVisible = isAdmin;
 			if (isAdmin)
-				LoadInviteCode();
+				LoadInviteCode(refreshFromCloud: refreshInviteFromCloud);
 
 			// Owner (club manager) can transfer ownership to another admin
 			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
@@ -241,6 +271,10 @@ public partial class TeamDetailsPage : ContentPage
 		ChangeTeamContent.IsVisible = expanded;
 		ChangeTeamToggleIcon.Text = expanded ? "▲" : "▼";
 		ChangeTeamHint.IsVisible = !expanded;
+
+		// Owner/role cloud fan-out is deferred until the user opens Change Team.
+		if (expanded && SharedCheckbox.IsChecked)
+			_ = RefreshSharedTeamCloudMetadataAsync();
 	}
 
 	/// <summary>Join expands above Create; opening Join closes Create (and vice versa).</summary>
@@ -530,9 +564,10 @@ public partial class TeamDetailsPage : ContentPage
 			foreach (var team in newTeams)
 				_sharedTeams.Add(team);
 
-			// Refresh owner flags + roles from cloud (Promote to Admin, ownership transfer).
-			_ = RefreshSharedTeamOwnerFlagsAsync();
-			_ = RefreshSharedTeamRolesFromCloudAsync();
+			// Defer per-team cloud owner/role probes until Change Team is expanded —
+			// OnAppearing used to fire this every visit and jam the UI / auth gate.
+			if (_changeTeamExpanded)
+				_ = RefreshSharedTeamCloudMetadataAsync();
 
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Found {_sharedTeams.Count} shared teams");
 
@@ -2346,7 +2381,8 @@ private void RegisterTeamId(string teamId)
 
 		// Save locally immediately
 		Preferences.Set($"{teamId}_invite_code", newCode);
-		LoadInviteCode();
+		_lastPublishedInviteKey = null; // allow self-heal publish for the new code
+		LoadInviteCode(refreshFromCloud: false);
 
 		// Sync to Firestore in the background (Plugin.Firebase — non-blocking)
 		_ = Task.Run(async () =>
@@ -2390,8 +2426,14 @@ private void RegisterTeamId(string teamId)
 			// Shared (cloud) team: QR carries only kind + invite code — roster/metadata come from Firestore.
 			if (teamMode == "shared")
 			{
-				// Always refresh from cloud so we don't share a stale code after another Admin regenerates.
-				var inviteCode = await EnsureLocalInviteCodeAsync(teamId) ?? string.Empty;
+				// Prefer cached code so the button responds immediately; refresh cloud in background.
+				var cached = Preferences.Get($"{teamId}_invite_code", string.Empty);
+				var inviteCode = (!string.IsNullOrWhiteSpace(cached) && cached != "N/A")
+					? QrCodeService.NormalizeInviteCode(cached)
+					: string.Empty;
+
+				if (string.IsNullOrEmpty(inviteCode))
+					inviteCode = await EnsureLocalInviteCodeAsync(teamId) ?? string.Empty;
 
 				if (string.IsNullOrWhiteSpace(inviteCode) || inviteCode == "N/A")
 				{
@@ -2402,12 +2444,9 @@ private void RegisterTeamId(string teamId)
 					return;
 				}
 
-				// Best-effort: ensure invite index exists so scanners can join immediately
-				var cloud = ResolveCloudTeam();
-				if (cloud is not null)
-				{
-					_ = cloud.EnsureInviteCodePublishedAsync(teamId, inviteCode, teamName);
-				}
+				PublishInviteCodeBestEffort(teamId, inviteCode);
+				// Soft refresh in case another Admin regenerated (does not block the QR modal).
+				_ = RefreshInviteCodeFromCloudAsync(teamId);
 
 				var sharedData = QrCodeService.CreateSharedJoinInvite(inviteCode, teamName);
 				await Navigation.PushModalAsync(new QrShareModal(sharedData));
@@ -2605,6 +2644,9 @@ private void RegisterTeamId(string teamId)
 		}
 	}
 
+	private Task RefreshSharedTeamCloudMetadataAsync()
+		=> Task.WhenAll(RefreshSharedTeamOwnerFlagsAsync(), RefreshSharedTeamRolesFromCloudAsync());
+
 	private async Task RefreshSharedTeamOwnerFlagsAsync()
 	{
 		try
@@ -2615,7 +2657,7 @@ private void RegisterTeamId(string teamId)
 			var changed = false;
 			foreach (var team in _sharedTeams.ToList())
 			{
-				var owner = await cloud.IsTeamOwnerAsync(team.TeamId);
+				var owner = await cloud.IsTeamOwnerAsync(team.TeamId).ConfigureAwait(false);
 				Preferences.Set($"{team.TeamId}_isOwner", owner);
 				if (team.IsOwner != owner)
 				{
@@ -2626,14 +2668,7 @@ private void RegisterTeamId(string teamId)
 
 			if (changed)
 			{
-				await MainThread.InvokeOnMainThreadAsync(() =>
-				{
-					// Force CollectionView refresh for RoleLabel
-					var copy = _sharedTeams.ToList();
-					_sharedTeams.Clear();
-					foreach (var t in copy)
-						_sharedTeams.Add(t);
-				});
+				await MainThread.InvokeOnMainThreadAsync(ReloadSharedTeamsCollection);
 			}
 		}
 		catch (Exception ex)
@@ -2652,37 +2687,42 @@ private void RegisterTeamId(string teamId)
 			var cloud = ResolveCloudTeam();
 			if (cloud is null) return;
 
-			var changed = false;
+			var listChanged = false;
+			var currentTeamRoleChanged = false;
 			var currentId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 
 			foreach (var team in _sharedTeams.ToList())
 			{
-				var role = await cloud.GetMyRoleAsync(team.TeamId);
+				var role = await cloud.GetMyRoleAsync(team.TeamId).ConfigureAwait(false);
 				if (string.IsNullOrWhiteSpace(role)) continue;
 
 				var normalized = role.Trim().ToLowerInvariant();
+				var previous = Preferences.Get($"{team.TeamId}_role", string.Empty);
 				ApplyLocalRoleCache(team.TeamId, normalized);
 
 				var label = char.ToUpperInvariant(normalized[0]) + normalized[1..];
 				if (!string.Equals(team.Role, label, StringComparison.OrdinalIgnoreCase))
 				{
 					team.Role = label;
-					changed = true;
+					listChanged = true;
 				}
 
-				if (string.Equals(team.TeamId, currentId, StringComparison.Ordinal))
-					changed = true; // ensure admin tools re-evaluate
+				if (string.Equals(team.TeamId, currentId, StringComparison.Ordinal)
+				    && !string.Equals(previous, normalized, StringComparison.OrdinalIgnoreCase))
+				{
+					currentTeamRoleChanged = true;
+				}
 			}
 
-			if (changed)
+			if (listChanged || currentTeamRoleChanged)
 			{
 				await MainThread.InvokeOnMainThreadAsync(() =>
 				{
-					LoadCurrentTeam();
-					var copy = _sharedTeams.ToList();
-					_sharedTeams.Clear();
-					foreach (var t in copy)
-						_sharedTeams.Add(t);
+					// Only re-run invite/cloud side effects when the *current* role actually changed.
+					if (currentTeamRoleChanged)
+						LoadCurrentTeam(refreshInviteFromCloud: true);
+					if (listChanged)
+						ReloadSharedTeamsCollection();
 				});
 			}
 		}
@@ -2690,6 +2730,14 @@ private void RegisterTeamId(string teamId)
 		{
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Refresh roles: {ex.Message}");
 		}
+	}
+
+	private void ReloadSharedTeamsCollection()
+	{
+		var copy = _sharedTeams.ToList();
+		_sharedTeams.Clear();
+		foreach (var t in copy)
+			_sharedTeams.Add(t);
 	}
 
 	private async Task LeaveSharedTeamAsync(SharedTeamItem team, bool skipConfirmMessage = false)
@@ -2751,20 +2799,20 @@ private void RegisterTeamId(string teamId)
 		}
 	}
 
-	private void LoadInviteCode()
+	private void LoadInviteCode(bool refreshFromCloud = false)
 	{
 		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 		if (string.IsNullOrEmpty(teamId))
 			return;
 
-		// Show cached value immediately, then always refresh from cloud so a code
-		// regenerated on another Admin device appears here.
+		// Show cached value immediately. Cloud refresh is optional — every Appear used to
+		// refresh+re-publish invite indexes (multiple Firestore writes) and jank the UI.
 		var inviteCode = Preferences.Get($"{teamId}_invite_code", string.Empty);
-		InviteCodeDisplay.Text = !string.IsNullOrWhiteSpace(inviteCode) && inviteCode != "N/A"
-			? inviteCode
-			: "Loading…";
+		var hasCache = !string.IsNullOrWhiteSpace(inviteCode) && inviteCode != "N/A";
+		InviteCodeDisplay.Text = hasCache ? inviteCode : "Loading…";
 
-		_ = RefreshInviteCodeFromCloudAsync(teamId);
+		if (refreshFromCloud || !hasCache)
+			_ = RefreshInviteCodeFromCloudAsync(teamId);
 	}
 
 	/// <summary>
@@ -2808,7 +2856,7 @@ private void RegisterTeamId(string teamId)
 
 	private async Task RefreshInviteCodeFromCloudAsync(string teamId)
 	{
-		var code = await EnsureLocalInviteCodeAsync(teamId);
+		var code = await EnsureLocalInviteCodeAsync(teamId).ConfigureAwait(false);
 		await MainThread.InvokeOnMainThreadAsync(() =>
 		{
 			InviteCodeDisplay.Text = string.IsNullOrEmpty(code) ? "N/A" : code;
@@ -2820,7 +2868,19 @@ private void RegisterTeamId(string teamId)
 
 	private void PublishInviteCodeBestEffort(string teamId, string inviteCode)
 	{
-		// Self-heal: ensure invite_codes/{code} exists in Firestore so other devices can join.
+		// Self-heal invite_codes index — but not on every page visit (was causing Android jank
+		// via repeated Firestore upserts of dashed + compact ids + public/invite).
+		var key = $"{teamId}|{QrCodeService.NormalizeInviteCode(inviteCode)}";
+		var now = DateTimeOffset.UtcNow;
+		if (string.Equals(_lastPublishedInviteKey, key, StringComparison.Ordinal)
+		    && now - _lastInvitePublishUtc < InvitePublishMinInterval)
+		{
+			return;
+		}
+
+		_lastPublishedInviteKey = key;
+		_lastInvitePublishUtc = now;
+
 		var teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
 		_ = Task.Run(async () =>
 		{

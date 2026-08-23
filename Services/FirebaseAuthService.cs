@@ -26,8 +26,11 @@ public sealed class FirebaseAuthService : IFirebaseAuthService
         {
             if (_auth.CurrentUser is { } existing && !string.IsNullOrEmpty(existing.Uid))
             {
-                Preferences.Set("user_id", existing.Uid);
-                Preferences.Set("chat_user_id", existing.Uid);
+                // Avoid Preferences writes on every cloud call (Team Details used to hit this often).
+                if (!string.Equals(Preferences.Get("user_id", string.Empty), existing.Uid, StringComparison.Ordinal))
+                    Preferences.Set("user_id", existing.Uid);
+                if (!string.Equals(Preferences.Get("chat_user_id", string.Empty), existing.Uid, StringComparison.Ordinal))
+                    Preferences.Set("chat_user_id", existing.Uid);
                 return existing.Uid;
             }
 
