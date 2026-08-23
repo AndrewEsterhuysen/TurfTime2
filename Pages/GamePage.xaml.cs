@@ -1619,4 +1619,97 @@ public partial class GamePage : ContentPage
     // SwipeableRoster is now a ScrollView (not CollectionView/RecyclerView),
     // so there is no RecyclerView to intercept touches or clip children.
 #endif
+
+    // ── Field View drag / drop placement ──────────────────────────────────
+
+    private const string FieldDragSlotIdKey = "turftime.fieldDrag.slotId";
+
+    private void OnStackPlayerDragStarting(object? sender, DragStartingEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember || _vm.UnpositionedStackTop is null)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        e.Data.Properties[FieldDragSlotIdKey] = _vm.UnpositionedStackTop.SlotId;
+    }
+
+    private void OnFieldPlayerDragStarting(object? sender, DragStartingEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        Player? player = null;
+        if (sender is BindableObject bo)
+        {
+            if (bo.BindingContext is FieldCellSlot slot)
+                player = slot.Player;
+            else if (bo.BindingContext is Player p)
+                player = p;
+        }
+
+        if (player is null)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        e.Data.Properties[FieldDragSlotIdKey] = player.SlotId;
+    }
+
+    private void OnFieldCellDragOver(object? sender, DragEventArgs e)
+        => e.AcceptedOperation = (_vm is not null && !_vm.IsMember)
+            ? DataPackageOperation.Copy
+            : DataPackageOperation.None;
+
+    private void OnFieldZoneDragOver(object? sender, DragEventArgs e)
+        => OnFieldCellDragOver(sender, e);
+
+    private void OnFieldCellDrop(object? sender, DropEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if (!TryGetDraggedPlayer(e, out var player)) return;
+        if (sender is not BindableObject { BindingContext: FieldCellSlot slot }) return;
+
+        _vm.PlaceOrSwapOnFieldCell(player, slot.CellNumber);
+    }
+
+    private void OnBenchBandDrop(object? sender, DropEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if (!TryGetDraggedPlayer(e, out var player)) return;
+        _vm.SetPlayerPosition(player, PlayerPosition.Bench);
+    }
+
+    private void OnGoalieBandDrop(object? sender, DropEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if (!TryGetDraggedPlayer(e, out var player)) return;
+        _vm.SetPlayerPosition(player, PlayerPosition.Goalie);
+    }
+
+    private bool TryGetDraggedPlayer(DropEventArgs e, out Player player)
+    {
+        player = null!;
+        if (_vm is null) return false;
+        if (!e.Data.Properties.TryGetValue(FieldDragSlotIdKey, out var raw)) return false;
+
+        var slotId = raw switch
+        {
+            int i => i,
+            long l => (int)l,
+            string s when int.TryParse(s, out var parsed) => parsed,
+            _ => 0
+        };
+        if (slotId <= 0) return false;
+
+        var match = _vm.Players.FirstOrDefault(p => p.SlotId == slotId);
+        if (match is null) return false;
+        player = match;
+        return true;
+    }
 }

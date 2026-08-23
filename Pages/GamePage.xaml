@@ -639,6 +639,11 @@
                                             Margin="1"
                                             MinimumHeightRequest="56"
                                             MinimumWidthRequest="56">
+                                        <Border.GestureRecognizers>
+                                            <DropGestureRecognizer AllowDrop="True"
+                                                                   DragOver="OnFieldCellDragOver"
+                                                                   Drop="OnFieldCellDrop" />
+                                        </Border.GestureRecognizers>
                                         <Grid>
                                             <Label Text="{Binding CellLabel}"
                                                    TextColor="#66FFFFFF"
@@ -656,6 +661,9 @@
                                                     BackgroundColor="{Binding Player.Position, Converter={StaticResource PositionToColor}}"
                                                     HorizontalOptions="Center"
                                                     VerticalOptions="Center">
+                                                <Border.GestureRecognizers>
+                                                    <DragGestureRecognizer DragStarting="OnFieldPlayerDragStarting" />
+                                                </Border.GestureRecognizers>
                                                 <Border.Triggers>
                                                     <DataTrigger TargetType="Border"
                                                                  Binding="{Binding Player.IsNextToRotate}"
@@ -671,7 +679,8 @@
                                                        HorizontalOptions="Center"
                                                        VerticalOptions="Center"
                                                        HorizontalTextAlignment="Center"
-                                                       VerticalTextAlignment="Center" />
+                                                       VerticalTextAlignment="Center"
+                                                       InputTransparent="True" />
                                             </Border>
                                         </Grid>
                                     </Border>
@@ -699,6 +708,9 @@
                                     StrokeShape="RoundRectangle 24"
                                     BackgroundColor="{Binding UnpositionedStackTop.Position, Converter={StaticResource PositionToColor}}"
                                     HorizontalOptions="Center">
+                                <Border.GestureRecognizers>
+                                    <DragGestureRecognizer DragStarting="OnStackPlayerDragStarting" />
+                                </Border.GestureRecognizers>
                                 <Label Text="{Binding UnpositionedStackTop.ShortName}"
                                        TextColor="White"
                                        FontSize="12"
@@ -706,12 +718,14 @@
                                        HorizontalOptions="Center"
                                        VerticalOptions="Center"
                                        HorizontalTextAlignment="Center"
-                                       VerticalTextAlignment="Center" />
+                                       VerticalTextAlignment="Center"
+                                       InputTransparent="True" />
                             </Border>
                         </VerticalStackLayout>
 
                         <!-- Goalie: centre of pitch, just above field/bench dividing line -->
-                        <FlexLayout Grid.Row="1"
+                        <FlexLayout x:Name="GoalieDropBand"
+                                    Grid.Row="1"
                                     Grid.Column="0"
                                     Grid.ColumnSpan="2"
                                     BindableLayout.ItemsSource="{Binding GoalieBandPlayers}"
@@ -723,8 +737,14 @@
                                     HorizontalOptions="Center"
                                     VerticalOptions="End"
                                     Margin="0,0,0,2"
-                                    MinimumHeightRequest="0"
-                                    Padding="0,2,0,0" />
+                                    MinimumHeightRequest="48"
+                                    Padding="0,2,0,0">
+                            <FlexLayout.GestureRecognizers>
+                                <DropGestureRecognizer AllowDrop="True"
+                                                       DragOver="OnFieldZoneDragOver"
+                                                       Drop="OnGoalieBandDrop" />
+                            </FlexLayout.GestureRecognizers>
+                        </FlexLayout>
 
                         <Label Grid.Row="0"
                                Grid.Column="0"
@@ -744,8 +764,13 @@
                              Margin="0,4,0,4"
                              HorizontalOptions="Fill" />
 
-                    <!-- Bench band -->
+                    <!-- Bench band (drop target for Field View placement) -->
                     <Grid Grid.Row="2">
+                        <Grid.GestureRecognizers>
+                            <DropGestureRecognizer AllowDrop="True"
+                                                   DragOver="OnFieldZoneDragOver"
+                                                   Drop="OnBenchBandDrop" />
+                        </Grid.GestureRecognizers>
                         <ScrollView Orientation="Vertical"
                                     VerticalOptions="Fill"
                                     HorizontalOptions="Fill">
