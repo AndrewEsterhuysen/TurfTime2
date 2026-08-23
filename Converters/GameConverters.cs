@@ -44,6 +44,35 @@ public sealed class NextToBorderColorConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
+/// <summary>
+/// RotationPairIndex (-1 = none) → distinct outline colour so matching field/bench
+/// replacement pairs share a colour on Field View and Team View.
+/// </summary>
+public sealed class RotationPairOutlineConverter : IValueConverter
+{
+    private static readonly Color[] Palette =
+    [
+        Color.FromArgb("#FF6B6B"), // coral
+        Color.FromArgb("#4ECDC4"), // teal
+        Color.FromArgb("#FFE66D"), // yellow
+        Color.FromArgb("#95E1A3"), // mint
+        Color.FromArgb("#A78BFA"), // violet
+        Color.FromArgb("#F9A8D4"), // pink
+        Color.FromArgb("#38BDF8"), // sky
+        Color.FromArgb("#FBBF24"), // amber
+    ];
+
+    public object Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+    {
+        if (value is int idx && idx >= 0)
+            return Palette[idx % Palette.Length];
+        return Colors.Transparent;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 /// <summary>IsNextToRotate -> stroke thickness 3 (highlighted) or 0.</summary>
 public sealed class NextToBorderThicknessConverter : IValueConverter
 {

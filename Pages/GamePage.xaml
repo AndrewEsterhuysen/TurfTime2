@@ -18,8 +18,9 @@
         <Color x:Key="CyanHighlight">#00d9ff</Color>
 
         <conv:BoolToFontAttrsConverter    x:Key="BoolToFontAttrs" />
-        <conv:PositionToColorConverter    x:Key="PositionToColor" />
-        <conv:NextToBorderColorConverter  x:Key="NextToBorderColor" />
+        <conv:PositionToColorConverter       x:Key="PositionToColor" />
+        <conv:NextToBorderColorConverter     x:Key="NextToBorderColor" />
+        <conv:RotationPairOutlineConverter   x:Key="RotationPairOutline" />
         <conv:NextToBorderThicknessConverter x:Key="NextToBorderThickness" />
         <conv:NextToArrowConverter        x:Key="NextToArrow" />
         <conv:BoolToOpacityConverter      x:Key="BoolToOpacity" />
@@ -48,7 +49,7 @@
                         <TapGestureRecognizer Tapped="OnPlayerNameTapped" />
                     </Grid.GestureRecognizers>
                     <Border Grid.Column="1"
-                            Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
+                            Stroke="{Binding RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
                             StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
                             StrokeShape="RoundRectangle 0"
                             BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
@@ -159,7 +160,7 @@
                         </Label>
                     </Border>
                     <Border Grid.Column="1"
-                            Stroke="{Binding IsNextToRotate, Converter={StaticResource NextToBorderColor}}"
+                            Stroke="{Binding RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
                             StrokeThickness="{Binding IsNextToRotate, Converter={StaticResource NextToBorderThickness}}"
                             StrokeShape="RoundRectangle 0"
                             BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
@@ -578,19 +579,23 @@
                         <Border WidthRequest="48"
                                 HeightRequest="48"
                                 Margin="5"
-                                Stroke="#66FFFFFF"
+                                Stroke="{Binding RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
                                 StrokeThickness="1.5"
                                 StrokeShape="RoundRectangle 24"
                                 BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
                                 HorizontalOptions="Center"
                                 VerticalOptions="Center">
                             <Border.Triggers>
-                                <!-- Highlight circumference when this player is next to rotate -->
+                                <!-- Thicker pair-coloured circumference when next to rotate -->
                                 <DataTrigger TargetType="Border"
                                              Binding="{Binding IsNextToRotate}"
                                              Value="{x:Boolean True}">
-                                    <Setter Property="Stroke" Value="{StaticResource CyanHighlight}" />
                                     <Setter Property="StrokeThickness" Value="3.5" />
+                                </DataTrigger>
+                                <DataTrigger TargetType="Border"
+                                             Binding="{Binding IsNextToRotate}"
+                                             Value="{x:Boolean False}">
+                                    <Setter Property="Stroke" Value="#66FFFFFF" />
                                 </DataTrigger>
                             </Border.Triggers>
                             <Label Text="{Binding ShortName}"
@@ -655,7 +660,7 @@
                                             <Border IsVisible="{Binding HasPlayer}"
                                                     WidthRequest="44"
                                                     HeightRequest="44"
-                                                    Stroke="#66FFFFFF"
+                                                    Stroke="{Binding Player.RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
                                                     StrokeThickness="1.5"
                                                     StrokeShape="RoundRectangle 22"
                                                     BackgroundColor="{Binding Player.Position, Converter={StaticResource PositionToColor}}"
@@ -668,8 +673,12 @@
                                                     <DataTrigger TargetType="Border"
                                                                  Binding="{Binding Player.IsNextToRotate}"
                                                                  Value="{x:Boolean True}">
-                                                        <Setter Property="Stroke" Value="{StaticResource CyanHighlight}" />
                                                         <Setter Property="StrokeThickness" Value="3.5" />
+                                                    </DataTrigger>
+                                                    <DataTrigger TargetType="Border"
+                                                                 Binding="{Binding Player.IsNextToRotate}"
+                                                                 Value="{x:Boolean False}">
+                                                        <Setter Property="Stroke" Value="#66FFFFFF" />
                                                     </DataTrigger>
                                                 </Border.Triggers>
                                                 <Label Text="{Binding Player.ShortName}"

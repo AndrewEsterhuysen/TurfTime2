@@ -2864,51 +2864,43 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     private void MarkNextPlayers()
     {
-        // Build the desired "next to rotate" set FIRST, then only fire
-        // PropertyChanged for players whose flag actually changes.
+        // Pair field[i] with bench[i] so Field View can share outline colours per replacement.
         // Manual tap-queue overrides take priority over the auto-FIFO pointers.
         var field = FieldCandidates();
         var bench = BenchCandidates();
         var count = Math.Min(RotationCount, Math.Min(field.Count, bench.Count));
 
-        var desiredNext = new HashSet<int>();
+        var fieldQueue = _manualFieldQueue.Count > 0 ? _manualFieldQueue.ToArray() : null;
+        var benchQueue = _manualBenchQueue.Count > 0 ? _manualBenchQueue.ToArray() : null;
 
-        // ── Field side ──
-        if (_manualFieldQueue.Count > 0)
-        {
-            // Null slots are de-selected by the user — skip them.
-            foreach (var slot in _manualFieldQueue.Take(count))
-                if (slot is int idx && idx >= 0 && idx < Players.Count) desiredNext.Add(idx);
-        }
-        else
-        {
-            for (int i = 0; i < count; i++)
-            {
-                var fi = NextIndexFromWithOffset(field, _lastFieldIdx, i);
-                if (fi >= 0) desiredNext.Add(fi);
-            }
-        }
+        var desiredNext = new Dictionary<int, int>(); // playerIndex → pairIndex
 
-        // ── Bench side ──
-        if (_manualBenchQueue.Count > 0)
+        for (int pair = 0; pair < count; pair++)
         {
-            foreach (var slot in _manualBenchQueue.Take(count))
-                if (slot is int idx && idx >= 0 && idx < Players.Count) desiredNext.Add(idx);
-        }
-        else
-        {
-            for (int i = 0; i < count; i++)
-            {
-                var bi = NextIndexFromWithOffset(bench, _lastBenchIdx, i);
-                if (bi >= 0) desiredNext.Add(bi);
-            }
+            if (fieldQueue is not null && pair < fieldQueue.Length && fieldQueue[pair] is null) continue;
+            if (benchQueue is not null && pair < benchQueue.Length && benchQueue[pair] is null) continue;
+
+            var fi = fieldQueue is not null && pair < fieldQueue.Length
+                ? fieldQueue[pair]!.Value
+                : NextIndexFromWithOffset(field, _lastFieldIdx, pair);
+            var bi = benchQueue is not null && pair < benchQueue.Length
+                ? benchQueue[pair]!.Value
+                : NextIndexFromWithOffset(bench, _lastBenchIdx, pair);
+
+            if (fi < 0 || bi < 0) continue;
+            desiredNext[fi] = pair;
+            desiredNext[bi] = pair;
         }
 
         for (int i = 0; i < Players.Count; i++)
         {
-            bool shouldBe = desiredNext.Contains(i);
+            var shouldBe = desiredNext.ContainsKey(i);
+            var pairIndex = shouldBe ? desiredNext[i] : -1;
+
             if (Players[i].IsNextToRotate != shouldBe)
                 Players[i].IsNextToRotate = shouldBe;
+            if (Players[i].RotationPairIndex != pairIndex)
+                Players[i].RotationPairIndex = pairIndex;
         }
     }
 

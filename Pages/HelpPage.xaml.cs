@@ -195,12 +195,22 @@ public partial class HelpPage : ContentPage
                 <li>Controller only on shared teams (view-only devices cannot rotate or change the count).</li>
             </ul>
         </li>
-        <li><strong>View: Rotation / View: Team</strong> (right):
+        <li><strong>View</strong> (right):
             <ul>
-                <li>Toggles between the player roster and the Rotation view.</li>
+                <li>Cycles <strong>Team → Rotation → Field</strong> (admins). View-only devices stay on Field View.</li>
                 <li>Label shows which view will appear when pressed.</li>
             </ul>
         </li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>🏟️ Field View</h3>
+    <ul>
+        <li><strong>4×4 pitch grid</strong> (cells 1–16, top-left = 1): drop a player onto a cell to put them on the field in that spot (one player per cell; dropping on an occupied cell swaps).</li>
+        <li><strong>Stack</strong> (right edge): players with no position yet appear one at a time in roster order. Drag the top chip onto a grid cell (Field), the bench band, or the goalie band — same outcomes as Team View swipes.</li>
+        <li>When you <strong>Start</strong> the match, any players still in the stack become Absent/Inactive (same as Team View).</li>
+        <li><strong>Matching outline colours</strong> mark which bench player replaces which field player on the next rotation.</li>
+        <li>Formation cells sync on shared teams with the roster. View-only members can watch but cannot drag.</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
@@ -220,7 +230,7 @@ public partial class HelpPage : ContentPage
     <ul>
         <li>The app uses a <strong>FIFO queue</strong>: players who have been on the bench longest rotate on first; players who have been on the field longest rotate off first.</li>
         <li>Field time (MM:SS) on each row reflects this — higher time = next to come off.</li>
-        <li><strong>Manual override (Team view):</strong> During a match, tap a bench player to queue them on, or a field player to queue them off. Queues grow/shrink and the rotation count follows. The cyan ➤ arrow marks queued players.</li>
+        <li><strong>Manual override (Team view):</strong> During a match, tap a bench player to queue them on, or a field player to queue them off. Queues grow/shrink and the rotation count follows. Matching coloured outlines (and the ➤ arrow) mark queued field↔bench pairs.</li>
         <li><strong>Rotation count (Rotate / Tap to Rotate hold):</strong> Sets how many pairs will swap. Changing the count re-seeds both next-up queues from automatic FIFO (does not keep a prior manual queue order).</li>
         <li>Team-view taps and long-press count selection share the same queues — the last action you take wins until you change it again.</li>
         <li><strong>Reorder by dragging:</strong> Long-press and drag any row to permanently reposition the player in the rotation sequence.</li>
