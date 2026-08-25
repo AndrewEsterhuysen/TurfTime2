@@ -39,6 +39,31 @@
                 </VerticalStackLayout>
             </Frame>
 
+            <!-- Rotation Basis — who is selected for the next rotate -->
+            <Frame BackgroundColor="#2e7d32"
+                   CornerRadius="10"
+                   Padding="20"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Rotation Basis"
+                           FontSize="18"
+                           FontAttributes="Bold"
+                           TextColor="White" />
+                    <Label Text="How the app chooses who comes off the field and who comes on from the bench."
+                           FontSize="12"
+                           TextColor="#C8E6C9" />
+                    <Picker x:Name="RotationBasisPicker"
+                            Title="Basis"
+                            TextColor="White"
+                            TitleColor="#A5D6A7"
+                            SelectedIndexChanged="OnRotationBasisChanged" />
+                    <Label x:Name="RotationBasisDescriptionLabel"
+                           FontSize="13"
+                           TextColor="#A5D6A7"
+                           LineBreakMode="WordWrap" />
+                </VerticalStackLayout>
+            </Frame>
+
             <!-- Match reminders (local notifications) -->
             <Frame BackgroundColor="#2e7d32"
                    CornerRadius="10"

@@ -2472,7 +2472,7 @@ private void RegisterTeamId(string teamId)
 			{
 				for (var i = 1; i <= 16; i++)
 				{
-					players.Add(new Player { Name = Player.DefaultName(i), Position = PlayerPosition.None });
+					players.Add(new Player { Name = Player.DefaultName(i), Position = PlayerPosition.Bench });
 				}
 			}
 

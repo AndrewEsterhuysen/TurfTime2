@@ -46,24 +46,28 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Field View: players on the bench. Inactive excluded.</summary>
     public ObservableCollection<Player> BenchBandPlayers { get; } = [];
 
-    private Player? _unpositionedStackTop;
+    /// <summary>Field View: absent/inactive players (same as Team View swipe-right to Inactive).</summary>
+    public ObservableCollection<Player> InactiveBandPlayers { get; } = [];
 
     /// <summary>
-    /// Top of the unpositioned (Position=None) stack on Field View — only this chip is shown.
+    /// Field View tap-to-place: SlotId of the armed player, or null when none selected.
+    /// Tap a token to arm; tap Field cell / Bench / Goalie / Absent to place (drag-drop still works).
     /// </summary>
-    public Player? UnpositionedStackTop
+    private int? _fieldTapPlaceSlotId;
+
+    public int? FieldTapPlaceSlotId
     {
-        get => _unpositionedStackTop;
+        get => _fieldTapPlaceSlotId;
         private set
         {
-            if (ReferenceEquals(_unpositionedStackTop, value)) return;
-            _unpositionedStackTop = value;
+            if (_fieldTapPlaceSlotId == value) return;
+            _fieldTapPlaceSlotId = value;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(HasUnpositionedStack));
+            OnPropertyChanged(nameof(HasFieldTapPlaceSelection));
         }
     }
 
-    public bool HasUnpositionedStack => UnpositionedStackTop is not null;
+    public bool HasFieldTapPlaceSelection => FieldTapPlaceSlotId is not null;
 
     /// <summary>True when the roster has no items to show; drives the empty-state label.</summary>
     public bool IsRosterEmpty => DisplayItems.Count == 0;
@@ -80,12 +84,32 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>True when Field View bench has no bench tokens.</summary>
     public bool IsBenchBandEmpty => BenchBandPlayers.Count == 0;
 
+    /// <summary>True when Field View Absent zone has no inactive tokens.</summary>
+    public bool IsInactiveBandEmpty => InactiveBandPlayers.Count == 0;
+
+    /// <summary>
+    /// Absent/Inactive zone on Field View — always available so late arrivals can be moved
+    /// from Absent onto Bench/Field during the match.
+    /// </summary>
+    public bool ShowFieldViewAbsentZone => true;
+
+    /// <summary>True when Options → Rotation Basis is Manual (coach taps who rotates).</summary>
+    public bool IsManualRotationBasis => RotationBasisOptions.Get() == RotationBasis.Manual;
+
+    /// <summary>Short Game-tab hint when Manual basis is active during a live match.</summary>
+    public bool ShowManualRotationHint
+        => IsManualRotationBasis
+           && Phase is not GamePhase.Setup and not GamePhase.Finished;
+
     // Singleton header object so bindings survive list rebuilds.
     private readonly InactiveGroupHeader _inactiveHeader = new();
 
     // ── Rotation FIFO pointers (mirrors JS lastFieldIdx / lastBenchIdx) ───
     private int _lastFieldIdx = -1;
     private int _lastBenchIdx = -1;
+
+    /// <summary>Cursor into <see cref="RotationOrderBuilder.PositionBasedFieldOrder"/> walk (session-only).</summary>
+    private int _lastPositionWalkOffset;
 
     // ── Rotation FIFO queues ──────────────────────────────────────────────
     // Seeded by the automatic algorithm at game start and after each Rotate.
@@ -174,9 +198,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             _timer.ResetCountdown(continueRunning: false);
         }
 
-        // Build default 16-player roster (#01 Player … #16 Player for unique Field View tokens)
+        RotationBasisOptions.Changed += OnRotationBasisOptionsChanged;
+
+        // Build default 16-player roster on Bench (#01…#16 for unique Field View tokens)
         for (int i = 1; i <= 16; i++)
-            Players.Add(new Player { SlotId = i, Name = Player.DefaultName(i) });
+            Players.Add(new Player { SlotId = i, Name = Player.DefaultName(i), Position = PlayerPosition.Bench });
 
         for (int cell = FieldGrid.MinCell; cell <= FieldGrid.MaxCell; cell++)
             FieldGridCells.Add(new FieldCellSlot(cell));
@@ -492,7 +518,14 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         await MainThread.InvokeOnMainThreadAsync(() =>
         {
             if (snapshot is not null)
+            {
                 ApplySnapshot(snapshot);
+            }
+            else if (!IsMember)
+            {
+                // Brand-new team (no saved snapshot): default to Team View for setup.
+                ViewMode = TeamViewMode.Swipeable;
+            }
 
             // Start-configuration is admin-local only (field/bench layout remembered on this device).
             // Members must not re-apply empty local layout over the admin's cloud roster.
@@ -739,7 +772,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         Players.Clear();
         for (int i = 1; i <= 16; i++)
-            Players.Add(new Player { SlotId = i, Name = Player.DefaultName(i) });
+            Players.Add(new Player { SlotId = i, Name = Player.DefaultName(i), Position = PlayerPosition.Bench });
 
         TeamAScore = 0;
         TeamBScore = 0;
@@ -758,13 +791,18 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _rotationCount    = 1;
         _lastFieldIdx          = -1;
         _lastBenchIdx          = -1;
+        _lastPositionWalkOffset = 0;
         _initialArrangementDone = false;
         _manualFieldQueue.Clear();
         _manualBenchQueue.Clear();
 
+        // New / reset roster starts on Team View (admins); members still forced to Field on load.
+        ViewMode = TeamViewMode.Swipeable;
+
         UpdateTimerDisplays();
         UpdateRotateButtonText();
         UpdateStartButtonState();
+        NotifyRotationBasisUi();
         RefreshDisplayItems();
     }
 
@@ -789,9 +827,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _rotationCount    = 1;
         _lastFieldIdx     = -1;
         _lastBenchIdx     = -1;
+        _lastPositionWalkOffset = 0;
         _initialArrangementDone = false;
         _manualFieldQueue.Clear();
         _manualBenchQueue.Clear();
+        ViewMode = TeamViewMode.Swipeable;
 
         UpdateTimerDisplays();
         UpdateRotateButtonText();
@@ -852,6 +892,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         if (IsMember) return;
 
+        // Field View drag-subs may leave queue indices pointing at players who are no longer
+        // Field/Bench — purge before counting swaps or we send an extra player off the pitch.
+        PurgeStaleRotationQueueEntries();
+
         var count = Math.Min(RotationCount,
             Math.Min(BenchCandidates().Count, FieldCandidates().Count));
 
@@ -860,11 +904,22 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             $"field-q=[{QueueString(_manualFieldQueue)}] | " +
             $"bench-q=[{QueueString(_manualBenchQueue)}]");
 
+        var basis = RotationBasisOptions.Get();
+        // Capture walk length before swaps — formation occupancy changes after RotateOnce.
+        var positionWalkLen = basis == RotationBasis.PositionBased
+            ? RotationOrderBuilder.PositionBasedFieldOrder(Players).Count
+            : 0;
+
         for (int i = 0; i < count; i++)
             RotateOnce();
 
-        // Re-seed rotation queues for the next rotation after each execution.
-        SeedRotationQueues();
+        // Position walk advances only after a real rotate (not on count-change reseed).
+        if (basis == RotationBasis.PositionBased && count > 0 && positionWalkLen > 0)
+            _lastPositionWalkOffset = (_lastPositionWalkOffset + count) % positionWalkLen;
+
+        // Auto modes refill next-up; Manual leaves remaining taps only (no inventing new picks).
+        if (basis != RotationBasis.Manual)
+            SeedRotationQueues();
 
         System.Diagnostics.Debug.WriteLine(
             $"[GameViewModel] ✅ ExecuteRotations ─ done | next: " +
@@ -875,6 +930,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         MarkNextPlayers();
         RefreshRotationPairs();
         RefreshDisplayItems();   // rebuilds CollectionView rows → causes [DragRowHandler] + [PERF] entries
+        NotifyRotationBasisUi();
         _ = AutoSaveAsync();
     }
 
@@ -1141,11 +1197,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         var sw = System.Diagnostics.Stopwatch.StartNew();
 #endif
 
-        // Enforce single-goalie rule
+        // Enforce single-goalie rule — displaced goalie returns to Bench
         if (newPosition == PlayerPosition.Goalie)
         {
             foreach (var p in Players.Where(p => p.Position == PlayerPosition.Goalie && p != player))
-                p.Position = PlayerPosition.None;
+                p.Position = PlayerPosition.Bench;
         }
 
         player.Position = newPosition;
@@ -1189,8 +1245,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        // Swap: exchange FieldCell when both Field; otherwise give target cell to incoming
-        // and move occupant to the incoming player's previous Field cell (or first free / None→stack).
+        // Occupied cell:
+        // - Field→Field: exchange cells (both stay on pitch).
+        // - Otherwise: substitution — incoming takes the cell; occupant goes to Bench.
         var incomingCell = player.Position == PlayerPosition.Field ? player.FieldCell : null;
 
         player.Position = PlayerPosition.Field;
@@ -1203,8 +1260,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         }
         else
         {
-            // Incoming came from stack/bench/goalie — send occupant back to unpositioned stack.
-            occupant.Position = PlayerPosition.None;
+            occupant.Position = PlayerPosition.Bench;
         }
 
         AfterPositionMutation(player, oldPosition, PlayerPosition.Field);
@@ -1224,6 +1280,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         var logFrom       = oldPosition.ToString();
         var logTo         = newPosition.ToString();
 
+        // Drag/swipe role changes must not leave rotation queues pointing at wrong roles.
+        PurgeStaleRotationQueueEntries();
         MarkNextPlayers();
         RefreshRotationPairs();
         RefreshDisplayItems();
@@ -1609,6 +1667,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             RefreshDisplayItems();
         UpdateStartButtonState();
         OnPropertyChanged(nameof(ScoresVisible));
+        OnPropertyChanged(nameof(ShowFieldViewAbsentZone));
         OnPropertyChanged(nameof(Phase));
         OnPropertyChanged(nameof(RotationCount));
         OnPropertyChanged(nameof(ActivePlayerCount));
@@ -1687,11 +1746,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         {
             var ps = s.Players[i];
             var p = Players[i];
-            var pos = ps.Field ? PlayerPosition.Field
-                    : ps.Bench ? PlayerPosition.Bench
-                    : ps.Goalie ? PlayerPosition.Goalie
-                    : ps.Inactive ? PlayerPosition.Inactive
-                    : PlayerPosition.None;
+            var pos = SnapshotPosition(ps);
             if (ps.SlotId > 0 && p.SlotId != ps.SlotId) return true;
             if (p.Position != pos) return true;
             if (!string.Equals(p.Name, ps.Name ?? "", StringComparison.Ordinal)
@@ -1733,11 +1788,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             Players.Clear();
             foreach (var ps in s.Players)
             {
-                var pos = ps.Field ? PlayerPosition.Field
-                        : ps.Bench ? PlayerPosition.Bench
-                        : ps.Goalie ? PlayerPosition.Goalie
-                        : ps.Inactive ? PlayerPosition.Inactive
-                        : PlayerPosition.None;
+                var pos = SnapshotPosition(ps);
                 Players.Add(new Player
                 {
                     SlotId = ps.SlotId > 0 ? ps.SlotId : Players.Count + 1,
@@ -1764,11 +1815,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                     continue;
             }
 
-            var newPos = ps.Field ? PlayerPosition.Field
-                       : ps.Bench ? PlayerPosition.Bench
-                       : ps.Goalie ? PlayerPosition.Goalie
-                       : ps.Inactive ? PlayerPosition.Inactive
-                       : PlayerPosition.None;
+            var newPos = SnapshotPosition(ps);
 
             if (p.Position != newPos)
             {
@@ -2114,9 +2161,12 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 if (!bySlotId.TryGetValue(row.SlotId, out var player)) continue;
                 if (!usedSlots.Add(row.SlotId)) continue;
 
-                player.Position = Enum.IsDefined(typeof(PlayerPosition), row.Position)
+                var pos = Enum.IsDefined(typeof(PlayerPosition), row.Position)
                     ? (PlayerPosition)row.Position
-                    : PlayerPosition.None;
+                    : PlayerPosition.Bench;
+                if (pos == PlayerPosition.None)
+                    pos = PlayerPosition.Bench;
+                player.Position = pos;
                 player.FieldCell = player.Position == PlayerPosition.Field
                     ? FieldGrid.Normalize(row.FieldCell)
                     : null;
@@ -2134,6 +2184,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             Players.Clear();
             foreach (var player in restoredOrder)
                 Players.Add(player);
+
+            NormalizeUnpositionedToBench();
 
             _lastFieldIdx = -1;
             _lastBenchIdx = -1;
@@ -2185,6 +2237,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         StartButtonText = "Pause";
         UpdateTimerLabelText();
         OnPropertyChanged(nameof(ScoresVisible));
+        OnPropertyChanged(nameof(ShowFieldViewAbsentZone));
         NotifyRoleProperties();
         // Claim + full roster + explicit controller patch (controller fields must hit cloud
         // even if full upload is masked/raced — other Admins depend on this).
@@ -2661,6 +2714,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _logger.EndSession(Players, TeamAScore, TeamBScore, teamName);
         StartButtonText = "Reset";
         OnPropertyChanged(nameof(Phase));
+        OnPropertyChanged(nameof(ShowFieldViewAbsentZone));
         // Keep controller until Reset so only they can finalize; optional clear on End:
         // leave lock until Restart/Reset for cleaner handoff after full stop.
         _ = ForceCloudSaveAsync();
@@ -2701,20 +2755,38 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         RefreshRotationPairs();
         RefreshDisplayItems();
         OnPropertyChanged(nameof(ScoresVisible));
+        OnPropertyChanged(nameof(ShowFieldViewAbsentZone));
         _ = ForceCloudSaveAsync(); // reset signal for view-only clients
     }
 
     /// <summary>
-    /// Before the first start, assign any unpositioned players to Inactive
+    /// Before the first start, normalize any residual unpositioned players to Bench
     /// and reorder: Field → Goalie → Bench → Inactive.
+    /// Absent must be set explicitly by the Admin during Setup.
     /// </summary>
     private void ApplyInitialArrangement()
     {
-        foreach (var p in Players.Where(p => p.Position == PlayerPosition.None))
-            p.Position = PlayerPosition.Inactive;
-
+        NormalizeUnpositionedToBench();
         SortPlayersByPosition();
     }
+
+    /// <summary>
+    /// Maps legacy/transient <see cref="PlayerPosition.None"/> to Bench.
+    /// Stack UI was removed — players are Absent, Bench, or on the field.
+    /// </summary>
+    private void NormalizeUnpositionedToBench()
+    {
+        foreach (var p in Players.Where(p => p.Position == PlayerPosition.None))
+            p.Position = PlayerPosition.Bench;
+    }
+
+    /// <summary>Maps snapshot flags to a position; legacy unpositioned → Bench.</summary>
+    private static PlayerPosition SnapshotPosition(PlayerSnapshot ps)
+        => ps.Field ? PlayerPosition.Field
+         : ps.Bench ? PlayerPosition.Bench
+         : ps.Goalie ? PlayerPosition.Goalie
+         : ps.Inactive ? PlayerPosition.Inactive
+         : PlayerPosition.Bench;
 
     /// <summary>
     /// Re-orders the <see cref="Players"/> list in-place: Field → Goalie → Bench → Inactive.
@@ -2753,28 +2825,151 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     // ── Rotation algorithm ────────────────────────────────────────────────
 
     /// <summary>
-    /// Clears both rotation queues and re-populates them with the players the
-    /// automatic FIFO algorithm would select next, up to <see cref="RotationCount"/> slots.
-    /// Called once when the game starts and again after each Rotate execution so the
-    /// queues always reflect who is coming up next.
+    /// Clears both rotation queues and re-populates them from the current
+    /// <see cref="RotationBasisOptions"/> policy, up to <see cref="RotationCount"/> slots.
+    /// Called when the game starts and again after each Rotate (except Manual — no auto-refill).
     /// </summary>
     private void SeedRotationQueues()
     {
         _manualFieldQueue.Clear();
         _manualBenchQueue.Clear();
 
-        var field = FieldCandidates();
-        var bench = BenchCandidates();
-        int slots = Math.Min(RotationCount, Math.Min(field.Count, bench.Count));
+        var basis = RotationBasisOptions.Get();
+        if (basis == RotationBasis.Manual)
+            return;
 
-        for (int i = 0; i < slots; i++)
+        var benchOrdered = basis switch
         {
-            var fi = NextIndexFromWithOffset(field, _lastFieldIdx, i);
-            if (fi >= 0) _manualFieldQueue.Enqueue(fi);
+            RotationBasis.TimeBased or RotationBasis.PositionBased
+                => RotationOrderBuilder.TimeBasedBenchOrder(Players),
+            _ => BenchCandidates()
+        };
 
-            var bi = NextIndexFromWithOffset(bench, _lastBenchIdx, i);
-            if (bi >= 0) _manualBenchQueue.Enqueue(bi);
+        List<int> fieldOrdered;
+        switch (basis)
+        {
+            case RotationBasis.TimeBased:
+                fieldOrdered = RotationOrderBuilder.TimeBasedFieldOrder(Players);
+                break;
+            case RotationBasis.PositionBased:
+                fieldOrdered = RotationOrderBuilder.PositionBasedFieldOrder(Players);
+                break;
+            default:
+                fieldOrdered = FieldCandidates();
+                break;
         }
+
+        int slots = Math.Min(RotationCount, Math.Min(fieldOrdered.Count, benchOrdered.Count));
+        if (slots <= 0) return;
+
+        if (basis == RotationBasis.Sequential)
+        {
+            for (int i = 0; i < slots; i++)
+            {
+                var fi = NextIndexFromWithOffset(fieldOrdered, _lastFieldIdx, i);
+                if (fi >= 0) _manualFieldQueue.Enqueue(fi);
+
+                var bi = NextIndexFromWithOffset(benchOrdered, _lastBenchIdx, i);
+                if (bi >= 0) _manualBenchQueue.Enqueue(bi);
+            }
+            return;
+        }
+
+        if (basis == RotationBasis.TimeBased)
+        {
+            // Always recompute from current FieldSeconds (no cursor).
+            for (int i = 0; i < slots; i++)
+            {
+                _manualFieldQueue.Enqueue(fieldOrdered[i]);
+                _manualBenchQueue.Enqueue(benchOrdered[i]);
+            }
+            return;
+        }
+
+        // PositionBased: walk occupied grid ranks from cursor (cursor advances in ExecuteRotations).
+        // Bench = least field time.
+        var (fieldTaken, _) = RotationOrderBuilder.TakeWrapping(
+            fieldOrdered, _lastPositionWalkOffset, slots);
+        for (int i = 0; i < fieldTaken.Count; i++)
+        {
+            _manualFieldQueue.Enqueue(fieldTaken[i]);
+            _manualBenchQueue.Enqueue(benchOrdered[i]);
+        }
+    }
+
+    private void OnRotationBasisOptionsChanged(object? sender, EventArgs e)
+    {
+        _lastPositionWalkOffset = 0;
+
+        if (Phase is GamePhase.Setup or GamePhase.Finished)
+        {
+            NotifyRotationBasisUi();
+            return;
+        }
+
+        // Live match: re-apply policy to next-up highlights.
+        if (RotationBasisOptions.Get() == RotationBasis.Manual)
+        {
+            _manualFieldQueue.Clear();
+            _manualBenchQueue.Clear();
+        }
+        else
+        {
+            SeedRotationQueues();
+        }
+
+        MarkNextPlayers();
+        RefreshRotationPairs();
+        NotifyRotationBasisUi();
+    }
+
+    private void NotifyRotationBasisUi()
+    {
+        OnPropertyChanged(nameof(IsManualRotationBasis));
+        OnPropertyChanged(nameof(ShowManualRotationHint));
+    }
+
+    /// <summary>
+    /// After Field View drag-subs / Team View swipes, queue entries may still point at players
+    /// who are no longer Field or Bench. Drop those entries and keep both queues the same length
+    /// so Rotate does not send an extra player off (field short / bench oversubscribed).
+    /// </summary>
+    private void PurgeStaleRotationQueueEntries()
+    {
+        if (_manualFieldQueue.Count == 0 && _manualBenchQueue.Count == 0)
+            return;
+
+        var fieldKept = _manualFieldQueue
+            .Where(s => s is int i && i >= 0 && i < Players.Count
+                        && Players[i].Position == PlayerPosition.Field)
+            .Cast<int?>()
+            .ToList();
+        var benchKept = _manualBenchQueue
+            .Where(s => s is int i && i >= 0 && i < Players.Count
+                        && Players[i].Position == PlayerPosition.Bench)
+            .Cast<int?>()
+            .ToList();
+
+        var n = Math.Min(fieldKept.Count, benchKept.Count);
+        _manualFieldQueue.Clear();
+        _manualBenchQueue.Clear();
+        for (var i = 0; i < n; i++)
+        {
+            _manualFieldQueue.Enqueue(fieldKept[i]);
+            _manualBenchQueue.Enqueue(benchKept[i]);
+        }
+
+        if (n > 0 && n < _rotationCount)
+        {
+            _rotationCount = Math.Max(1, n);
+            UpdateRotateButtonText();
+            OnPropertyChanged(nameof(RotationCount));
+        }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] 🧹 PurgeStaleRotationQueues → n={n} " +
+            $"field-q=[{QueueString(_manualFieldQueue)}] bench-q=[{QueueString(_manualBenchQueue)}] " +
+            $"RotationCount={RotationCount}");
     }
 
     private void RotateOnce()
@@ -2794,9 +2989,21 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             : NextIndexFrom(bench, _lastBenchIdx);
 
         if (fieldIdx < 0 || benchIdx < 0 || fieldIdx == benchIdx) return;
+        if (fieldIdx >= Players.Count || benchIdx >= Players.Count) return;
 
         var fieldPlayer = Players[fieldIdx];
         var benchPlayer = Players[benchIdx];
+
+        // Stale queue after a drag-sub: never "rotate on" someone already on the field
+        // (that would only send fieldPlayer off → pitch short one).
+        if (fieldPlayer.Position != PlayerPosition.Field
+            || benchPlayer.Position != PlayerPosition.Bench)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameViewModel] ⇄ Skip stale rotate pair: " +
+                $"{fieldPlayer.Name}={fieldPlayer.Position}, {benchPlayer.Name}={benchPlayer.Position}");
+            return;
+        }
 
         var rotNum = (_logger.CurrentSession?.Events.Count(e => e.EventType == GameEventType.RotationExecuted) ?? 0) + 1;
         _logger.Log(GameEventType.RotationExecuted,
@@ -3045,6 +3252,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(Phase));
         OnPropertyChanged(nameof(CanStart));
         OnPropertyChanged(nameof(HasPlayersReadyToStart));
+        OnPropertyChanged(nameof(ShowFieldViewAbsentZone));
+        NotifyRotationBasisUi();
     }
 
     /// <summary>
@@ -3162,9 +3371,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// Rebuilds Field View pitch/bench token lists from current positions.
+    /// Rebuilds Field View pitch/bench/absent token lists from current positions.
     /// Outfield and goalie are separate so the goalie can sit just above the divider.
-    /// Also refreshes 4×4 cell occupancy and the unpositioned stack top.
+    /// Also refreshes 4×4 cell occupancy.
     /// </summary>
     private void RefreshFieldBands()
     {
@@ -3190,22 +3399,191 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             .Where(p => p.Position == PlayerPosition.Bench)
             .ToList();
 
+        var inactiveDesired = Players
+            .Where(p => p.Position == PlayerPosition.Inactive)
+            .ToList();
+
         SyncPlayerBand(FieldBandPlayers, fieldDesired);
         SyncPlayerBand(GoalieBandPlayers, goalieDesired);
         SyncPlayerBand(BenchBandPlayers, benchDesired);
+        SyncPlayerBand(InactiveBandPlayers, inactiveDesired);
 
         foreach (var slot in FieldGridCells)
         {
             slot.Player = fieldDesired.FirstOrDefault(p => p.FieldCell == slot.CellNumber);
         }
 
-        // Roster order — same order as Team View list.
-        UnpositionedStackTop = Players.FirstOrDefault(p => p.Position == PlayerPosition.None);
+        // Drop tap-to-place arming only if the selected player left the roster.
+        if (FieldTapPlaceSlotId is int armedId
+            && Players.All(p => p.SlotId != armedId))
+        {
+            ClearFieldTapPlaceSelection();
+        }
+        else
+        {
+            SyncFieldTapPlaceHighlights();
+        }
 
         OnPropertyChanged(nameof(IsFieldBandEmpty));
         OnPropertyChanged(nameof(IsOutfieldBandEmpty));
         OnPropertyChanged(nameof(IsGoalieBandEmpty));
         OnPropertyChanged(nameof(IsBenchBandEmpty));
+        OnPropertyChanged(nameof(IsInactiveBandEmpty));
+    }
+
+    /// <summary>Arm or disarm <paramref name="player"/> for Field View tap-to-place.</summary>
+    public void ToggleFieldTapPlaceSelection(Player player)
+    {
+        if (IsMember) return;
+        if (FieldTapPlaceSlotId == player.SlotId)
+            ClearFieldTapPlaceSelection();
+        else
+            ArmFieldTapPlaceSelection(player);
+    }
+
+    public void ArmFieldTapPlaceSelection(Player player)
+    {
+        if (IsMember) return;
+        FieldTapPlaceSlotId = player.SlotId;
+        SyncFieldTapPlaceHighlights();
+    }
+
+    public void ClearFieldTapPlaceSelection()
+    {
+        FieldTapPlaceSlotId = null;
+        SyncFieldTapPlaceHighlights();
+    }
+
+    private void SyncFieldTapPlaceHighlights()
+    {
+        var armed = FieldTapPlaceSlotId;
+        foreach (var p in Players)
+        {
+            var selected = armed is int id && p.SlotId == id;
+            if (p.IsFieldTapSelected != selected)
+                p.IsFieldTapSelected = selected;
+        }
+    }
+
+    /// <summary>
+    /// Place the armed player on field cell <paramref name="cell"/> (swap if occupied).
+    /// </summary>
+    public bool TryCompleteFieldTapPlaceOnCell(int cell)
+    {
+        if (!TryTakeArmedPlayer(out var player)) return false;
+        PlaceOrSwapOnFieldCell(player, cell);
+        return true;
+    }
+
+    /// <summary>
+    /// Complete tap-to-place onto a role zone.
+    /// Absent (<see cref="PlayerPosition.Inactive"/>) is move-only (no swap).
+    /// Bench/Goalie empty zones move (Goalie demotes prior goalie to Bench
+    /// unless an explicit player target is used via <see cref="TryCompleteFieldTapPlaceOntoPlayer"/>).
+    /// </summary>
+    public bool TryCompleteFieldTapPlaceOnPosition(PlayerPosition position)
+    {
+        if (position is PlayerPosition.Field or PlayerPosition.None) return false;
+        if (!TryTakeArmedPlayer(out var player)) return false;
+
+        if (position == PlayerPosition.Inactive)
+        {
+            // Move only — do not exchange with anyone already Absent.
+            SetPlayerPosition(player, position);
+            return true;
+        }
+
+        if (position == PlayerPosition.Goalie)
+        {
+            var existing = Players.FirstOrDefault(p => p.Position == PlayerPosition.Goalie && p != player);
+            if (existing is not null)
+            {
+                SwapPlayerRoles(player, existing);
+                return true;
+            }
+        }
+
+        SetPlayerPosition(player, position);
+        return true;
+    }
+
+    /// <summary>
+    /// Complete tap-to-place onto another player token.
+    /// Absent targets: move armed only (no swap). Field/Bench/Goalie: swap roles/cells.
+    /// </summary>
+    public bool TryCompleteFieldTapPlaceOntoPlayer(Player target)
+    {
+        if (IsMember || target is null) return false;
+        if (FieldTapPlaceSlotId == target.SlotId)
+        {
+            ClearFieldTapPlaceSelection();
+            return false;
+        }
+
+        if (!TryTakeArmedPlayer(out var armed)) return false;
+
+        if (target.Position == PlayerPosition.Inactive)
+        {
+            SetPlayerPosition(armed, PlayerPosition.Inactive);
+            return true;
+        }
+
+        if (target.Position == PlayerPosition.Field && target.FieldCell is int cell)
+        {
+            PlaceOrSwapOnFieldCell(armed, cell);
+            return true;
+        }
+
+        SwapPlayerRoles(armed, target);
+        return true;
+    }
+
+    /// <summary>Exchange roles (and field cells) between two players.</summary>
+    public void SwapPlayerRoles(Player a, Player b)
+    {
+        if (IsMember || ReferenceEquals(a, b)) return;
+
+        var aPos = a.Position;
+        var aCell = a.FieldCell;
+        var bPos = b.Position;
+        var bCell = b.FieldCell;
+
+        // Clear both first so Position setters don't fight over the single-goalie / cell rules.
+        a.Position = PlayerPosition.None;
+        b.Position = PlayerPosition.None;
+
+        b.Position = aPos;
+        if (aPos == PlayerPosition.Field)
+            b.FieldCell = aCell;
+
+        a.Position = bPos;
+        if (bPos == PlayerPosition.Field)
+            a.FieldCell = bCell;
+
+        // If either became Goalie, ensure uniqueness (other goalies → Bench).
+        if (a.Position == PlayerPosition.Goalie)
+        {
+            foreach (var p in Players.Where(p => p.Position == PlayerPosition.Goalie && p != a))
+                p.Position = PlayerPosition.Bench;
+        }
+        if (b.Position == PlayerPosition.Goalie)
+        {
+            foreach (var p in Players.Where(p => p.Position == PlayerPosition.Goalie && p != b))
+                p.Position = PlayerPosition.Bench;
+        }
+
+        AfterPositionMutation(a, aPos, a.Position);
+    }
+
+    private bool TryTakeArmedPlayer(out Player player)
+    {
+        player = null!;
+        if (IsMember || FieldTapPlaceSlotId is not int slotId) return false;
+        var match = Players.FirstOrDefault(p => p.SlotId == slotId);
+        ClearFieldTapPlaceSelection();
+        if (match is null) return false;
+        player = match;
+        return true;
     }
 
     private static void SyncPlayerBand(ObservableCollection<Player> band, List<Player> desired)
@@ -3315,6 +3693,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        RotationBasisOptions.Changed -= OnRotationBasisOptionsChanged;
         StopControllerHeartbeat();
         StopCloudMirror();
         _timer.MatchTickOccurred     -= OnMatchTick;

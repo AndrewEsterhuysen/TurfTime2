@@ -500,7 +500,7 @@ public static class QrCodeService
         while (players.Count < 16)
         {
             var fillerSlot = players.Count + 1;
-            players.Add(new Player { SlotId = fillerSlot, Name = Player.DefaultName(fillerSlot), Position = PlayerPosition.None });
+            players.Add(new Player { SlotId = fillerSlot, Name = Player.DefaultName(fillerSlot), Position = PlayerPosition.Bench });
             snapshots.Add(new PlayerSnapshot { SlotId = fillerSlot, Name = Player.DefaultName(fillerSlot) });
         }
 
@@ -589,8 +589,8 @@ public static class QrCodeService
     private static PlayerPosition ParsePosition(string? position)
     {
         if (Enum.TryParse<PlayerPosition>(position, true, out var parsed))
-            return parsed;
-        return PlayerPosition.None;
+            return parsed == PlayerPosition.None ? PlayerPosition.Bench : parsed;
+        return PlayerPosition.Bench;
     }
 
     private static string BuildUniqueImportedTeamId(string? sourceTeamId)

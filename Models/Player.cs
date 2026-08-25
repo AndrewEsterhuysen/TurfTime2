@@ -12,10 +12,11 @@ public sealed class Player : INotifyPropertyChanged
     public int SlotId { get; set; }
 
     private string _name = string.Empty;
-    private PlayerPosition _position = PlayerPosition.None;
+    private PlayerPosition _position = PlayerPosition.Bench;
     private int? _fieldCell;
     private int _fieldSeconds;
     private bool _isNextToRotate;
+    private bool _isFieldTapSelected;
     private bool _isDragTarget;
     private bool _isDragging;
     private int _rotationPairIndex = -1;
@@ -90,6 +91,13 @@ public sealed class Player : INotifyPropertyChanged
     {
         get => _isNextToRotate;
         set => SetField(ref _isNextToRotate, value);
+    }
+
+    /// <summary>Field View tap-to-place: this token is armed as the move source.</summary>
+    public bool IsFieldTapSelected
+    {
+        get => _isFieldTapSelected;
+        set => SetField(ref _isFieldTapSelected, value);
     }
 
     /// <summary>

@@ -28,6 +28,7 @@ public partial class GamePage : ContentPage
     public GamePage()
     {
         InitializeComponent();
+        EnsureFieldBandScrollTransparency();
 
 #if IOS
         // Full-row pan blocks UICollectionView scrolling on iOS; use swipe + handle-only pan.
@@ -37,6 +38,49 @@ public partial class GamePage : ContentPage
             && iosTemplateObj is DataTemplate iosTemplate)
         {
             selector.PlayerTemplate = iosTemplate;
+        }
+#endif
+    }
+
+    /// <summary>
+    /// Bench/Absent ScrollViews must not paint an opaque platform background behind tokens
+    /// (XAML BackgroundColor=Transparent alone is often ignored on Android/iOS).
+    /// </summary>
+    private void EnsureFieldBandScrollTransparency()
+    {
+        WireTransparentScroll(BenchTokenScroll);
+        WireTransparentScroll(InactiveTokenScroll);
+    }
+
+    private static void WireTransparentScroll(ScrollView? scroll)
+    {
+        if (scroll is null) return;
+        scroll.BackgroundColor = Colors.Transparent;
+        scroll.HandlerChanged -= OnFieldBandScrollHandlerChanged;
+        scroll.HandlerChanged += OnFieldBandScrollHandlerChanged;
+        ApplyNativeScrollTransparency(scroll);
+    }
+
+    private static void OnFieldBandScrollHandlerChanged(object? sender, EventArgs e)
+    {
+        if (sender is ScrollView scroll)
+            ApplyNativeScrollTransparency(scroll);
+    }
+
+    private static void ApplyNativeScrollTransparency(ScrollView scroll)
+    {
+        scroll.BackgroundColor = Colors.Transparent;
+#if ANDROID
+        if (scroll.Handler?.PlatformView is Android.Views.View native)
+        {
+            native.SetBackgroundColor(Android.Graphics.Color.Transparent);
+            native.Background = null;
+        }
+#elif IOS || MACCATALYST
+        if (scroll.Handler?.PlatformView is UIKit.UIScrollView ui)
+        {
+            ui.BackgroundColor = UIKit.UIColor.Clear;
+            ui.Opaque = false;
         }
 #endif
     }
@@ -1360,6 +1404,46 @@ public partial class GamePage : ContentPage
         RotationView.IsVisible    = effective == TeamViewMode.Rotation;
         FieldView.IsVisible       = effective == TeamViewMode.Field;
         UpdateViewButtonText(effective);
+
+        if (effective == TeamViewMode.Field)
+            AlignFieldViewBackground();
+    }
+
+    /// <summary>
+    /// Aspect-fill the pitch art and bottom-align it in Field View.
+    /// Painted stadium benches were removed from field_view_bg.png (720×940); only the UI Bench remains.
+    /// </summary>
+    private void OnFieldViewSizeChanged(object? sender, EventArgs e)
+        => AlignFieldViewBackground();
+
+    private void AlignFieldViewBackground()
+    {
+        if (FieldViewBackground is null || FieldView is null) return;
+        if (!FieldView.IsVisible) return;
+
+        var viewW = FieldView.Width;
+        var viewH = FieldView.Height;
+        if (viewW <= 0 || viewH <= 0) return;
+
+        // Intrinsic size of Resources/Images/field_view_bg.png
+        // (full art 1280px; bottom cropped to leave one painted bench row under the goal)
+        const double imgW = 720;
+        const double imgH = 1035;
+
+        var scale = Math.Max(viewW / imgW, viewH / imgH);
+        var drawnW = imgW * scale;
+        var drawnH = imgH * scale;
+
+        FieldViewBackground.WidthRequest = drawnW;
+        FieldViewBackground.HeightRequest = drawnH;
+        FieldViewBackground.Margin = new Thickness(0);
+        // Top-left layout, then shift to center horizontally and bottom-align vertically.
+        FieldViewBackground.TranslationX = (viewW - drawnW) / 2.0;
+        FieldViewBackground.TranslationY = viewH - drawnH;
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GamePage] FieldBg align view={viewW:0}x{viewH:0} drawn={drawnW:0}x{drawnH:0} " +
+            $"ty={FieldViewBackground.TranslationY:0.0}");
     }
 
     private void UpdateViewButtonText(TeamViewMode mode)
@@ -1624,16 +1708,17 @@ public partial class GamePage : ContentPage
 
     private const string FieldDragSlotIdKey = "turftime.fieldDrag.slotId";
 
-    private void OnStackPlayerDragStarting(object? sender, DragStartingEventArgs e)
-    {
-        if (_vm is null || _vm.IsMember || _vm.UnpositionedStackTop is null)
-        {
-            e.Cancel = true;
-            return;
-        }
+    /// <summary>Cancels a pending single-tap arm when a double-tap rename arrives.</summary>
+    private CancellationTokenSource? _fieldSingleTapCts;
 
-        e.Data.Properties[FieldDragSlotIdKey] = _vm.UnpositionedStackTop.SlotId;
-    }
+    /// <summary>Slot waiting to be armed after the double-tap delay window.</summary>
+    private int? _pendingFieldTapSlotId;
+
+    /// <summary>
+    /// Android often drops custom <see cref="DataPackage.Properties"/> during drag;
+    /// keep a page-level fallback for the active drag source.
+    /// </summary>
+    private int _activeDragSlotId;
 
     private void OnFieldPlayerDragStarting(object? sender, DragStartingEventArgs e)
     {
@@ -1658,7 +1743,17 @@ public partial class GamePage : ContentPage
             return;
         }
 
-        e.Data.Properties[FieldDragSlotIdKey] = player.SlotId;
+        CancelPendingFieldSingleTap();
+        _vm.ClearFieldTapPlaceSelection();
+        BeginFieldDrag(player.SlotId, e);
+    }
+
+    private void BeginFieldDrag(int slotId, DragStartingEventArgs e)
+    {
+        _activeDragSlotId = slotId;
+        e.Data.Properties[FieldDragSlotIdKey] = slotId;
+        // Text payload helps Android's drop pipeline accept the gesture.
+        e.Data.Text = slotId.ToString();
     }
 
     private void OnFieldCellDragOver(object? sender, DragEventArgs e)
@@ -1675,14 +1770,51 @@ public partial class GamePage : ContentPage
         if (!TryGetDraggedPlayer(e, out var player)) return;
         if (sender is not BindableObject { BindingContext: FieldCellSlot slot }) return;
 
+        _vm.ClearFieldTapPlaceSelection();
         _vm.PlaceOrSwapOnFieldCell(player, slot.CellNumber);
+    }
+
+    private void OnFieldCellTapped(object? sender, TappedEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if (sender is not BindableObject { BindingContext: FieldCellSlot slot }) return;
+        FlushPendingFieldSingleTap();
+        if (!_vm.HasFieldTapPlaceSelection) return;
+        _vm.TryCompleteFieldTapPlaceOnCell(slot.CellNumber);
+    }
+
+    private void OnBenchBandTapped(object? sender, TappedEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        FlushPendingFieldSingleTap();
+        System.Diagnostics.Debug.WriteLine(
+            $"[GamePage] Bench TAP armed={_vm.HasFieldTapPlaceSelection} slot={_vm.FieldTapPlaceSlotId}");
+        var ok = _vm.TryCompleteFieldTapPlaceOnPosition(PlayerPosition.Bench);
+        System.Diagnostics.Debug.WriteLine($"[GamePage] Bench TAP complete ok={ok}");
+    }
+
+    private void OnGoalieBandTapped(object? sender, TappedEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        FlushPendingFieldSingleTap();
+        _vm.TryCompleteFieldTapPlaceOnPosition(PlayerPosition.Goalie);
+    }
+
+    private void OnInactiveBandTapped(object? sender, TappedEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        FlushPendingFieldSingleTap();
+        // Absent = move only (no swap).
+        _vm.TryCompleteFieldTapPlaceOnPosition(PlayerPosition.Inactive);
     }
 
     private void OnBenchBandDragOver(object? sender, DragEventArgs e)
     {
         OnFieldCellDragOver(sender, e);
+        var can = CanAcceptFieldDrop(e);
+        System.Diagnostics.Debug.WriteLine($"[GamePage] Bench DragOver can={can} sender={sender?.GetType().Name}");
         if (BenchDropHint is not null)
-            BenchDropHint.IsVisible = CanAcceptFieldDrop(e);
+            BenchDropHint.IsVisible = can;
     }
 
     private void OnBenchBandDragLeave(object? sender, DragEventArgs e)
@@ -1696,7 +1828,15 @@ public partial class GamePage : ContentPage
         if (BenchDropHint is not null)
             BenchDropHint.IsVisible = false;
         if (_vm is null || _vm.IsMember) return;
-        if (!TryGetDraggedPlayer(e, out var player)) return;
+        if (!TryGetDraggedPlayer(e, out var player))
+        {
+            System.Diagnostics.Debug.WriteLine("[GamePage] Bench DROP — no dragged player in package");
+            return;
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[GamePage] Bench DROP ← {player.Name} ({player.Position})");
+        CancelPendingFieldSingleTap();
+        _vm.ClearFieldTapPlaceSelection();
         _vm.SetPlayerPosition(player, PlayerPosition.Bench);
     }
 
@@ -1722,63 +1862,162 @@ public partial class GamePage : ContentPage
         _vm.SetPlayerPosition(player, PlayerPosition.Goalie);
     }
 
+    private void OnInactiveBandDragOver(object? sender, DragEventArgs e)
+    {
+        OnFieldCellDragOver(sender, e);
+        if (InactiveDropHint is not null)
+            InactiveDropHint.IsVisible = CanAcceptFieldDrop(e);
+    }
+
+    private void OnInactiveBandDragLeave(object? sender, DragEventArgs e)
+    {
+        if (InactiveDropHint is not null)
+            InactiveDropHint.IsVisible = false;
+    }
+
+    private void OnInactiveBandDrop(object? sender, DropEventArgs e)
+    {
+        if (InactiveDropHint is not null)
+            InactiveDropHint.IsVisible = false;
+        if (_vm is null || _vm.IsMember) return;
+        if (!TryGetDraggedPlayer(e, out var player)) return;
+        _vm.ClearFieldTapPlaceSelection();
+        // Absent = move only (no swap).
+        _vm.SetPlayerPosition(player, PlayerPosition.Inactive);
+    }
+
     private bool CanAcceptFieldDrop(DragEventArgs e)
         => _vm is not null && !_vm.IsMember
-           && e.Data.Properties.ContainsKey(FieldDragSlotIdKey);
+           && (e.Data.Properties.ContainsKey(FieldDragSlotIdKey) || _activeDragSlotId > 0);
 
     /// <summary>
-    /// Field View tap: same as Team View — rename in Setup, toggle next-rotation queue live.
+    /// Single tap: during Setup, arm tap-to-place or complete a move/swap.
+    /// During a live match, toggle rotation queue (unchanged).
+    /// Double-tap (separate recognizer) opens rename and clears any arm.
     /// </summary>
-    private async void OnFieldViewPlayerTapped(object? sender, TappedEventArgs e)
+    private void OnFieldViewPlayerTapped(object? sender, TappedEventArgs e)
     {
         if (_vm is null || _vm.IsMember) return;
         if (sender is not BindableObject bindable) return;
 
-        var player = bindable.BindingContext switch
-        {
-            Player p => p,
-            FieldCellSlot slot => slot.Player,
-            _ => null
-        };
+        var player = ResolveFieldViewPlayer(bindable);
         if (player is null) return;
 
-        if (_vm.Phase == GamePhase.Setup)
+        // Live match: rotation queue (immediate).
+        if (_vm.Phase is not GamePhase.Setup and not GamePhase.Finished)
         {
-            var result = await DisplayPromptAsync(
-                title: "Rename Player",
-                message: string.Empty,
-                accept: "Save",
-                cancel: "Cancel",
-                placeholder: player.Name,
-                initialValue: player.Name,
-                keyboard: Keyboard.Default);
-            if (result is null) return;
-            _vm.RenamePlayer(player, result);
-        }
-        else
-        {
+            CancelPendingFieldSingleTap();
+            if (_vm.HasFieldTapPlaceSelection)
+                _vm.ClearFieldTapPlaceSelection();
             _vm.TapPlayerQueue(player);
+            return;
         }
+
+        // Setup: if already armed, complete onto this player (swap / move-only rules).
+        if (_vm.HasFieldTapPlaceSelection)
+        {
+            if (_vm.FieldTapPlaceSlotId == player.SlotId)
+            {
+                _vm.ClearFieldTapPlaceSelection();
+                return;
+            }
+
+            _vm.TryCompleteFieldTapPlaceOntoPlayer(player);
+            return;
+        }
+
+        // Arm immediately so a following Bench/Absent tap cannot race a delay window.
+        _vm.ToggleFieldTapPlaceSelection(player);
+    }
+
+    private async void OnFieldViewPlayerDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if (sender is not BindableObject bindable) return;
+
+        // Single-tap may have armed already on Android — discard for rename.
+        CancelPendingFieldSingleTap();
+        _vm.ClearFieldTapPlaceSelection();
+
+        var player = ResolveFieldViewPlayer(bindable);
+        if (player is null) return;
+
+        // Rename only makes sense in Setup (and Finished / pre-start).
+        if (_vm.Phase is not GamePhase.Setup and not GamePhase.Finished)
+            return;
+
+        var result = await DisplayPromptAsync(
+            title: "Rename Player",
+            message: string.Empty,
+            accept: "Save",
+            cancel: "Cancel",
+            placeholder: player.Name,
+            initialValue: player.Name,
+            keyboard: Keyboard.Default);
+        if (result is null) return;
+        _vm.RenamePlayer(player, result);
+    }
+
+    private static Player? ResolveFieldViewPlayer(BindableObject bindable)
+        => bindable.BindingContext switch
+        {
+            Player p => p,
+            FieldCellSlot { Player: Player pl } => pl,
+            _ => null
+        };
+
+    /// <summary>
+    /// Apply a deferred source-arm immediately so a quick destination tap (common on Android)
+    /// still completes the move instead of cancelling the pending selection.
+    /// </summary>
+    private void FlushPendingFieldSingleTap()
+    {
+        var slotId = _pendingFieldTapSlotId;
+        CancelPendingFieldSingleTap();
+        if (_vm is null || slotId is not int id) return;
+        if (_vm.HasFieldTapPlaceSelection) return;
+        var match = _vm.Players.FirstOrDefault(p => p.SlotId == id);
+        if (match is not null)
+            _vm.ArmFieldTapPlaceSelection(match);
+    }
+
+    private void CancelPendingFieldSingleTap()
+    {
+        try { _fieldSingleTapCts?.Cancel(); }
+        catch { /* ignore */ }
+        _fieldSingleTapCts?.Dispose();
+        _fieldSingleTapCts = null;
+        _pendingFieldTapSlotId = null;
     }
 
     private bool TryGetDraggedPlayer(DropEventArgs e, out Player player)
     {
         player = null!;
         if (_vm is null) return false;
-        if (!e.Data.Properties.TryGetValue(FieldDragSlotIdKey, out var raw)) return false;
 
-        var slotId = raw switch
+        var slotId = 0;
+        // DropEventArgs.Data is DataPackageView — custom Properties may be empty on Android.
+        if (e.Data.Properties.TryGetValue(FieldDragSlotIdKey, out var raw))
         {
-            int i => i,
-            long l => (int)l,
-            string s when int.TryParse(s, out var parsed) => parsed,
-            _ => 0
-        };
+            slotId = raw switch
+            {
+                int i => i,
+                long l => (int)l,
+                string s when int.TryParse(s, out var parsed) => parsed,
+                _ => 0
+            };
+        }
+
+        // Android fallback when Properties are stripped mid-drag.
+        if (slotId <= 0)
+            slotId = _activeDragSlotId;
+
         if (slotId <= 0) return false;
 
         var match = _vm.Players.FirstOrDefault(p => p.SlotId == slotId);
         if (match is null) return false;
         player = match;
+        _activeDragSlotId = 0;
         return true;
     }
 }

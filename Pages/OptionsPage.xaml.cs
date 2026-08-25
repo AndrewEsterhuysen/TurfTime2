@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using TurfTime2.Helpers;
+using TurfTime2.Models;
 using TurfTime2.Services;
 
 namespace TurfTime2;
@@ -11,10 +12,21 @@ public partial class OptionsPage : ContentPage
 
     private static readonly int[] LeaveBuffers = [30, 45, 60, 90];
 
+    private static readonly RotationBasis[] BasisOrder =
+    [
+        RotationBasis.Sequential,
+        RotationBasis.TimeBased,
+        RotationBasis.PositionBased,
+        RotationBasis.Manual
+    ];
+
     public OptionsPage()
     {
         InitializeComponent();
         LeaveBufferPicker.ItemsSource = LeaveBuffers.Select(m => $"{m} minutes").ToList();
+        RotationBasisPicker.ItemsSource = BasisOrder
+            .Select(RotationBasisOptions.DisplayName)
+            .ToList();
     }
 
     protected override async void OnAppearing()
@@ -28,6 +40,11 @@ public partial class OptionsPage : ContentPage
             var enabled = GoalScoringOptions.IsScorerAssistEnabled();
             EnableGoalDetailsSwitch.IsToggled = enabled;
             ToggleStateLabel.Text = enabled ? "ON" : "OFF";
+
+            var basis = RotationBasisOptions.Get();
+            var basisIdx = Array.IndexOf(BasisOrder, basis);
+            RotationBasisPicker.SelectedIndex = basisIdx >= 0 ? basisIdx : 0;
+            RotationBasisDescriptionLabel.Text = RotationBasisOptions.Description(basis);
 
             RemindersEnabledSwitch.IsToggled = MatchReminderOptions.IsEnabled;
             RemindersMasterLabel.Text = MatchReminderOptions.IsEnabled ? "ON" : "OFF";
@@ -58,6 +75,17 @@ public partial class OptionsPage : ContentPage
         if (_loading) return;
         GoalScoringOptions.SetScorerAssistEnabled(e.Value);
         ToggleStateLabel.Text = e.Value ? "ON" : "OFF";
+    }
+
+    private void OnRotationBasisChanged(object? sender, EventArgs e)
+    {
+        if (_loading) return;
+        var idx = RotationBasisPicker.SelectedIndex;
+        if (idx < 0 || idx >= BasisOrder.Length) return;
+
+        var basis = BasisOrder[idx];
+        RotationBasisOptions.Set(basis);
+        RotationBasisDescriptionLabel.Text = RotationBasisOptions.Description(basis);
     }
 
     private async void OnRemindersEnabledToggled(object sender, ToggledEventArgs e)

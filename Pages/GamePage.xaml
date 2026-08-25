@@ -400,6 +400,13 @@
                     HeightRequest="36"
                     Padding="8,0"
                     Clicked="OnSessionViewOnlyToggleClicked" />
+            <Label Text="Manual rotation — tap players to set who rotates next"
+                   IsVisible="{Binding ShowManualRotationHint}"
+                   TextColor="#FFE082"
+                   FontSize="11"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center"
+                   HorizontalTextAlignment="Center" />
         </VerticalStackLayout>
 
         <!-- ══ CONTENT AREA ══ -->
@@ -567,10 +574,13 @@
                 </Grid>
             </Grid>
 
-            <!-- VIEW_B: Field View — pitch fills space; goalie zone over goal box; compact bench at bottom.
-                 View-only members are always shown this mode (Team/Rotation hidden). -->
+            <!-- VIEW_B: Field View — pitch fills space; goalie over goal; Bench on right sideline;
+                 Absent strip behind goalie (Setup only). View-only members always see this mode. -->
             <Grid x:Name="FieldView"
-                  IsVisible="False">
+                  IsVisible="False"
+                  IsClippedToBounds="True"
+                  BackgroundColor="#000000"
+                  SizeChanged="OnFieldViewSizeChanged">
                 <Grid.Resources>
                     <!-- Shared Field View player token (field / goalie / bench) -->
                     <DataTemplate x:Key="FieldViewTokenTemplate" x:DataType="models:Player">
@@ -585,7 +595,10 @@
                                 VerticalOptions="Center">
                             <Border.GestureRecognizers>
                                 <DragGestureRecognizer DragStarting="OnFieldPlayerDragStarting" />
-                                <TapGestureRecognizer Tapped="OnFieldViewPlayerTapped" />
+                                <TapGestureRecognizer NumberOfTapsRequired="1"
+                                                       Tapped="OnFieldViewPlayerTapped" />
+                                <TapGestureRecognizer NumberOfTapsRequired="2"
+                                                       Tapped="OnFieldViewPlayerDoubleTapped" />
                             </Border.GestureRecognizers>
                             <Border.Triggers>
                                 <DataTrigger TargetType="Border"
@@ -597,6 +610,12 @@
                                              Binding="{Binding IsNextToRotate}"
                                              Value="{x:Boolean False}">
                                     <Setter Property="Stroke" Value="#66FFFFFF" />
+                                </DataTrigger>
+                                <DataTrigger TargetType="Border"
+                                             Binding="{Binding IsFieldTapSelected}"
+                                             Value="{x:Boolean True}">
+                                    <Setter Property="Stroke" Value="#FFEB3B" />
+                                    <Setter Property="StrokeThickness" Value="3.5" />
                                 </DataTrigger>
                             </Border.Triggers>
                             <Label Text="{Binding ShortName}"
@@ -612,140 +631,206 @@
                     </DataTemplate>
                 </Grid.Resources>
 
-                <Image Source="field_view_bg.png"
-                       Aspect="AspectFill"
-                       HorizontalOptions="Fill"
-                       VerticalOptions="Fill"
+                <!-- Sized/translated in code for true bottom-aligned AspectFill (MAUI End alone left a green gap). -->
+                <Image x:Name="FieldViewBackground"
+                       Source="field_view_bg.png"
+                       Aspect="Fill"
+                       HorizontalOptions="Start"
+                       VerticalOptions="Start"
                        InputTransparent="True" />
-                <!-- Pitch stretches; divider + bench hug the bottom of the Field View area -->
-                <Grid RowDefinitions="*,Auto,Auto"
-                      Padding="8,8,8,4"
+                <!-- Pitch stretches; Absent strip behind the goalie (Setup); Bench on right sideline -->
+                <Grid x:Name="FieldViewOverlay"
+                      RowDefinitions="*,Auto,Auto"
+                      Padding="8,8,8,2"
                       RowSpacing="0">
-                    <!-- Pitch: outfield grid (top) + visible goalie drop zone over the goal box (bottom) -->
+                    <!-- Pitch: outfield grid sits just above the goal; Bench on trailing edge -->
                     <Grid Grid.Row="0"
                           RowDefinitions="*,Auto"
-                          ColumnDefinitions="*,56"
-                          RowSpacing="4">
-                        <!-- Outfield 4×4 cells (Field only) -->
-                        <CollectionView Grid.Row="0"
-                                        Grid.Column="0"
-                                        ItemsSource="{Binding FieldGridCells}"
-                                        SelectionMode="None"
-                                        BackgroundColor="Transparent"
-                                        VerticalOptions="Fill"
-                                        HorizontalOptions="Fill">
-                            <CollectionView.ItemsLayout>
-                                <GridItemsLayout Orientation="Vertical"
-                                                 Span="4"
-                                                 HorizontalItemSpacing="2"
-                                                 VerticalItemSpacing="2" />
-                            </CollectionView.ItemsLayout>
-                            <CollectionView.ItemTemplate>
-                                <DataTemplate x:DataType="models:FieldCellSlot">
-                                    <Border Stroke="#55FFFFFF"
-                                            StrokeThickness="1"
-                                            StrokeShape="RoundRectangle 6"
-                                            BackgroundColor="#22000000"
-                                            Margin="1"
-                                            MinimumHeightRequest="52"
-                                            MinimumWidthRequest="52">
-                                        <Border.GestureRecognizers>
-                                            <DropGestureRecognizer AllowDrop="True"
-                                                                   DragOver="OnFieldCellDragOver"
-                                                                   Drop="OnFieldCellDrop" />
-                                        </Border.GestureRecognizers>
-                                        <Grid>
-                                            <Label Text="{Binding CellLabel}"
-                                                   TextColor="#66FFFFFF"
-                                                   FontSize="10"
-                                                   Margin="4,2,0,0"
-                                                   HorizontalOptions="Start"
-                                                   VerticalOptions="Start"
-                                                   InputTransparent="True" />
-                                            <Border IsVisible="{Binding HasPlayer}"
-                                                    WidthRequest="44"
-                                                    HeightRequest="44"
-                                                    Stroke="{Binding Player.RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
-                                                    StrokeThickness="1.5"
-                                                    StrokeShape="RoundRectangle 22"
-                                                    BackgroundColor="{Binding Player.Position, Converter={StaticResource PositionToColor}}"
-                                                    HorizontalOptions="Center"
-                                                    VerticalOptions="Center">
-                                                <Border.GestureRecognizers>
-                                                    <DragGestureRecognizer DragStarting="OnFieldPlayerDragStarting" />
-                                                    <TapGestureRecognizer Tapped="OnFieldViewPlayerTapped" />
-                                                </Border.GestureRecognizers>
-                                                <Border.Triggers>
-                                                    <DataTrigger TargetType="Border"
-                                                                 Binding="{Binding Player.IsNextToRotate}"
-                                                                 Value="{x:Boolean True}">
-                                                        <Setter Property="StrokeThickness" Value="3.5" />
-                                                    </DataTrigger>
-                                                    <DataTrigger TargetType="Border"
-                                                                 Binding="{Binding Player.IsNextToRotate}"
-                                                                 Value="{x:Boolean False}">
-                                                        <Setter Property="Stroke" Value="#66FFFFFF" />
-                                                    </DataTrigger>
-                                                </Border.Triggers>
-                                                <Label Text="{Binding Player.ShortName}"
-                                                       TextColor="White"
-                                                       FontSize="11"
-                                                       FontAttributes="Bold"
-                                                       HorizontalOptions="Center"
-                                                       VerticalOptions="Center"
-                                                       HorizontalTextAlignment="Center"
-                                                       VerticalTextAlignment="Center"
+                          ColumnDefinitions="56,*,56"
+                          RowSpacing="2">
+                        <!-- Outfield 4×4 — fixed-height host End-aligned so grid bottom meets top of goal -->
+                        <Grid Grid.Row="0"
+                              Grid.Column="1"
+                              VerticalOptions="End"
+                              HorizontalOptions="Fill"
+                              HeightRequest="236"
+                              Margin="0,0,0,-18">
+                            <CollectionView ItemsSource="{Binding FieldGridCells}"
+                                            SelectionMode="None"
+                                            BackgroundColor="Transparent"
+                                            VerticalOptions="Fill"
+                                            HorizontalOptions="Fill">
+                                <CollectionView.ItemsLayout>
+                                    <GridItemsLayout Orientation="Vertical"
+                                                     Span="4"
+                                                     HorizontalItemSpacing="2"
+                                                     VerticalItemSpacing="2" />
+                                </CollectionView.ItemsLayout>
+                                <CollectionView.ItemTemplate>
+                                    <DataTemplate x:DataType="models:FieldCellSlot">
+                                        <Border Stroke="#55FFFFFF"
+                                                StrokeThickness="1"
+                                                StrokeShape="RoundRectangle 6"
+                                                BackgroundColor="#22000000"
+                                                Margin="1"
+                                                MinimumHeightRequest="52"
+                                                MinimumWidthRequest="52">
+                                            <Border.GestureRecognizers>
+                                                <DropGestureRecognizer AllowDrop="True"
+                                                                       DragOver="OnFieldCellDragOver"
+                                                                       Drop="OnFieldCellDrop" />
+                                                <TapGestureRecognizer Tapped="OnFieldCellTapped" />
+                                            </Border.GestureRecognizers>
+                                            <Grid>
+                                                <Label Text="{Binding CellLabel}"
+                                                       TextColor="#66FFFFFF"
+                                                       FontSize="10"
+                                                       Margin="4,2,0,0"
+                                                       HorizontalOptions="Start"
+                                                       VerticalOptions="Start"
                                                        InputTransparent="True" />
-                                            </Border>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </CollectionView.ItemTemplate>
-                        </CollectionView>
+                                                <Border IsVisible="{Binding HasPlayer}"
+                                                        WidthRequest="44"
+                                                        HeightRequest="44"
+                                                        Stroke="{Binding Player.RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
+                                                        StrokeThickness="1.5"
+                                                        StrokeShape="RoundRectangle 22"
+                                                        BackgroundColor="{Binding Player.Position, Converter={StaticResource PositionToColor}}"
+                                                        HorizontalOptions="Center"
+                                                        VerticalOptions="Center">
+                                                    <Border.GestureRecognizers>
+                                                        <DragGestureRecognizer DragStarting="OnFieldPlayerDragStarting" />
+                                                        <TapGestureRecognizer NumberOfTapsRequired="1"
+                                                                               Tapped="OnFieldViewPlayerTapped" />
+                                                        <TapGestureRecognizer NumberOfTapsRequired="2"
+                                                                               Tapped="OnFieldViewPlayerDoubleTapped" />
+                                                    </Border.GestureRecognizers>
+                                                    <Border.Triggers>
+                                                        <DataTrigger TargetType="Border"
+                                                                     Binding="{Binding Player.IsNextToRotate}"
+                                                                     Value="{x:Boolean True}">
+                                                            <Setter Property="StrokeThickness" Value="3.5" />
+                                                        </DataTrigger>
+                                                        <DataTrigger TargetType="Border"
+                                                                     Binding="{Binding Player.IsNextToRotate}"
+                                                                     Value="{x:Boolean False}">
+                                                            <Setter Property="Stroke" Value="#66FFFFFF" />
+                                                        </DataTrigger>
+                                                        <DataTrigger TargetType="Border"
+                                                                     Binding="{Binding Player.IsFieldTapSelected}"
+                                                                     Value="{x:Boolean True}">
+                                                            <Setter Property="Stroke" Value="#FFEB3B" />
+                                                            <Setter Property="StrokeThickness" Value="3.5" />
+                                                        </DataTrigger>
+                                                    </Border.Triggers>
+                                                    <Label Text="{Binding Player.ShortName}"
+                                                           TextColor="White"
+                                                           FontSize="11"
+                                                           FontAttributes="Bold"
+                                                           HorizontalOptions="Center"
+                                                           VerticalOptions="Center"
+                                                           HorizontalTextAlignment="Center"
+                                                           VerticalTextAlignment="Center"
+                                                           InputTransparent="True" />
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </CollectionView.ItemTemplate>
+                            </CollectionView>
+                        </Grid>
 
-                        <!-- Unpositioned stack: right margin, only top chip visible -->
-                        <VerticalStackLayout Grid.Row="0"
-                                             Grid.Column="1"
-                                             VerticalOptions="Center"
-                                             HorizontalOptions="Center"
-                                             Spacing="4"
-                                             Padding="2,0,0,0">
-                            <Label Text="Stack"
-                                   TextColor="#AAFFFFFF"
-                                   FontSize="9"
-                                   HorizontalOptions="Center"
-                                   IsVisible="{Binding HasUnpositionedStack}" />
-                            <Border IsVisible="{Binding HasUnpositionedStack}"
-                                    WidthRequest="48"
-                                    HeightRequest="48"
-                                    Stroke="#AAFFFFFF"
-                                    StrokeThickness="2"
-                                    StrokeShape="RoundRectangle 24"
-                                    BackgroundColor="{Binding UnpositionedStackTop.Position, Converter={StaticResource PositionToColor}}"
-                                    HorizontalOptions="Center">
-                                <Border.GestureRecognizers>
-                                    <DragGestureRecognizer DragStarting="OnStackPlayerDragStarting" />
-                                </Border.GestureRecognizers>
-                                <Label Text="{Binding UnpositionedStackTop.ShortName}"
-                                       TextColor="White"
-                                       FontSize="12"
+                        <!-- Right gutter: vertical Bench alongside the pitch (sideline) -->
+                        <Border x:Name="BenchDropBand"
+                                Grid.Row="0"
+                                Grid.Column="2"
+                                WidthRequest="56"
+                                MinimumHeightRequest="64"
+                                MaximumWidthRequest="56"
+                                Padding="2,4"
+                                Margin="2,0,0,-18"
+                                Stroke="#66FFFFFF"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 8"
+                                BackgroundColor="#22000000"
+                                HorizontalOptions="Center"
+                                VerticalOptions="Fill">
+                            <Border.GestureRecognizers>
+                                <DropGestureRecognizer AllowDrop="True"
+                                                       DragOver="OnBenchBandDragOver"
+                                                       DragLeave="OnBenchBandDragLeave"
+                                                       Drop="OnBenchBandDrop" />
+                                <TapGestureRecognizer Tapped="OnBenchBandTapped" />
+                            </Border.GestureRecognizers>
+                            <Grid RowDefinitions="Auto,*"
+                                  RowSpacing="2"
+                                  BackgroundColor="Transparent"
+                                  HorizontalOptions="Center">
+                                <Label Grid.Row="0"
+                                       Text="Bench"
+                                       TextColor="#CCFFFFFF"
+                                       FontSize="8"
                                        FontAttributes="Bold"
                                        HorizontalOptions="Center"
-                                       VerticalOptions="Center"
-                                       HorizontalTextAlignment="Center"
-                                       VerticalTextAlignment="Center"
+                                       BackgroundColor="Transparent"
                                        InputTransparent="True" />
-                            </Border>
-                        </VerticalStackLayout>
+                                <!-- Transparent hit target under ScrollView (BoxView alpha often paints opaque black on Android).
+                                     When a source token is armed, ScrollView is InputTransparent so taps reach this layer. -->
+                                <Grid Grid.Row="1"
+                                      x:Name="BenchHitLayer"
+                                      BackgroundColor="Transparent"
+                                      VerticalOptions="Fill"
+                                      HorizontalOptions="Fill">
+                                    <Grid.GestureRecognizers>
+                                        <DropGestureRecognizer AllowDrop="True"
+                                                               DragOver="OnBenchBandDragOver"
+                                                               DragLeave="OnBenchBandDragLeave"
+                                                               Drop="OnBenchBandDrop" />
+                                        <TapGestureRecognizer Tapped="OnBenchBandTapped" />
+                                    </Grid.GestureRecognizers>
+                                    <ScrollView x:Name="BenchTokenScroll"
+                                                Orientation="Vertical"
+                                                BackgroundColor="Transparent"
+                                                VerticalOptions="Fill"
+                                                VerticalScrollBarVisibility="Never"
+                                                HorizontalOptions="Center"
+                                                InputTransparent="{Binding HasFieldTapPlaceSelection}">
+                                        <VerticalStackLayout BindableLayout.ItemsSource="{Binding BenchBandPlayers}"
+                                                             BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
+                                                             Spacing="2"
+                                                             BackgroundColor="Transparent"
+                                                             HorizontalOptions="Center" />
+                                    </ScrollView>
+                                    <Label x:Name="BenchDropHint"
+                                           Text="+"
+                                           TextColor="#EEFFFFFF"
+                                           FontSize="22"
+                                           FontAttributes="Bold"
+                                           HorizontalOptions="Center"
+                                           VerticalOptions="Center"
+                                           BackgroundColor="Transparent"
+                                           InputTransparent="True"
+                                           IsVisible="False" />
+                                    <Label Text="🪑"
+                                           TextColor="#66FFFFFF"
+                                           FontSize="16"
+                                           HorizontalOptions="Center"
+                                           VerticalOptions="Center"
+                                           BackgroundColor="Transparent"
+                                           InputTransparent="True"
+                                           IsVisible="{Binding IsBenchBandEmpty}" />
+                                </Grid>
+                            </Grid>
+                        </Border>
 
-                        <!-- Goalie drop zone over the goal box — invisible chrome; "+" only while a valid drag is over it -->
+                        <!-- Goalie drop zone over the painted goal; ~½ tile lower than prior (bottom margin 72→46) -->
                         <Border x:Name="GoalieDropBand"
                                 Grid.Row="1"
                                 Grid.Column="0"
-                                Grid.ColumnSpan="2"
-                                HeightRequest="72"
-                                Margin="28,0,28,4"
-                                Padding="6"
+                                Grid.ColumnSpan="3"
+                                HeightRequest="48"
+                                Margin="64,0,64,46"
+                                Padding="0"
                                 Stroke="Transparent"
                                 StrokeThickness="0"
                                 BackgroundColor="Transparent"
@@ -756,12 +841,13 @@
                                                        DragOver="OnGoalieBandDragOver"
                                                        DragLeave="OnGoalieBandDragLeave"
                                                        Drop="OnGoalieBandDrop" />
+                                <TapGestureRecognizer Tapped="OnGoalieBandTapped" />
                             </Border.GestureRecognizers>
                             <Grid>
                                 <Label x:Name="GoalieDropHint"
                                        Text="+"
                                        TextColor="#EEFFFFFF"
-                                       FontSize="36"
+                                       FontSize="28"
                                        FontAttributes="Bold"
                                        HorizontalOptions="Center"
                                        VerticalOptions="Center"
@@ -780,52 +866,113 @@
                         </Border>
 
                         <Label Grid.Row="0"
-                               Grid.Column="0"
+                               Grid.Column="1"
                                Text="No players on field"
                                TextColor="#ccffcc"
                                FontSize="13"
                                HorizontalOptions="Center"
-                               VerticalOptions="Center"
+                               VerticalOptions="End"
+                               Margin="0,0,0,80"
                                InputTransparent="True"
                                IsVisible="{Binding IsOutfieldBandEmpty}" />
                     </Grid>
 
-                    <!-- Divider sits immediately above the compact bench strip -->
-                    <BoxView Grid.Row="1"
-                             HeightRequest="3"
-                             Color="#ECEFF1"
-                             Margin="0,2,0,2"
-                             HorizontalOptions="Fill" />
-
-                    <!-- Bench: compact strip at the bottom of the available Field View area -->
-                    <Grid Grid.Row="2"
-                          MinimumHeightRequest="56"
-                          Padding="0,0,0,2">
+                    <!-- Absent behind the goalie (Setup only). Grid receives Android drag/drop + taps;
+                         Border is visual-only (DropGestureRecognizer on Border unreliable under ScrollView). -->
+                    <Grid x:Name="FieldViewAbsentStrip"
+                          Grid.Row="2"
+                          Margin="8,4,8,6"
+                          MinimumHeightRequest="72"
+                          BackgroundColor="Transparent"
+                          HorizontalOptions="Fill"
+                          IsVisible="{Binding ShowFieldViewAbsentZone}">
                         <Grid.GestureRecognizers>
                             <DropGestureRecognizer AllowDrop="True"
-                                                   DragOver="OnBenchBandDragOver"
-                                                   DragLeave="OnBenchBandDragLeave"
-                                                   Drop="OnBenchBandDrop" />
+                                                   DragOver="OnInactiveBandDragOver"
+                                                   DragLeave="OnInactiveBandDragLeave"
+                                                   Drop="OnInactiveBandDrop" />
+                            <TapGestureRecognizer Tapped="OnInactiveBandTapped" />
                         </Grid.GestureRecognizers>
-                        <FlexLayout BindableLayout.ItemsSource="{Binding BenchBandPlayers}"
-                                    BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
-                                    Wrap="Wrap"
-                                    JustifyContent="Center"
-                                    AlignItems="Center"
-                                    AlignContent="Center"
-                                    Direction="Row"
-                                    HorizontalOptions="Fill"
-                                    VerticalOptions="End"
-                                    Padding="2" />
-                        <Label x:Name="BenchDropHint"
-                               Text="+"
-                               TextColor="#AA90CAF9"
-                               FontSize="28"
-                               FontAttributes="Bold"
-                               HorizontalOptions="Center"
-                               VerticalOptions="Center"
-                               InputTransparent="True"
-                               IsVisible="False" />
+
+                        <Border Stroke="#66FFFFFF"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 8"
+                                BackgroundColor="#22000000"
+                                InputTransparent="True"
+                                HorizontalOptions="Fill"
+                                VerticalOptions="Fill" />
+
+                        <VerticalStackLayout Padding="6,4"
+                                             Spacing="2"
+                                             HorizontalOptions="Fill"
+                                             VerticalOptions="Fill"
+                                             BackgroundColor="Transparent">
+                            <Label Text="Absent"
+                                   TextColor="#CCFFFFFF"
+                                   FontSize="8"
+                                   FontAttributes="Bold"
+                                   HorizontalOptions="Center"
+                                   HorizontalTextAlignment="Center"
+                                   BackgroundColor="Transparent"
+                                   InputTransparent="True" />
+                            <Grid x:Name="InactiveHitLayer"
+                                  MinimumHeightRequest="56"
+                                  HeightRequest="56"
+                                  BackgroundColor="Transparent"
+                                  HorizontalOptions="Fill">
+                                <Grid.GestureRecognizers>
+                                    <DropGestureRecognizer AllowDrop="True"
+                                                           DragOver="OnInactiveBandDragOver"
+                                                           DragLeave="OnInactiveBandDragLeave"
+                                                           Drop="OnInactiveBandDrop" />
+                                    <TapGestureRecognizer Tapped="OnInactiveBandTapped" />
+                                </Grid.GestureRecognizers>
+
+                                <ScrollView x:Name="InactiveTokenScroll"
+                                            Orientation="Horizontal"
+                                            BackgroundColor="Transparent"
+                                            HorizontalScrollBarVisibility="Never"
+                                            VerticalScrollBarVisibility="Never"
+                                            VerticalOptions="Fill"
+                                            HorizontalOptions="Fill"
+                                            InputTransparent="{Binding HasFieldTapPlaceSelection}">
+                                    <ScrollView.GestureRecognizers>
+                                        <DropGestureRecognizer AllowDrop="True"
+                                                               DragOver="OnInactiveBandDragOver"
+                                                               DragLeave="OnInactiveBandDragLeave"
+                                                               Drop="OnInactiveBandDrop" />
+                                        <TapGestureRecognizer Tapped="OnInactiveBandTapped" />
+                                    </ScrollView.GestureRecognizers>
+                                    <HorizontalStackLayout BindableLayout.ItemsSource="{Binding InactiveBandPlayers}"
+                                                           BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
+                                                           Spacing="2"
+                                                           Padding="4,0"
+                                                           BackgroundColor="Transparent"
+                                                           VerticalOptions="Center"
+                                                           HorizontalOptions="Center"
+                                                           MinimumHeightRequest="56" />
+                                </ScrollView>
+
+                                <Label x:Name="InactiveDropHint"
+                                       Text="+"
+                                       TextColor="#EEFFFFFF"
+                                       FontSize="22"
+                                       FontAttributes="Bold"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center"
+                                       BackgroundColor="Transparent"
+                                       InputTransparent="True"
+                                       IsVisible="False" />
+                                <Label Text="✗"
+                                       TextColor="#66FFFFFF"
+                                       FontSize="18"
+                                       HorizontalOptions="Center"
+                                       VerticalOptions="Center"
+                                       BackgroundColor="Transparent"
+                                       InputTransparent="True"
+                                       IsVisible="{Binding IsInactiveBandEmpty}" />
+                            </Grid>
+                        </VerticalStackLayout>
                     </Grid>
                 </Grid>
             </Grid>

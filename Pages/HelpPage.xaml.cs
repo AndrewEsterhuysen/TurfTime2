@@ -206,10 +206,11 @@ public partial class HelpPage : ContentPage
     <!-- ═══════════════════════════════════════════════════ -->
     <h3>🏟️ Field View</h3>
     <ul>
-        <li><strong>4×4 pitch grid</strong> (cells 1–16, top-left = 1): drop a player onto a cell to put them on the field in that spot (one player per cell; dropping on an occupied cell swaps).</li>
+        <li><strong>4×4 pitch grid</strong> (cells 1–16, top-left = 1): drop a player onto a cell to put them on the field in that spot (one player per cell). Dropping a <em>bench</em> player onto an occupied cell substitutes — the field player moves to the bench. Dropping one field player onto another swaps their cells.</li>
+        <li><strong>Bench</strong> (right edge, vertical list): everyone starts here on a new team. Scroll and drag/tap players onto the pitch, goalie zone, or Absent. During a match this stays visible as the sideline.</li>
+        <li><strong>Absent</strong> (strip behind the goalie): park players who are not available. Move-only (no swap). Stays visible after Start so late arrivals can be brought on.</li>
         <li><strong>Goalie zone</strong> (over the goal area): drop a player here to assign Goalie. A <strong>+</strong> appears while dragging over a valid drop target.</li>
-        <li><strong>Stack</strong> (right edge): players with no position yet appear one at a time in roster order. Drag the top chip onto a grid cell, the goalie zone, or the bench strip at the bottom.</li>
-        <li>When you <strong>Start</strong> the match, any players still in the stack become Absent/Inactive (same as Team View).</li>
+        <li><strong>Tap</strong> a token in Setup to arm it, then tap a destination (cell / Bench / Goalie / Absent) to place or swap. Double-tap to rename. Absent is move-only.</li>
         <li><strong>Tap</strong> a field or bench token during a live match to select/deselect them for the next rotation (same as Team View). Matching outline colours show who replaces whom.</li>
         <li>Formation cells sync on shared teams with the roster. View-only members can watch but cannot drag.</li>
     </ul>
@@ -229,14 +230,16 @@ public partial class HelpPage : ContentPage
     <!-- ═══════════════════════════════════════════════════ -->
     <h3>🔁 How Rotation Order Works</h3>
     <ul>
-        <li>The app uses a <strong>FIFO queue</strong>: players who have been on the bench longest rotate on first; players who have been on the field longest rotate off first.</li>
-        <li>Field time (MM:SS) on each row reflects this — higher time = next to come off.</li>
-        <li><strong>Manual override (Team view):</strong> During a match, tap a bench player to queue them on, or a field player to queue them off. Queues grow/shrink and the rotation count follows. Matching coloured outlines (and the ➤ arrow) mark queued field↔bench pairs.</li>
-        <li><strong>Rotation count (Rotate / Tap to Rotate hold):</strong> Sets how many pairs will swap. Changing the count re-seeds both next-up queues from automatic FIFO (does not keep a prior manual queue order).</li>
-        <li>Team-view taps and long-press count selection share the same queues — the last action you take wins until you change it again.</li>
-        <li><strong>Reorder by dragging:</strong> Long-press and drag any row to permanently reposition the player in the rotation sequence.</li>
-        <li>After each rotation executes, queues are re-seeded for the next cycle.</li>
-        <li><strong>Rotation alert:</strong> Before a rotation is due, a short vibration fires, giving you a heads-up before the rotation is due.</li>
+        <li>Choose how players are selected under <strong>Settings → Options → Rotation Basis</strong>:</li>
+        <li><strong>Sequential</strong>: roster-order FIFO — next Field player after the last who came off (wraps the list); same idea for Bench coming on.</li>
+        <li><strong>Time Based</strong> (default): most field time (MM:SS) comes off; least field time comes on. Recomputed after each rotate.</li>
+        <li><strong>Position Based</strong>: cycles occupied players on the Field View 4×4 by row (1st occupied in each row top→bottom, then 2nd in each row, …). Bench side uses least field time. Players need a grid cell.</li>
+        <li><strong>Manual</strong>: no automatic picks — tap Field/Bench players (or Field View) to set who rotates. The rotation countdown still runs as a reminder.</li>
+        <li><strong>Manual override (any basis):</strong> During a match, tap a bench player to queue them on, or a field player to queue them off. Queues grow/shrink and the rotation count follows. Matching coloured outlines mark queued field↔bench pairs.</li>
+        <li><strong>Rotation count (Rotate / Tap to Rotate hold):</strong> Sets how many pairs will swap. Changing the count re-seeds next-up (except Manual, which does not invent new picks).</li>
+        <li><strong>Reorder by dragging:</strong> Long-press and drag any row to permanently reposition the player in the Sequential roster order.</li>
+        <li>After each rotation executes, automatic modes re-seed queues for the next cycle.</li>
+        <li><strong>Rotation alert:</strong> Before a rotation is due, a short vibration fires as a heads-up.</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
