@@ -25,7 +25,7 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 | Feature id | Description | Status today | Notes |
 |------------|-------------|--------------|--------|
 | `LocalGame` | Match timer, rotation, on-field play | Free | Never gate |
-| `RotationBasis` | Options: Sequential / Time Based / Position Based / Manual selection of who rotates | Free | Device Preference `game.rotationBasis` (default Time Based); Manual keeps countdown reminder; never gate |
+| `RotationBasis` | Options: Sequential / Time Based / Position Based / Manual (Bench→Field pair seed; Field→Bench = live sub) | Free | Device Preference `game.rotationBasis` (default Time Based); Manual keeps countdown reminder; never gate |
 | `FieldView` | Game tab Field View (pitch + right-gutter Bench + Absent strip behind goalie) | Free | Default surface for view-only; admin third View toggle; Absent stays visible during match; never gate |
 | `FieldViewPlacement` | Interactive Field View: 4×4 pitch cells; Setup tap-place/rename; live: Bench taps = rotation queue, Field arm→Bench (token=direct sub, area=FIFO), Absent→Bench for late arrivals (no live Field→Absent) | Free | Reuses `SetPlayerPosition` / live substitute helpers / `SwapPlayerRoles`; never gate |
 | `LocalReports` | Reports from on-device session history | Free | Never gate |

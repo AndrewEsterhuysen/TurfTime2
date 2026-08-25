@@ -42,7 +42,7 @@ public static class RotationBasisOptions
         RotationBasis.PositionBased =>
             "Cycles occupied players on the Field View grid by row: 1st in each row top→bottom, then 2nd in each row, and so on. Bench uses least field time.",
         RotationBasis.Manual =>
-            "You tap who rotates next. No automatic selection. The rotation countdown still runs as a reminder.",
+            "No automatic selection. Tap Bench then Field to seed each rotation pair (up to the bench size). Tap Field first then Bench to substitute immediately. The rotation countdown still runs as a reminder.",
         _ => string.Empty
     };
 }

@@ -400,7 +400,7 @@
                     HeightRequest="36"
                     Padding="8,0"
                     Clicked="OnSessionViewOnlyToggleClicked" />
-            <Label Text="Manual rotation — tap players to set who rotates next"
+            <Label Text="Manual — tap Bench then Field to set each rotation pair. Tap Field first then Bench to sub now."
                    IsVisible="{Binding ShowManualRotationHint}"
                    TextColor="#FFE082"
                    FontSize="11"
@@ -595,6 +595,9 @@
                                 VerticalOptions="Center">
                             <Border.GestureRecognizers>
                                 <DragGestureRecognizer DragStarting="OnFieldPlayerDragStarting" />
+                                <DropGestureRecognizer AllowDrop="True"
+                                                       DragOver="OnFieldViewTokenDragOver"
+                                                       Drop="OnFieldViewTokenDrop" />
                                 <TapGestureRecognizer NumberOfTapsRequired="1"
                                                        Tapped="OnFieldViewPlayerTapped" />
                                 <TapGestureRecognizer NumberOfTapsRequired="2"
@@ -776,9 +779,10 @@
                                        InputTransparent="True" />
                                 <!-- Transparent hit target under ScrollView (BoxView alpha often paints opaque black on Android).
                                      When a source token is armed, ScrollView is InputTransparent so taps reach this layer. -->
+                                <!-- Near-invisible fill so Android hit-tests empty Bench area (fully Transparent often ignores touches). -->
                                 <Grid Grid.Row="1"
                                       x:Name="BenchHitLayer"
-                                      BackgroundColor="Transparent"
+                                      BackgroundColor="#01FFFFFF"
                                       VerticalOptions="Fill"
                                       HorizontalOptions="Fill">
                                     <Grid.GestureRecognizers>
@@ -788,13 +792,22 @@
                                                                Drop="OnBenchBandDrop" />
                                         <TapGestureRecognizer Tapped="OnBenchBandTapped" />
                                     </Grid.GestureRecognizers>
+                                    <!-- Pass-through only for Absent→Bench empty-area taps.
+                                         Field/Goalie armed: keep interactive so token taps do a direct sub.
+                                         Drop handlers required on ScrollView — otherwise Android drops die on the list. -->
                                     <ScrollView x:Name="BenchTokenScroll"
                                                 Orientation="Vertical"
                                                 BackgroundColor="Transparent"
                                                 VerticalOptions="Fill"
                                                 VerticalScrollBarVisibility="Never"
                                                 HorizontalOptions="Center"
-                                                InputTransparent="{Binding HasFieldTapPlaceSelection}">
+                                                InputTransparent="{Binding PassThroughBenchScrollForAbsentArm}">
+                                        <ScrollView.GestureRecognizers>
+                                            <DropGestureRecognizer AllowDrop="True"
+                                                                   DragOver="OnBenchBandDragOver"
+                                                                   DragLeave="OnBenchBandDragLeave"
+                                                                   Drop="OnBenchBandDrop" />
+                                        </ScrollView.GestureRecognizers>
                                         <VerticalStackLayout BindableLayout.ItemsSource="{Binding BenchBandPlayers}"
                                                              BindableLayout.ItemTemplate="{StaticResource FieldViewTokenTemplate}"
                                                              Spacing="2"

@@ -64,10 +64,27 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             _fieldTapPlaceSlotId = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasFieldTapPlaceSelection));
+            OnPropertyChanged(nameof(PassThroughBenchScrollForAbsentArm));
         }
     }
 
     public bool HasFieldTapPlaceSelection => FieldTapPlaceSlotId is not null;
+
+    /// <summary>
+    /// When an Absent player is armed for Bench placement, make the Bench ScrollView
+    /// input-transparent so empty-area taps reach the hit layer.
+    /// When a Field/Goalie is armed for an instant sub, keep the ScrollView interactive
+    /// so taps hit the specific Bench token (direct swap).
+    /// </summary>
+    public bool PassThroughBenchScrollForAbsentArm
+    {
+        get
+        {
+            if (FieldTapPlaceSlotId is not int id) return false;
+            var p = Players.FirstOrDefault(x => x.SlotId == id);
+            return p?.Position == PlayerPosition.Inactive;
+        }
+    }
 
     /// <summary>True when the roster has no items to show; drives the empty-state label.</summary>
     public bool IsRosterEmpty => DisplayItems.Count == 0;
@@ -118,6 +135,12 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     // Null slots are skipped during rotation execution and display.
     private readonly Queue<int?> _manualFieldQueue = new();
     private readonly Queue<int?> _manualBenchQueue = new();
+
+    /// <summary>
+    /// Manual basis: SlotId of Bench player waiting for a Field tap to form a rotation pair.
+    /// Cleared when the pair is completed, cancelled, or Field tap-place is armed instead.
+    /// </summary>
+    private int? _manualPairBenchSlotId;
 
     // ── Bindable state ────────────────────────────────────────────────────
     private TeamViewMode _viewMode = TeamViewMode.Swipeable;
@@ -1105,15 +1128,21 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// Assigns a player to the manual next-rotation queue for their position group.
-    /// Tapping a new player GROWS both queues by one (field + bench stay the same size).
-    /// Tapping an already-queued player REMOVES them and shrinks both queues by one.
-    /// <see cref="RotationCount"/> is updated to match the new queue size.
+    /// Assigns a player to the next-rotation queue.
+    /// Non-Manual: tap grows both queues (auto-seeds the opposite side).
+    /// Manual: use <see cref="TryManualPairTap"/> (Bench then Field); this method
+    /// only handles remove-from-queue and non-Manual auto-pair growth.
     /// </summary>
     public void TapPlayerQueue(Player player)
     {
         if (Phase == GamePhase.Setup || Phase == GamePhase.Finished) return;
         if (IsMember) return;
+
+        if (IsManualRotationBasis)
+        {
+            TryManualPairTap(player);
+            return;
+        }
 
         var idx = Players.IndexOf(player);
         if (idx < 0) return;
@@ -1139,24 +1168,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         if (alreadyQueued)
         {
-            // Remove the slot from the own queue (compact — no null).
-            var trimmed = ownQueue.Where(s => s != idx).ToArray();
-            ownQueue.Clear();
-            foreach (var s in trimmed) ownQueue.Enqueue(s);
-
-            // Shrink the opposite queue by trimming its tail by one.
-            Queue<int?> otherQueue = player.Position == PlayerPosition.Field
-                ? _manualBenchQueue : _manualFieldQueue;
-            if (otherQueue.Count > 0)
-            {
-                var otherArr = otherQueue.ToArray()[..^1]; // drop last slot
-                otherQueue.Clear();
-                foreach (var s in otherArr) otherQueue.Enqueue(s);
-            }
-
-            // Clamp RotationCount down (min 1), skipping the property setter's side-effects.
-            _rotationCount = Math.Max(1, _rotationCount - 1);
-            UpdateRotateButtonText();
+            RemoveQueuedPairAtPlayerIndex(idx, player.Position);
         }
         else
         {
@@ -1178,15 +1190,14 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             List<int> otherCandidates = player.Position == PlayerPosition.Field ? bench : field;
             int lastOtherIdx = player.Position == PlayerPosition.Field ? _lastBenchIdx : _lastFieldIdx;
 
-            // Find the next candidate after whoever is currently at the tail of the other queue.
-            int tailOffset = otherQueue.Count; // how many slots already filled
+            int tailOffset = otherQueue.Count;
             var newOtherIdx = NextIndexFromWithOffset(otherCandidates, lastOtherIdx, tailOffset);
             if (newOtherIdx >= 0)
                 otherQueue.Enqueue(newOtherIdx);
 
-            // Grow RotationCount to match, skipping the property setter's side-effects.
             _rotationCount = Math.Min(_rotationCount + 1, maxSize);
             UpdateRotateButtonText();
+            OnPropertyChanged(nameof(RotationCount));
         }
 
         System.Diagnostics.Debug.WriteLine(
@@ -1195,6 +1206,137 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             $"RotationCount={RotationCount}");
 
         MarkNextPlayers();
+        RefreshRotationPairs();
+    }
+
+    /// <summary>
+    /// Manual basis: Bench tap selects who comes on; Field tap completes the pair into the
+    /// rotation buffers. Returns true if the tap was consumed (UI should not arm Field→Bench sub).
+    /// Field tap with no pending Bench returns false so Field View can arm a live substitute.
+    /// </summary>
+    public bool TryManualPairTap(Player player)
+    {
+        if (IsMember || !IsMatchInProgress || !IsManualRotationBasis) return false;
+        if (player.Position is not (PlayerPosition.Bench or PlayerPosition.Field or PlayerPosition.Goalie))
+            return false;
+
+        var idx = Players.IndexOf(player);
+        if (idx < 0) return false;
+
+        ClearFieldTapPlaceSelectionKeepingPair();
+
+        // Re-tap someone already in the buffers → remove that pair.
+        Queue<int?>? ownQueue = player.Position == PlayerPosition.Bench
+            ? _manualBenchQueue
+            : (player.Position is PlayerPosition.Field or PlayerPosition.Goalie ? _manualFieldQueue : null);
+        if (ownQueue is not null && ownQueue.Any(s => s == idx))
+        {
+            ClearManualPairPending();
+            RemoveQueuedPairAtPlayerIndex(idx, player.Position == PlayerPosition.Bench
+                ? PlayerPosition.Bench
+                : PlayerPosition.Field);
+            MarkNextPlayers();
+            RefreshRotationPairs();
+            return true;
+        }
+
+        if (player.Position == PlayerPosition.Bench)
+        {
+            // Toggle pending Bench for the next Field tap.
+            if (_manualPairBenchSlotId == player.SlotId)
+                ClearManualPairPending();
+            else
+            {
+                _manualPairBenchSlotId = player.SlotId;
+                SyncSelectionHighlights();
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameViewModel] 👆 Manual pair pending bench={_manualPairBenchSlotId}");
+            return true;
+        }
+
+        // Field / Goalie: complete pair if a Bench is pending.
+        if (_manualPairBenchSlotId is not int benchSlot)
+            return false;
+
+        var benchPlayer = Players.FirstOrDefault(p => p.SlotId == benchSlot);
+        if (benchPlayer is null || benchPlayer.Position != PlayerPosition.Bench)
+        {
+            ClearManualPairPending();
+            return true;
+        }
+
+        var benchIdx = Players.IndexOf(benchPlayer);
+        var maxSize = BenchCandidates().Count; // hard cap = players on bench
+        if (maxSize < 1 || _manualBenchQueue.Count >= maxSize)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameViewModel] 👆 Manual pair — at max capacity ({maxSize})");
+            ClearManualPairPending();
+            return true;
+        }
+
+        _manualBenchQueue.Enqueue(benchIdx);
+        _manualFieldQueue.Enqueue(idx);
+        // Queue length is the active rotation count when manually seeding.
+        _rotationCount = Math.Max(1, _manualBenchQueue.Count);
+        UpdateRotateButtonText();
+        OnPropertyChanged(nameof(RotationCount));
+        ClearManualPairPending();
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] 👆 Manual pair seeded {benchPlayer.Name} ↔ {player.Name} | " +
+            $"RotationCount={RotationCount}");
+
+        MarkNextPlayers();
+        RefreshRotationPairs();
+        return true;
+    }
+
+    public void ClearManualPairPending()
+    {
+        if (_manualPairBenchSlotId is null) return;
+        _manualPairBenchSlotId = null;
+        SyncSelectionHighlights();
+    }
+
+    private void ClearFieldTapPlaceSelectionKeepingPair()
+    {
+        // Clear yellow field-tap-place arm without wiping Manual pair pending highlight.
+        if (FieldTapPlaceSlotId is null) return;
+        FieldTapPlaceSlotId = null;
+        SyncSelectionHighlights();
+    }
+
+    private void RemoveQueuedPairAtPlayerIndex(int playerIdx, PlayerPosition side)
+    {
+        var ownQueue = side == PlayerPosition.Bench ? _manualBenchQueue : _manualFieldQueue;
+        var otherQueue = side == PlayerPosition.Bench ? _manualFieldQueue : _manualBenchQueue;
+        var ownArr = ownQueue.ToArray();
+        var pos = Array.FindIndex(ownArr, s => s == playerIdx);
+        if (pos < 0) return;
+
+        ownQueue.Clear();
+        for (var i = 0; i < ownArr.Length; i++)
+        {
+            if (i != pos) ownQueue.Enqueue(ownArr[i]);
+        }
+
+        var otherArr = otherQueue.ToArray();
+        otherQueue.Clear();
+        for (var i = 0; i < otherArr.Length; i++)
+        {
+            if (i != pos) otherQueue.Enqueue(otherArr[i]);
+        }
+
+        _rotationCount = Math.Max(1, Math.Min(_rotationCount, ownQueue.Count == 0 ? 1 : ownQueue.Count));
+        if (ownQueue.Count > 0)
+            _rotationCount = ownQueue.Count;
+        else
+            _rotationCount = 1;
+        UpdateRotateButtonText();
+        OnPropertyChanged(nameof(RotationCount));
     }
 
     public void SetPlayerPosition(Player player, PlayerPosition newPosition)
@@ -2942,6 +3084,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnRotationBasisOptionsChanged(object? sender, EventArgs e)
     {
+        ClearManualPairPending();
+
         _lastPositionWalkOffset = 0;
 
         if (Phase is GamePhase.Setup or GamePhase.Finished)
@@ -3155,6 +3299,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     private void AfterLiveSubstitution()
     {
+        ClearManualPairPending();
         ClearFieldTapPlaceSelection();
         PurgeStaleRotationQueueEntries();
         if (RotationBasisOptions.Get() != RotationBasis.Manual)
@@ -3578,22 +3723,29 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     public void ArmFieldTapPlaceSelection(Player player)
     {
         if (IsMember) return;
+        // Field→Bench move arm cancels an in-progress Manual Bench→Field pair seed.
+        _manualPairBenchSlotId = null;
         FieldTapPlaceSlotId = player.SlotId;
-        SyncFieldTapPlaceHighlights();
+        SyncSelectionHighlights();
     }
 
     public void ClearFieldTapPlaceSelection()
     {
         FieldTapPlaceSlotId = null;
-        SyncFieldTapPlaceHighlights();
+        SyncSelectionHighlights();
     }
 
-    private void SyncFieldTapPlaceHighlights()
+    private void SyncFieldTapPlaceHighlights() => SyncSelectionHighlights();
+
+    /// <summary>Yellow outline for Field tap-place arm and/or Manual pending Bench pair.</summary>
+    private void SyncSelectionHighlights()
     {
-        var armed = FieldTapPlaceSlotId;
+        var tapId = FieldTapPlaceSlotId;
+        var pairId = _manualPairBenchSlotId;
         foreach (var p in Players)
         {
-            var selected = armed is int id && p.SlotId == id;
+            var selected = (tapId is int t && p.SlotId == t)
+                           || (pairId is int b && p.SlotId == b);
             if (p.IsFieldTapSelected != selected)
                 p.IsFieldTapSelected = selected;
         }

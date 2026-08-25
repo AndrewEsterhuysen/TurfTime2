@@ -234,8 +234,8 @@ public partial class HelpPage : ContentPage
         <li><strong>Sequential</strong>: roster-order FIFO — next Field player after the last who came off (wraps the list); same idea for Bench coming on.</li>
         <li><strong>Time Based</strong> (default): most field time (MM:SS) comes off; least field time comes on. Recomputed after each rotate.</li>
         <li><strong>Position Based</strong>: cycles occupied players on the Field View 4×4 by row (1st occupied in each row top→bottom, then 2nd in each row, …). Bench side uses least field time. Players need a grid cell.</li>
-        <li><strong>Manual</strong>: no automatic picks — tap Field/Bench players (or Field View) to set who rotates. The rotation countdown still runs as a reminder.</li>
-        <li><strong>Manual override (any basis):</strong> During a match, tap a bench player to queue them on, or a field player to queue them off. Queues grow/shrink and the rotation count follows. Matching coloured outlines mark queued field↔bench pairs.</li>
+        <li><strong>Manual</strong> (default off): no automatic picks — tap <em>Bench then Field</em> to seed each next-rotation pair (up to the number on the bench). Tap <em>Field first then Bench</em> to substitute immediately. The rotation countdown still runs as a reminder.</li>
+        <li><strong>Non-Manual override:</strong> During a match, tap a bench player to grow the next-up queues (auto-pairs a field player). Matching coloured outlines mark queued field↔bench pairs.</li>
         <li><strong>Rotation count (Rotate / Tap to Rotate hold):</strong> Sets how many pairs will swap. Changing the count re-seeds next-up (except Manual, which does not invent new picks).</li>
         <li><strong>Reorder by dragging:</strong> Long-press and drag any row to permanently reposition the player in the Sequential roster order.</li>
         <li>After each rotation executes, automatic modes re-seed queues for the next cycle.</li>

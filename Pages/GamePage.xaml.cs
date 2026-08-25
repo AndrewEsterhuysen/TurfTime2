@@ -989,8 +989,11 @@ public partial class GamePage : ContentPage
         }
         else
         {
-            // Live game: tap assigns the player to the next-rotation queue.
-            _vm.TapPlayerQueue(player);
+            // Live: Manual uses Bench→Field pair seeding; other bases auto-pair via TapPlayerQueue.
+            if (_vm.IsManualRotationBasis)
+                _vm.TryManualPairTap(player);
+            else
+                _vm.TapPlayerQueue(player);
         }
     }
 
@@ -1850,7 +1853,8 @@ public partial class GamePage : ContentPage
             return;
         }
 
-        System.Diagnostics.Debug.WriteLine($"[GamePage] Bench DROP ← {player.Name} ({player.Position})");
+        System.Diagnostics.Debug.WriteLine(
+            $"[GamePage] Bench DROP ← {player.Name} ({player.Position}) live={_vm.IsMatchInProgress} sender={sender?.GetType().Name}");
         CancelPendingFieldSingleTap();
         _vm.ClearFieldTapPlaceSelection();
 
@@ -1858,11 +1862,51 @@ public partial class GamePage : ContentPage
         if (_vm.IsMatchInProgress
             && player.Position is PlayerPosition.Field or PlayerPosition.Goalie)
         {
-            _vm.LiveSubstituteWithNextBench(player);
+            var ok = _vm.LiveSubstituteWithNextBench(player);
+            System.Diagnostics.Debug.WriteLine($"[GamePage] Bench DROP live FIFO sub ok={ok}");
             return;
         }
 
         _vm.SetPlayerPosition(player, PlayerPosition.Bench);
+    }
+
+    private void OnFieldViewTokenDragOver(object? sender, DragEventArgs e)
+        => OnFieldCellDragOver(sender, e);
+
+    /// <summary>
+    /// Drop onto a token (shared template). Live Field/Goalie → Bench token = direct substitute.
+    /// </summary>
+    private void OnFieldViewTokenDrop(object? sender, DropEventArgs e)
+    {
+        if (_vm is null || _vm.IsMember) return;
+        if (!TryGetDraggedPlayer(e, out var dragged)) return;
+        if (sender is not BindableObject { BindingContext: Player target }) return;
+        if (ReferenceEquals(dragged, target)) return;
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GamePage] Token DROP {dragged.Name} ({dragged.Position}) → {target.Name} ({target.Position})");
+        CancelPendingFieldSingleTap();
+        _vm.ClearFieldTapPlaceSelection();
+
+        if (_vm.IsMatchInProgress)
+        {
+            if (target.Position == PlayerPosition.Bench
+                && dragged.Position is PlayerPosition.Field or PlayerPosition.Goalie)
+            {
+                var ok = _vm.LiveSubstituteWithBenchPlayer(dragged, target);
+                System.Diagnostics.Debug.WriteLine($"[GamePage] Token DROP live direct sub ok={ok}");
+                return;
+            }
+
+            // Other live token-to-token drops are ignored (use Bench area / cells).
+            return;
+        }
+
+        // Setup: dropping onto a Bench/Absent token parks there; otherwise swap roles.
+        if (target.Position is PlayerPosition.Bench or PlayerPosition.Inactive)
+            _vm.SetPlayerPosition(dragged, target.Position);
+        else
+            _vm.SwapPlayerRoles(dragged, target);
     }
 
     private void OnGoalieBandDragOver(object? sender, DragEventArgs e)
@@ -1923,7 +1967,8 @@ public partial class GamePage : ContentPage
 
     /// <summary>
     /// Setup: arm tap-to-place / complete move-swap (unchanged).
-    /// Live: Bench = rotation queue; Field/Goalie = arm for Bench sub; Absent = arm for Bench (late arrival).
+    /// Live: Manual = Bench then Field seeds rotation pairs; Field first then Bench = live sub.
+    /// Non-Manual: Bench = rotation queue; Field/Goalie/Absent = arm for Bench move.
     /// </summary>
     private void OnFieldViewPlayerTapped(object? sender, TappedEventArgs e)
     {
@@ -1937,21 +1982,31 @@ public partial class GamePage : ContentPage
         {
             CancelPendingFieldSingleTap();
 
-            // Completing an armed Field/Goalie/Absent onto a Bench token.
+            // Completing an armed Field/Goalie/Absent onto a Bench token (instant sub / late arrival).
+            // Must run before Manual pair seeding and before TapPlayerQueue.
             if (_vm.HasFieldTapPlaceSelection && player.Position == PlayerPosition.Bench)
             {
-                _vm.TryCompleteFieldTapPlaceOntoPlayer(player);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GamePage] Live Bench token tap while armed slot={_vm.FieldTapPlaceSlotId} → complete onto {player.Name}");
+                var ok = _vm.TryCompleteFieldTapPlaceOntoPlayer(player);
+                System.Diagnostics.Debug.WriteLine($"[GamePage] Live Bench token complete ok={ok}");
                 return;
             }
 
-            // Tap Field/Goalie or Absent → arm/disarm for Bench placement (not rotation queue).
+            // Manual: Bench→Field pair seeding (returns false on Field with no pending Bench).
+            if (_vm.IsManualRotationBasis
+                && player.Position is PlayerPosition.Bench or PlayerPosition.Field or PlayerPosition.Goalie
+                && _vm.TryManualPairTap(player))
+                return;
+
+            // Field/Goalie/Absent → arm for Bench placement (Field-first live sub / late arrival).
             if (player.Position is PlayerPosition.Field or PlayerPosition.Goalie or PlayerPosition.Inactive)
             {
                 _vm.ToggleFieldTapPlaceSelection(player);
                 return;
             }
 
-            // Bench tap → rotation queue (paired field/bench next-up).
+            // Non-Manual Bench → auto-paired rotation queue.
             if (_vm.HasFieldTapPlaceSelection)
                 _vm.ClearFieldTapPlaceSelection();
             _vm.TapPlayerQueue(player);
