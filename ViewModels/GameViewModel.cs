@@ -937,6 +937,24 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
+    /// Restart the rotation countdown from the preset without swapping anyone.
+    /// Used when the coach declines to rotate after the clock times out.
+    /// </summary>
+    public void ResetRotationClock()
+    {
+        if (IsMember) return;
+
+        _timer.ResetCountdown(continueRunning: _timer.TimerRunning);
+        RotationDue = false;
+        RotationWarning = false;
+        UpdateCountdownDisplay();
+        _ = ForceCloudSaveAsync();
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] ⏱ ResetRotationClock — countdown={_timer.CountdownRemainingSeconds}s " +
+            $"running={_timer.TimerRunning}");
+    }
+
+    /// <summary>
     /// Re-seeds the FIFO rotation buffers to match the current <see cref="RotationCount"/>.
     /// Call this whenever RotationCount changes mid-game so the queues reflect the new size.
     /// </summary>
@@ -3057,6 +3075,97 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _lastBenchIdx = benchIdx;
     }
 
+    /// <summary>True while a match is in progress (not Setup / Finished).</summary>
+    public bool IsMatchInProgress
+        => Phase is not GamePhase.Setup and not GamePhase.Finished;
+
+    /// <summary>
+    /// Live Field/Goalie → specific Bench player: direct swap; incoming takes the vacated cell (or Goalie).
+    /// </summary>
+    public bool LiveSubstituteWithBenchPlayer(Player leaving, Player entering)
+    {
+        if (IsMember || !IsMatchInProgress) return false;
+        if (leaving.Position is not (PlayerPosition.Field or PlayerPosition.Goalie)) return false;
+        if (entering.Position != PlayerPosition.Bench) return false;
+
+        var leavingIdx = Players.IndexOf(leaving);
+        var enteringIdx = Players.IndexOf(entering);
+        if (leavingIdx < 0 || enteringIdx < 0) return false;
+
+        var wasGoalie = leaving.Position == PlayerPosition.Goalie;
+        var formationCell = leaving.FieldCell;
+
+        var rotNum = (_logger.CurrentSession?.Events.Count(e => e.EventType == GameEventType.RotationExecuted) ?? 0) + 1;
+        _logger.Log(GameEventType.RotationExecuted,
+            $"Live sub: {leaving.Name} OFF, {entering.Name} ON",
+            details: new Dictionary<string, object?>
+            {
+                ["playerOut"] = leaving.Name,
+                ["playerIn"] = entering.Name,
+                ["rotationNumber"] = rotNum,
+                ["liveTap"] = true
+            });
+
+        leaving.Position = PlayerPosition.Bench;
+        if (wasGoalie)
+        {
+            entering.Position = PlayerPosition.Goalie;
+        }
+        else
+        {
+            entering.Position = PlayerPosition.Field;
+            entering.FieldCell = formationCell;
+        }
+
+        _lastFieldIdx = leavingIdx;
+        _lastBenchIdx = enteringIdx;
+        AfterLiveSubstitution();
+        return true;
+    }
+
+    /// <summary>
+    /// Live Field/Goalie → Bench area (no specific token): leave to Bench; FIFO next Bench comes on.
+    /// </summary>
+    public bool LiveSubstituteWithNextBench(Player leaving)
+    {
+        if (IsMember || !IsMatchInProgress) return false;
+        if (leaving.Position is not (PlayerPosition.Field or PlayerPosition.Goalie)) return false;
+
+        PurgeStaleRotationQueueEntries();
+        var bench = BenchCandidates();
+        if (bench.Count == 0) return false;
+
+        int benchIdx = -1;
+        if (_manualBenchQueue.Count > 0)
+        {
+            var head = _manualBenchQueue.Peek();
+            if (head is int qi && qi >= 0 && qi < Players.Count
+                && Players[qi].Position == PlayerPosition.Bench)
+            {
+                benchIdx = _manualBenchQueue.Dequeue()!.Value;
+            }
+        }
+
+        if (benchIdx < 0)
+            benchIdx = NextIndexFrom(bench, _lastBenchIdx);
+        if (benchIdx < 0 || benchIdx >= Players.Count) return false;
+
+        return LiveSubstituteWithBenchPlayer(leaving, Players[benchIdx]);
+    }
+
+    private void AfterLiveSubstitution()
+    {
+        ClearFieldTapPlaceSelection();
+        PurgeStaleRotationQueueEntries();
+        if (RotationBasisOptions.Get() != RotationBasis.Manual)
+            SeedRotationQueues();
+        MarkNextPlayers();
+        RefreshRotationPairs();
+        RefreshDisplayItems();
+        NotifyRotationBasisUi();
+        _ = AutoSaveAsync();
+    }
+
     private List<int> FieldCandidates() =>
         Players
             .Select((p, i) => (p, i))
@@ -3509,11 +3618,44 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     public bool TryCompleteFieldTapPlaceOnPosition(PlayerPosition position)
     {
         if (position is PlayerPosition.Field or PlayerPosition.None) return false;
-        if (!TryTakeArmedPlayer(out var player)) return false;
+        if (FieldTapPlaceSlotId is not int slotId) return false;
+        var player = Players.FirstOrDefault(p => p.SlotId == slotId);
+        if (player is null)
+        {
+            ClearFieldTapPlaceSelection();
+            return false;
+        }
+
+        // Live match: Field/Goalie may only leave via Bench (FIFO when zone tapped, not Absent).
+        if (IsMatchInProgress)
+        {
+            if (position == PlayerPosition.Inactive
+                && player.Position is PlayerPosition.Field or PlayerPosition.Goalie)
+            {
+                ClearFieldTapPlaceSelection();
+                return false;
+            }
+
+            if (position == PlayerPosition.Bench
+                && player.Position is PlayerPosition.Field or PlayerPosition.Goalie)
+                return LiveSubstituteWithNextBench(player);
+
+            if (position == PlayerPosition.Bench && player.Position == PlayerPosition.Inactive)
+            {
+                if (!TryTakeArmedPlayer(out var late)) return false;
+                SetPlayerPosition(late, PlayerPosition.Bench);
+                return true;
+            }
+
+            ClearFieldTapPlaceSelection();
+            return false;
+        }
+
+        if (!TryTakeArmedPlayer(out player)) return false;
 
         if (position == PlayerPosition.Inactive)
         {
-            // Move only — do not exchange with anyone already Absent.
+            // Setup: move only — do not exchange with anyone already Absent.
             SetPlayerPosition(player, position);
             return true;
         }
@@ -3534,7 +3676,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// Complete tap-to-place onto another player token.
-    /// Absent targets: move armed only (no swap). Field/Bench/Goalie: swap roles/cells.
+    /// Setup: Absent = move-only; else swap. Live: Field/Goalie onto Bench token = direct sub;
+    /// live Field/Goalie onto Absent = blocked.
     /// </summary>
     public bool TryCompleteFieldTapPlaceOntoPlayer(Player target)
     {
@@ -3545,7 +3688,38 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             return false;
         }
 
-        if (!TryTakeArmedPlayer(out var armed)) return false;
+        if (FieldTapPlaceSlotId is not int slotId) return false;
+        var armed = Players.FirstOrDefault(p => p.SlotId == slotId);
+        if (armed is null)
+        {
+            ClearFieldTapPlaceSelection();
+            return false;
+        }
+
+        if (IsMatchInProgress)
+        {
+            if (armed.Position is PlayerPosition.Field or PlayerPosition.Goalie)
+            {
+                if (target.Position == PlayerPosition.Bench)
+                    return LiveSubstituteWithBenchPlayer(armed, target);
+
+                // Live: cannot send Field/Goalie to Absent (or other non-bench targets).
+                ClearFieldTapPlaceSelection();
+                return false;
+            }
+
+            if (armed.Position == PlayerPosition.Inactive && target.Position == PlayerPosition.Bench)
+            {
+                if (!TryTakeArmedPlayer(out var late)) return false;
+                SetPlayerPosition(late, PlayerPosition.Bench);
+                return true;
+            }
+
+            ClearFieldTapPlaceSelection();
+            return false;
+        }
+
+        if (!TryTakeArmedPlayer(out armed)) return false;
 
         if (target.Position == PlayerPosition.Inactive)
         {

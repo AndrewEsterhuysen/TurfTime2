@@ -1255,21 +1255,23 @@ public partial class GamePage : ContentPage
             SwipeableRoster.ScrollTo(0, position: ScrollToPosition.Start, animate: false);
     }
 
+    private const string ResetRotationClockOption = "Reset Clk";
+
     /// <summary>
-    /// Value selector: 1 … max bench players. Full FIFO reseed on change (no extra AutoSave).
+    /// Long-press sheet: Reset Clk (restart rotation countdown, no swaps), then 1 … max bench.
+    /// Changing the count fully reseeds FIFO queues.
     /// </summary>
     private async Task ShowRotationCountDialog()
     {
         if (_vm is null || _vm.IsMember) return;
 
         var max = _vm.MaxRotationCount;
-        if (max < 1)
-        {
-            await DisplayAlertAsync("Rotation Count", "Assign bench players first.", "OK");
-            return;
-        }
+        // Still allow Reset Clk even when no bench players are assigned yet.
+        var countOptions = max >= 1
+            ? Enumerable.Range(1, max).Select(n => n.ToString())
+            : Enumerable.Empty<string>();
+        var options = new[] { ResetRotationClockOption }.Concat(countOptions).ToArray();
 
-        var options = Enumerable.Range(1, max).Select(n => n.ToString()).ToArray();
         var result = await DisplayActionSheetAsync(
             "Rotate how many players?",
             "Cancel",
@@ -1277,6 +1279,20 @@ public partial class GamePage : ContentPage
             options);
 
         if (result is null || result == "Cancel") return;
+
+        if (result == ResetRotationClockOption)
+        {
+            _vm.ResetRotationClock();
+            System.Diagnostics.Debug.WriteLine("[GamePage] ⏱ Reset Clk — rotation countdown restarted");
+            return;
+        }
+
+        if (max < 1)
+        {
+            await DisplayAlertAsync("Rotation Count", "Assign bench players first.", "OK");
+            return;
+        }
+
         if (!int.TryParse(result, out var count)) return;
 
         var previous = _vm.RotationCount;
@@ -1804,7 +1820,7 @@ public partial class GamePage : ContentPage
     {
         if (_vm is null || _vm.IsMember) return;
         FlushPendingFieldSingleTap();
-        // Absent = move only (no swap).
+        // Live Field→Absent is blocked inside TryComplete; Setup still allows move-only.
         _vm.TryCompleteFieldTapPlaceOnPosition(PlayerPosition.Inactive);
     }
 
@@ -1837,6 +1853,15 @@ public partial class GamePage : ContentPage
         System.Diagnostics.Debug.WriteLine($"[GamePage] Bench DROP ← {player.Name} ({player.Position})");
         CancelPendingFieldSingleTap();
         _vm.ClearFieldTapPlaceSelection();
+
+        // Live: Field/Goalie onto Bench area → FIFO substitute (not a plain demotion).
+        if (_vm.IsMatchInProgress
+            && player.Position is PlayerPosition.Field or PlayerPosition.Goalie)
+        {
+            _vm.LiveSubstituteWithNextBench(player);
+            return;
+        }
+
         _vm.SetPlayerPosition(player, PlayerPosition.Bench);
     }
 
@@ -1882,7 +1907,13 @@ public partial class GamePage : ContentPage
         if (_vm is null || _vm.IsMember) return;
         if (!TryGetDraggedPlayer(e, out var player)) return;
         _vm.ClearFieldTapPlaceSelection();
-        // Absent = move only (no swap).
+
+        // Live: players leave the pitch only via the Bench — block Field/Goalie → Absent.
+        if (_vm.IsMatchInProgress
+            && player.Position is PlayerPosition.Field or PlayerPosition.Goalie)
+            return;
+
+        // Setup (and non-pitch sources): move only (no swap).
         _vm.SetPlayerPosition(player, PlayerPosition.Inactive);
     }
 
@@ -1891,9 +1922,8 @@ public partial class GamePage : ContentPage
            && (e.Data.Properties.ContainsKey(FieldDragSlotIdKey) || _activeDragSlotId > 0);
 
     /// <summary>
-    /// Single tap: Setup = arm tap-to-place / complete move-swap.
-    /// Live match: Field/Bench = rotation queue; Absent = arm for Bench placement (late arrivals).
-    /// Double-tap (separate recognizer) opens rename and clears any arm.
+    /// Setup: arm tap-to-place / complete move-swap (unchanged).
+    /// Live: Bench = rotation queue; Field/Goalie = arm for Bench sub; Absent = arm for Bench (late arrival).
     /// </summary>
     private void OnFieldViewPlayerTapped(object? sender, TappedEventArgs e)
     {
@@ -1903,22 +1933,27 @@ public partial class GamePage : ContentPage
         var player = ResolveFieldViewPlayer(bindable);
         if (player is null) return;
 
-        // Live match (and HalfTime / Ended): Absent can still be moved to Bench.
-        if (_vm.Phase is not GamePhase.Setup and not GamePhase.Finished)
+        if (_vm.IsMatchInProgress)
         {
             CancelPendingFieldSingleTap();
 
-            // Tap Absent → arm/disarm for placement onto Bench (not rotation queue).
-            if (player.Position == PlayerPosition.Inactive)
+            // Completing an armed Field/Goalie/Absent onto a Bench token.
+            if (_vm.HasFieldTapPlaceSelection && player.Position == PlayerPosition.Bench)
+            {
+                _vm.TryCompleteFieldTapPlaceOntoPlayer(player);
+                return;
+            }
+
+            // Tap Field/Goalie or Absent → arm/disarm for Bench placement (not rotation queue).
+            if (player.Position is PlayerPosition.Field or PlayerPosition.Goalie or PlayerPosition.Inactive)
             {
                 _vm.ToggleFieldTapPlaceSelection(player);
                 return;
             }
 
-            // Any prior arm (e.g. Absent) is cleared; Field/Bench taps drive the rotation queue.
+            // Bench tap → rotation queue (paired field/bench next-up).
             if (_vm.HasFieldTapPlaceSelection)
                 _vm.ClearFieldTapPlaceSelection();
-
             _vm.TapPlayerQueue(player);
             return;
         }

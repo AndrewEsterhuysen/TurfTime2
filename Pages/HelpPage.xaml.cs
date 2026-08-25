@@ -191,7 +191,7 @@ public partial class HelpPage : ContentPage
                 <li><strong>Tap</strong> executes the next rotation — swaps the selected number of field players off and bench players on.</li>
                 <li>Resets the rotation countdown.</li>
                 <li>Button label shows the current count, e.g. <span class='key'>Rotate 2</span>.</li>
-                <li><em>Hold ~1 second</em> to open the <strong>rotation count</strong> selector (1 up to the number of bench players). Choosing a new count fully re-seeds the next-up FIFO queues from automatic order (manual queue picks are not kept).</li>
+                <li><em>Hold ~1 second</em> to open a sheet: <strong>Reset Clk</strong> restarts the rotation countdown without swapping anyone (use when the clock timed out but you want to leave the field/bench as is); or choose <strong>1 … N</strong> bench players to rotate. Choosing a new count fully re-seeds the next-up FIFO queues from automatic order (manual queue picks are not kept).</li>
                 <li>Controller only on shared teams (view-only devices cannot rotate or change the count).</li>
             </ul>
         </li>
@@ -221,7 +221,7 @@ public partial class HelpPage : ContentPage
     <ul>
         <li><strong>Centre panel:</strong> Lists each upcoming swap — bench player coming <em>on</em> (blue, left-aligned) and field player going <em>off</em> (orange, right-aligned). How many pairs appear matches the rotation count.</li>
         <li><strong>Tap to Rotate:</strong> Tap the centre panel to execute the same rotation as the bottom <span class='key'>Rotate</span> button (controller only on shared teams).</li>
-        <li><strong>Hold ~1 second</strong> on the centre panel (or on <span class='key'>Rotate</span>) to choose how many players to rotate (1 … max on the bench). Same full FIFO reseed as holding Rotate.</li>
+        <li><strong>Hold ~1 second</strong> on the centre panel (or on <span class='key'>Rotate</span>) for <strong>Reset Clk</strong> or to choose how many players to rotate (1 … max on the bench). Same sheet as holding Rotate.</li>
         <li><strong>Left strip (green — Us):</strong> Shows your score. Tap to +1, double-tap to −1 (controller only on shared teams).</li>
         <li><strong>Right strip (red — Them):</strong> Shows opponent score. Tap to +1, double-tap to −1 (controller only on shared teams).</li>
         <li>Designed for sideline communication — large text, high contrast.</li>
