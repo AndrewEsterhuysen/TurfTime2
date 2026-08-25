@@ -1891,8 +1891,8 @@ public partial class GamePage : ContentPage
            && (e.Data.Properties.ContainsKey(FieldDragSlotIdKey) || _activeDragSlotId > 0);
 
     /// <summary>
-    /// Single tap: during Setup, arm tap-to-place or complete a move/swap.
-    /// During a live match, toggle rotation queue (unchanged).
+    /// Single tap: Setup = arm tap-to-place / complete move-swap.
+    /// Live match: Field/Bench = rotation queue; Absent = arm for Bench placement (late arrivals).
     /// Double-tap (separate recognizer) opens rename and clears any arm.
     /// </summary>
     private void OnFieldViewPlayerTapped(object? sender, TappedEventArgs e)
@@ -1903,12 +1903,22 @@ public partial class GamePage : ContentPage
         var player = ResolveFieldViewPlayer(bindable);
         if (player is null) return;
 
-        // Live match: rotation queue (immediate).
+        // Live match (and HalfTime / Ended): Absent can still be moved to Bench.
         if (_vm.Phase is not GamePhase.Setup and not GamePhase.Finished)
         {
             CancelPendingFieldSingleTap();
+
+            // Tap Absent → arm/disarm for placement onto Bench (not rotation queue).
+            if (player.Position == PlayerPosition.Inactive)
+            {
+                _vm.ToggleFieldTapPlaceSelection(player);
+                return;
+            }
+
+            // Any prior arm (e.g. Absent) is cleared; Field/Bench taps drive the rotation queue.
             if (_vm.HasFieldTapPlaceSelection)
                 _vm.ClearFieldTapPlaceSelection();
+
             _vm.TapPlayerQueue(player);
             return;
         }

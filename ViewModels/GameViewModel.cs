@@ -864,11 +864,13 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                     // User pressed "1/2 Time" — stop the timers for the break.
                     _timer.PauseMatch();
                     _logger.Log(GameEventType.HalfTime, "Half-time");
-                    StartButtonText = "Resume";
+                    // Clear overdue pulse; button becomes "2nd Half" (not mid-half "Resume").
+                    UpdateTimerDisplays();
+                    RefreshStartButtonText();
                 }
                 else
                 {
-                    // User pressed "Resume" — start the second half.
+                    // User pressed "2nd Half" — start the second half.
                     _timer.StartSecondHalf();
                     _timer.ResumeMatch();
                     _timer.ResetCountdown(continueRunning: true);
@@ -2696,16 +2698,39 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         _timer.PauseMatch();
         _logger.Log(GameEventType.GamePaused, "Match paused");
+        UpdateTimerDisplays();
+        RefreshStartButtonText();
+        // Immediate cloud push so view-only clients pause without waiting for debounce.
+        _ = ForceCloudSaveAsync();
+    }
+
+    /// <summary>
+    /// Start/Pause control label from phase + running state.
+    /// Half-time break (paused) → "2nd Half"; mid-half pause → "Resume".
+    /// </summary>
+    private void RefreshStartButtonText()
+    {
+        if (_timer.TimerRunning)
+        {
+            StartButtonText = Phase switch
+            {
+                GamePhase.HalfTime => "1/2 Time",
+                GamePhase.Ended    => "End",
+                GamePhase.Finished => "Reset",
+                GamePhase.Setup    => "Start",
+                _                  => "Pause"
+            };
+            return;
+        }
+
         StartButtonText = Phase switch
         {
-            GamePhase.HalfTime => "1/2 Time",
+            GamePhase.HalfTime => "2nd Half",
             GamePhase.Ended    => "End",
             GamePhase.Finished => "Reset",
             GamePhase.Setup    => "Start",
-            _                  => "Resume"
+            _                  => "Resume" // FirstHalf / SecondHalf mid-period pause
         };
-        // Immediate cloud push so view-only clients pause without waiting for debounce.
-        _ = ForceCloudSaveAsync();
     }
 
     private void EndGame()
