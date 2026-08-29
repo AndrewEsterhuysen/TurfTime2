@@ -60,6 +60,11 @@
                             <DataTrigger TargetType="Border" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
                                 <Setter Property="Opacity" Value="0.45" />
                             </DataTrigger>
+                            <!-- Yellow outline when armed for select-and-drop (same as Field View). -->
+                            <DataTrigger TargetType="Border" Binding="{Binding IsFieldTapSelected}" Value="{x:Boolean True}">
+                                <Setter Property="Stroke" Value="#FFEB3B" />
+                                <Setter Property="StrokeThickness" Value="3" />
+                            </DataTrigger>
                         </Border.Triggers>
                         <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto"
                               Padding="4,9">
@@ -169,6 +174,10 @@
                         <Border.Triggers>
                             <DataTrigger TargetType="Border" Binding="{Binding IsDragging}" Value="{x:Boolean True}">
                                 <Setter Property="Opacity" Value="0.45" />
+                            </DataTrigger>
+                            <DataTrigger TargetType="Border" Binding="{Binding IsFieldTapSelected}" Value="{x:Boolean True}">
+                                <Setter Property="Stroke" Value="#FFEB3B" />
+                                <Setter Property="StrokeThickness" Value="3" />
                             </DataTrigger>
                         </Border.Triggers>
                         <Grid ColumnDefinitions="Auto,Auto,*,Auto"
@@ -400,8 +409,8 @@
                     HeightRequest="36"
                     Padding="8,0"
                     Clicked="OnSessionViewOnlyToggleClicked" />
-            <Label Text="Manual — tap Bench then Field to set each rotation pair. Tap Field first then Bench to sub now."
-                   IsVisible="{Binding ShowManualRotationHint}"
+            <Label Text="{Binding RotationBasisHintText}"
+                   IsVisible="{Binding ShowRotationBasisHint}"
                    TextColor="#FFE082"
                    FontSize="11"
                    FontAttributes="Bold"
@@ -928,10 +937,11 @@
                                    HorizontalTextAlignment="Center"
                                    BackgroundColor="Transparent"
                                    InputTransparent="True" />
+                            <!-- Near-invisible fill so Android hit-tests empty Absent area when ScrollView is pass-through. -->
                             <Grid x:Name="InactiveHitLayer"
                                   MinimumHeightRequest="56"
                                   HeightRequest="56"
-                                  BackgroundColor="Transparent"
+                                  BackgroundColor="#01FFFFFF"
                                   HorizontalOptions="Fill">
                                 <Grid.GestureRecognizers>
                                     <DropGestureRecognizer AllowDrop="True"
@@ -941,6 +951,7 @@
                                     <TapGestureRecognizer Tapped="OnInactiveBandTapped" />
                                 </Grid.GestureRecognizers>
 
+                                <!-- Pass-through when anyone is armed so Bench→Absent / empty-area taps reach the hit layer. -->
                                 <ScrollView x:Name="InactiveTokenScroll"
                                             Orientation="Horizontal"
                                             BackgroundColor="Transparent"

@@ -214,7 +214,7 @@ namespace TurfTime2
         {
             if (Preferences.Get(DEMO_TEAM_SEEDED_KEY, false))
             {
-                EnsureDemoTeamCountdownPreset();
+                EnsureDemoTeamDefaults();
                 return Task.CompletedTask;
             }
 
@@ -223,7 +223,7 @@ namespace TurfTime2
             if (!string.IsNullOrWhiteSpace(existingTeamMode) && !string.IsNullOrWhiteSpace(existingTeamId))
             {
                 Preferences.Set(DEMO_TEAM_SEEDED_KEY, true);
-                EnsureDemoTeamCountdownPreset();
+                EnsureDemoTeamDefaults();
                 return Task.CompletedTask;
             }
 
@@ -241,10 +241,33 @@ namespace TurfTime2
             Preferences.Set($"roster_snapshot_{DEMO_TEAM_ID}", JsonSerializer.Serialize(snapshot));
 
             Preferences.Set(DEMO_TEAM_SEEDED_KEY, true);
-            EnsureDemoTeamCountdownPreset();
+            EnsureDemoTeamDefaults();
             System.Diagnostics.Debug.WriteLine("[App] ✅ Demo team seeded for first launch.");
 
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Default Demo Team outfield formation: SlotIds 1–5 → FieldCells 1, 4, 5, 8, 10.
+        /// Slot 6 remains Goalie (no outfield cell).
+        /// </summary>
+        private static readonly IReadOnlyDictionary<int, int> DemoFieldCellBySlot =
+            new Dictionary<int, int>
+            {
+                [1] = 1,
+                [2] = 4,
+                [3] = 5,
+                [4] = 8,
+                [5] = 10
+            };
+
+        /// <summary>Idempotent demo-team migrations (countdown, names, field cells, Absent).</summary>
+        private static void EnsureDemoTeamDefaults()
+        {
+            EnsureDemoTeamCountdownPreset();
+            EnsureDemoTeamPlayerNames();
+            EnsureDemoTeamFieldCells();
+            EnsureDemoTeamAbsentPlayers();
         }
 
         private static void EnsureDemoTeamCountdownPreset()
@@ -275,6 +298,212 @@ namespace TurfTime2
             }
         }
 
+        /// <summary>
+        /// Rewrites legacy demo defaults ("Player 1") to <see cref="Player.DefaultName"/> ("#01 Player").
+        /// Custom renamed players are left alone.
+        /// </summary>
+        private static void EnsureDemoTeamPlayerNames()
+        {
+            try
+            {
+                var snapshotKey = $"roster_snapshot_{DEMO_TEAM_ID}";
+                var snapshotRaw = Preferences.Get(snapshotKey, string.Empty);
+                if (string.IsNullOrWhiteSpace(snapshotRaw)) return;
+
+                var snapshot = JsonSerializer.Deserialize<RosterSnapshot>(snapshotRaw);
+                if (snapshot?.Players is null || snapshot.Players.Count == 0) return;
+
+                var changed = false;
+                foreach (var ps in snapshot.Players)
+                {
+                    if (ps.SlotId is < 1 or > 16) continue;
+                    if (!IsLegacyDefaultPlayerName(ps.Name, ps.SlotId)) continue;
+
+                    ps.Name = Player.DefaultName(ps.SlotId);
+                    changed = true;
+                }
+
+                if (!changed) return;
+
+                snapshot.LastModifiedUtc = DateTimeOffset.UtcNow;
+                Preferences.Set(snapshotKey, JsonSerializer.Serialize(snapshot));
+                System.Diagnostics.Debug.WriteLine("[App] ✅ Demo team player names migrated to #NN Player.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Failed to migrate demo player names: {ex.Message}");
+            }
+        }
+
+        /// <summary>True for empty names or legacy "Player N" / "Player 0N" defaults.</summary>
+        private static bool IsLegacyDefaultPlayerName(string? name, int slotId)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return true;
+            var trimmed = name.Trim();
+            if (string.Equals(trimmed, $"Player {slotId}", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (string.Equals(trimmed, $"Player {slotId:D2}", StringComparison.OrdinalIgnoreCase))
+                return true;
+            // Already on the new convention.
+            if (string.Equals(trimmed, Player.DefaultName(slotId), StringComparison.Ordinal))
+                return false;
+            return false;
+        }
+
+        /// <summary>
+        /// Backfills missing outfield grid cells on Demo Team so Field View shows tokens.
+        /// Only writes when <see cref="PlayerSnapshot.Field"/> is true and <c>FieldCell</c> is unset (0);
+        /// leaves Goalie and already-placed cells alone.
+        /// </summary>
+        private static void EnsureDemoTeamFieldCells()
+        {
+            try
+            {
+                var snapshotKey = $"roster_snapshot_{DEMO_TEAM_ID}";
+                var snapshotRaw = Preferences.Get(snapshotKey, string.Empty);
+                if (string.IsNullOrWhiteSpace(snapshotRaw)) return;
+
+                var snapshot = JsonSerializer.Deserialize<RosterSnapshot>(snapshotRaw);
+                if (snapshot?.Players is null || snapshot.Players.Count == 0) return;
+
+                var changed = false;
+                foreach (var ps in snapshot.Players)
+                {
+                    if (!ps.Field || ps.Goalie) continue;
+                    if (FieldGrid.Normalize(ps.FieldCell) is not null) continue;
+                    if (!DemoFieldCellBySlot.TryGetValue(ps.SlotId, out var cell)) continue;
+
+                    ps.FieldCell = cell;
+                    changed = true;
+                }
+
+                if (!changed) return;
+
+                snapshot.LastModifiedUtc = DateTimeOffset.UtcNow;
+                Preferences.Set(snapshotKey, JsonSerializer.Serialize(snapshot));
+                System.Diagnostics.Debug.WriteLine("[App] ✅ Demo team field cells assigned (1,4,5,8,10).");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Failed to migrate demo field cells: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Demo slots 10–16 should be Absent (Bench is only 7–9). Older seeds left role flags
+        /// unset → SnapshotPosition maps to Bench. A device-local start configuration can also
+        /// re-apply Bench after ApplySnapshot — repair both the roster snapshot and that layout.
+        /// </summary>
+        private static void EnsureDemoTeamAbsentPlayers()
+        {
+            try
+            {
+                var snapshotKey = $"roster_snapshot_{DEMO_TEAM_ID}";
+                var snapshotRaw = Preferences.Get(snapshotKey, string.Empty);
+                if (!string.IsNullOrWhiteSpace(snapshotRaw))
+                {
+                    var snapshot = JsonSerializer.Deserialize<RosterSnapshot>(snapshotRaw);
+                    if (snapshot?.Players is { Count: > 0 })
+                    {
+                        var changed = false;
+                        foreach (var ps in snapshot.Players)
+                        {
+                            if (ps.SlotId is < 10 or > 16) continue;
+                            // Leave anyone the user moved onto Field/Goalie alone.
+                            if (ps.Field || ps.Goalie) continue;
+                            if (ps.Inactive && !ps.Bench)
+                                continue;
+
+                            ps.Inactive = true;
+                            ps.Bench = false;
+                            ps.Field = false;
+                            ps.Goalie = false;
+                            ps.FieldCell = 0;
+                            changed = true;
+                        }
+
+                        if (changed)
+                        {
+                            snapshot.LastModifiedUtc = DateTimeOffset.UtcNow;
+                            Preferences.Set(snapshotKey, JsonSerializer.Serialize(snapshot));
+                            System.Diagnostics.Debug.WriteLine(
+                                "[App] ✅ Demo team slots 10–16 migrated to Absent (roster).");
+                        }
+                    }
+                }
+
+                // Start config is restored after ApplySnapshot and was still parking 10–16 on Bench.
+                RepairDemoTeamStartConfiguration();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Failed to migrate demo Absent players: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Rewrites Demo Team start-configuration rows so slots 10–16 are Absent (Inactive).
+        /// Clears the key if the payload is corrupt.
+        /// </summary>
+        private static void RepairDemoTeamStartConfiguration()
+        {
+            const string startConfigKey = "team_start_configuration_v1_" + DEMO_TEAM_ID;
+            try
+            {
+                var raw = Preferences.Get(startConfigKey, string.Empty);
+                if (string.IsNullOrWhiteSpace(raw))
+                    return;
+
+                using var doc = JsonDocument.Parse(raw);
+                if (!doc.RootElement.TryGetProperty("Rows", out var rowsEl) &&
+                    !doc.RootElement.TryGetProperty("rows", out rowsEl))
+                {
+                    Preferences.Remove(startConfigKey);
+                    return;
+                }
+
+                var rows = new List<Dictionary<string, int>>();
+                var changed = false;
+                foreach (var row in rowsEl.EnumerateArray())
+                {
+                    var slotId = row.TryGetProperty("SlotId", out var s) ? s.GetInt32()
+                        : row.TryGetProperty("slotId", out var s2) ? s2.GetInt32() : 0;
+                    var position = row.TryGetProperty("Position", out var p) ? p.GetInt32()
+                        : row.TryGetProperty("position", out var p2) ? p2.GetInt32() : (int)PlayerPosition.Bench;
+                    var fieldCell = row.TryGetProperty("FieldCell", out var f) ? f.GetInt32()
+                        : row.TryGetProperty("fieldCell", out var f2) ? f2.GetInt32() : 0;
+
+                    if (slotId is >= 10 and <= 16 && position != (int)PlayerPosition.Inactive)
+                    {
+                        position = (int)PlayerPosition.Inactive;
+                        fieldCell = 0;
+                        changed = true;
+                    }
+
+                    rows.Add(new Dictionary<string, int>
+                    {
+                        ["SlotId"] = slotId,
+                        ["Position"] = position,
+                        ["FieldCell"] = fieldCell
+                    });
+                }
+
+                if (!changed)
+                    return;
+
+                var payload = JsonSerializer.Serialize(new { Rows = rows });
+                Preferences.Set(startConfigKey, payload);
+                System.Diagnostics.Debug.WriteLine(
+                    "[App] ✅ Demo team start configuration: slots 10–16 → Absent.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[App] Demo start config repair failed ({ex.Message}); clearing key.");
+                Preferences.Remove(startConfigKey);
+            }
+        }
+
         private static RosterSnapshot BuildDemoRosterSnapshot()
         {
             var players = Enumerable.Range(1, 16)
@@ -285,8 +514,11 @@ namespace TurfTime2
                     Field = i is >= 1 and <= 5,
                     Goalie = i == 6,
                     Bench = i is >= 7 and <= 9,
-                    Inactive = false,
-                    CounterSeconds = 0
+                    // Slots 10–16 start Absent (not Bench). Unset flags would otherwise
+                    // map to Bench via SnapshotPosition after the Stack → Absent change.
+                    Inactive = i is >= 10 and <= 16,
+                    CounterSeconds = 0,
+                    FieldCell = DemoFieldCellBySlot.TryGetValue(i, out var cell) ? cell : 0
                 })
                 .ToList();
 
@@ -403,7 +635,17 @@ namespace TurfTime2
 
                     System.Diagnostics.Debug.WriteLine($"[App] Processing deep link: {uri}");
 
-                    if (!QrCodeService.TryParseTeamShareData(uri.ToString(), out var teamData, out var parseError) ||
+                    var linkText = uri.ToString();
+                    // iOS often delivers OAuth / App Invite / unrelated custom-scheme URLs
+                    // (e.g. com.…:) on cold start. Those are not team shares — ignore quietly.
+                    if (!QrCodeService.LooksLikeTurfTeamLink(linkText))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[App] Ignoring non-Turf deep link: {linkText}");
+                        return;
+                    }
+
+                    if (!QrCodeService.TryParseTeamShareData(linkText, out var teamData, out var parseError) ||
                         teamData is null)
                     {
                         System.Diagnostics.Debug.WriteLine($"[App] Deep link parse failed: {parseError}");

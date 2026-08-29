@@ -113,10 +113,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>True when Options → Rotation Basis is Manual (coach taps who rotates).</summary>
     public bool IsManualRotationBasis => RotationBasisOptions.Get() == RotationBasis.Manual;
 
-    /// <summary>Short Game-tab hint when Manual basis is active during a live match.</summary>
-    public bool ShowManualRotationHint
-        => IsManualRotationBasis
-           && Phase is not GamePhase.Setup and not GamePhase.Finished;
+    /// <summary>Yellow Game-tab rotation-basis tip during a live match (all bases).</summary>
+    public bool ShowRotationBasisHint
+        => Phase is not GamePhase.Setup and not GamePhase.Finished;
+
+    /// <summary>Text for <see cref="ShowRotationBasisHint"/>.</summary>
+    public string RotationBasisHintText
+        => RotationBasisOptions.GameTabHint(RotationBasisOptions.Get());
+
+    /// <summary>Kept for any lingering bindings; prefer <see cref="ShowRotationBasisHint"/>.</summary>
+    public bool ShowManualRotationHint => ShowRotationBasisHint && IsManualRotationBasis;
 
     // Singleton header object so bindings survive list rebuilds.
     private readonly InactiveGroupHeader _inactiveHeader = new();
@@ -278,7 +284,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         get => _rotationCount;
         set
         {
-            if (Set(ref _rotationCount, Math.Max(1, value)))
+            // Manual may be 0 (no pairs seeded yet); other bases stay at least 1.
+            var min = IsManualRotationBasis ? 0 : 1;
+            if (Set(ref _rotationCount, Math.Max(min, value)))
             {
                 UpdateRotateButtonText();
                 MarkNextPlayers();
@@ -556,6 +564,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 RestoreStartConfigurationIfAvailable();
             else
                 ViewMode = TeamViewMode.Field;
+
+            // After snapshot + start-config: force Demo extras to Absent (stale Bench layouts).
+            ApplyDemoTeamAbsentDefaults();
+            if (string.Equals(_currentTeamId, DemoTeamId, StringComparison.Ordinal) && !IsMember)
+            {
+                SaveStartConfiguration();
+                MarkNextPlayers();
+                RefreshRotationPairs();
+                RefreshDisplayItems();
+            }
 
             NotifyRoleProperties();
             UpdateStartButtonState();
@@ -921,15 +939,18 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         // Field/Bench — purge before counting swaps or we send an extra player off the pitch.
         PurgeStaleRotationQueueEntries();
 
-        var count = Math.Min(RotationCount,
-            Math.Min(BenchCandidates().Count, FieldCandidates().Count));
+        var basis = RotationBasisOptions.Get();
+        // Manual: only the seeded pairs. Auto modes: up to RotationCount.
+        var count = basis == RotationBasis.Manual
+            ? Math.Min(_manualFieldQueue.Count, _manualBenchQueue.Count)
+            : Math.Min(RotationCount,
+                Math.Min(BenchCandidates().Count, FieldCandidates().Count));
 
         System.Diagnostics.Debug.WriteLine(
-            $"[GameViewModel] 🔄 ExecuteRotations ─ swapping {count} player(s) | " +
+            $"[GameViewModel] 🔄 ExecuteRotations ─ swapping {count} player(s) basis={basis} | " +
             $"field-q=[{QueueString(_manualFieldQueue)}] | " +
             $"bench-q=[{QueueString(_manualBenchQueue)}]");
 
-        var basis = RotationBasisOptions.Get();
         // Capture walk length before swaps — formation occupancy changes after RotateOnce.
         var positionWalkLen = basis == RotationBasis.PositionBased
             ? RotationOrderBuilder.PositionBasedFieldOrder(Players).Count
@@ -942,14 +963,26 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (basis == RotationBasis.PositionBased && count > 0 && positionWalkLen > 0)
             _lastPositionWalkOffset = (_lastPositionWalkOffset + count) % positionWalkLen;
 
-        // Auto modes refill next-up; Manual leaves remaining taps only (no inventing new picks).
-        if (basis != RotationBasis.Manual)
+        if (basis == RotationBasis.Manual)
+        {
+            // After Manual rotate: wipe selection — user must seed new pairs.
+            _manualFieldQueue.Clear();
+            _manualBenchQueue.Clear();
+            ClearManualPairPending();
+            _rotationCount = 0;
+            UpdateRotateButtonText();
+            OnPropertyChanged(nameof(RotationCount));
+        }
+        else
+        {
+            // Auto modes refill next-up.
             SeedRotationQueues();
+        }
 
         System.Diagnostics.Debug.WriteLine(
             $"[GameViewModel] ✅ ExecuteRotations ─ done | next: " +
             $"field-q=[{QueueString(_manualFieldQueue)}] | " +
-            $"bench-q=[{QueueString(_manualBenchQueue)}]");
+            $"bench-q=[{QueueString(_manualBenchQueue)}] RotationCount={RotationCount}");
 
         _timer.ResetCountdown(continueRunning: _timer.TimerRunning);
         MarkNextPlayers();
@@ -1301,6 +1334,50 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         SyncSelectionHighlights();
     }
 
+    /// <summary>
+    /// Manual basis: seed one Bench↔Field/Goalie pair into the rotation buffers (up to bench size).
+    /// Clears any tap-place arm / pending pair state.
+    /// </summary>
+    public bool TrySeedManualPair(Player benchPlayer, Player fieldPlayer)
+    {
+        if (IsMember || !IsMatchInProgress || !IsManualRotationBasis) return false;
+        if (benchPlayer.Position != PlayerPosition.Bench) return false;
+        if (fieldPlayer.Position is not (PlayerPosition.Field or PlayerPosition.Goalie)) return false;
+
+        var benchIdx = Players.IndexOf(benchPlayer);
+        var fieldIdx = Players.IndexOf(fieldPlayer);
+        if (benchIdx < 0 || fieldIdx < 0) return false;
+
+        // Already queued → treat as no-op success after clearing arms.
+        if (_manualBenchQueue.Any(s => s == benchIdx) || _manualFieldQueue.Any(s => s == fieldIdx))
+        {
+            ClearFieldTapPlaceSelection();
+            ClearManualPairPending();
+            return true;
+        }
+
+        var maxSize = BenchCandidates().Count;
+        if (maxSize < 1 || _manualBenchQueue.Count >= maxSize)
+        {
+            ClearFieldTapPlaceSelection();
+            ClearManualPairPending();
+            return false;
+        }
+
+        _manualBenchQueue.Enqueue(benchIdx);
+        _manualFieldQueue.Enqueue(fieldIdx);
+        _rotationCount = Math.Max(1, _manualBenchQueue.Count);
+        UpdateRotateButtonText();
+        OnPropertyChanged(nameof(RotationCount));
+        ClearFieldTapPlaceSelection();
+        ClearManualPairPending();
+        MarkNextPlayers();
+        RefreshRotationPairs();
+        System.Diagnostics.Debug.WriteLine(
+            $"[GameViewModel] 👆 Manual pair seeded {benchPlayer.Name} ↔ {fieldPlayer.Name} | RotationCount={RotationCount}");
+        return true;
+    }
+
     private void ClearFieldTapPlaceSelectionKeepingPair()
     {
         // Clear yellow field-tap-place arm without wiping Manual pair pending highlight.
@@ -1611,7 +1688,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     public void DecrementRotationCount()
     {
-        if (RotationCount > 1)
+        var min = IsManualRotationBasis ? 0 : 1;
+        if (RotationCount > min)
             RotationCount--;
     }
 
@@ -2348,6 +2426,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 Players.Add(player);
 
             NormalizeUnpositionedToBench();
+            ApplyDemoTeamAbsentDefaults();
 
             _lastFieldIdx = -1;
             _lastBenchIdx = -1;
@@ -2361,6 +2440,24 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[GameViewModel] RestoreStartConfiguration failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Demo Team canonical extras: slots 10–16 Absent unless already Field/Goalie.
+    /// Needed because start-configuration restore can re-apply a stale all-Bench layout.
+    /// </summary>
+    private void ApplyDemoTeamAbsentDefaults()
+    {
+        if (!string.Equals(_currentTeamId, DemoTeamId, StringComparison.Ordinal))
+            return;
+
+        foreach (var p in Players)
+        {
+            if (p.SlotId is < 10 or > 16) continue;
+            if (p.Position is PlayerPosition.Field or PlayerPosition.Goalie) continue;
+            if (p.Position == PlayerPosition.Inactive) continue;
+            p.Position = PlayerPosition.Inactive;
         }
     }
 
@@ -3099,9 +3196,18 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         {
             _manualFieldQueue.Clear();
             _manualBenchQueue.Clear();
+            _rotationCount = 0;
+            UpdateRotateButtonText();
+            OnPropertyChanged(nameof(RotationCount));
         }
         else
         {
+            if (_rotationCount < 1)
+            {
+                _rotationCount = 1;
+                UpdateRotateButtonText();
+                OnPropertyChanged(nameof(RotationCount));
+            }
             SeedRotationQueues();
         }
 
@@ -3114,6 +3220,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         OnPropertyChanged(nameof(IsManualRotationBasis));
         OnPropertyChanged(nameof(ShowManualRotationHint));
+        OnPropertyChanged(nameof(ShowRotationBasisHint));
+        OnPropertyChanged(nameof(RotationBasisHintText));
     }
 
     /// <summary>
@@ -3165,7 +3273,14 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         var bench = BenchCandidates();
         if (field.Count == 0 || bench.Count == 0) return;
 
-        // Use the queue head if available; otherwise fall back to auto-FIFO.
+        // Manual: never invent pairs — only dequeue seeded queue heads.
+        if (IsManualRotationBasis)
+        {
+            if (_manualFieldQueue.Count == 0 || _manualBenchQueue.Count == 0)
+                return;
+        }
+
+        // Use the queue head if available; otherwise fall back to auto-FIFO (non-Manual).
         // Queues are always compact (no null slots) so no drain loop is needed.
         int fieldIdx = _manualFieldQueue.Count > 0
             ? _manualFieldQueue.Dequeue()!.Value
@@ -3363,13 +3478,17 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     private void MarkNextPlayers()
     {
         // Pair field[i] with bench[i] so Field View can share outline colours per replacement.
-        // Manual tap-queue overrides take priority over the auto-FIFO pointers.
+        // Manual: queues only (never invent next-up). Auto: queues override FIFO pointers.
         var field = FieldCandidates();
         var bench = BenchCandidates();
-        var count = Math.Min(RotationCount, Math.Min(field.Count, bench.Count));
+        var manual = IsManualRotationBasis;
 
         var fieldQueue = _manualFieldQueue.Count > 0 ? _manualFieldQueue.ToArray() : null;
         var benchQueue = _manualBenchQueue.Count > 0 ? _manualBenchQueue.ToArray() : null;
+
+        var count = manual
+            ? Math.Min(fieldQueue?.Length ?? 0, benchQueue?.Length ?? 0)
+            : Math.Min(RotationCount, Math.Min(field.Count, bench.Count));
 
         var desiredNext = new Dictionary<int, int>(); // playerIndex → pairIndex
 
@@ -3378,12 +3497,24 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             if (fieldQueue is not null && pair < fieldQueue.Length && fieldQueue[pair] is null) continue;
             if (benchQueue is not null && pair < benchQueue.Length && benchQueue[pair] is null) continue;
 
-            var fi = fieldQueue is not null && pair < fieldQueue.Length
-                ? fieldQueue[pair]!.Value
-                : NextIndexFromWithOffset(field, _lastFieldIdx, pair);
-            var bi = benchQueue is not null && pair < benchQueue.Length
-                ? benchQueue[pair]!.Value
-                : NextIndexFromWithOffset(bench, _lastBenchIdx, pair);
+            int fi;
+            int bi;
+            if (manual)
+            {
+                if (fieldQueue is null || benchQueue is null) break;
+                if (pair >= fieldQueue.Length || pair >= benchQueue.Length) break;
+                fi = fieldQueue[pair]!.Value;
+                bi = benchQueue[pair]!.Value;
+            }
+            else
+            {
+                fi = fieldQueue is not null && pair < fieldQueue.Length
+                    ? fieldQueue[pair]!.Value
+                    : NextIndexFromWithOffset(field, _lastFieldIdx, pair);
+                bi = benchQueue is not null && pair < benchQueue.Length
+                    ? benchQueue[pair]!.Value
+                    : NextIndexFromWithOffset(bench, _lastBenchIdx, pair);
+            }
 
             if (fi < 0 || bi < 0) continue;
             desiredNext[fi] = pair;
@@ -3409,10 +3540,14 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         var field = FieldCandidates();
         var bench = BenchCandidates();
-        var count = Math.Min(RotationCount, Math.Min(field.Count, bench.Count));
+        var manual = IsManualRotationBasis;
 
         var fieldQueue = _manualFieldQueue.Count > 0 ? _manualFieldQueue.ToArray() : null;
         var benchQueue = _manualBenchQueue.Count > 0 ? _manualBenchQueue.ToArray() : null;
+
+        var count = manual
+            ? Math.Min(fieldQueue?.Length ?? 0, benchQueue?.Length ?? 0)
+            : Math.Min(RotationCount, Math.Min(field.Count, bench.Count));
 
         for (int i = 0; i < count; i++)
         {
@@ -3420,12 +3555,25 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             if (fieldQueue is not null && i < fieldQueue.Length && fieldQueue[i] is null) continue;
             if (benchQueue is not null && i < benchQueue.Length && benchQueue[i] is null) continue;
 
-            var fi = fieldQueue is not null && i < fieldQueue.Length
-                ? fieldQueue[i]!.Value
-                : NextIndexFromWithOffset(field, _lastFieldIdx, i);
-            var bi = benchQueue is not null && i < benchQueue.Length
-                ? benchQueue[i]!.Value
-                : NextIndexFromWithOffset(bench, _lastBenchIdx, i);
+            int fi;
+            int bi;
+            if (manual)
+            {
+                if (fieldQueue is null || benchQueue is null) break;
+                if (i >= fieldQueue.Length || i >= benchQueue.Length) break;
+                fi = fieldQueue[i]!.Value;
+                bi = benchQueue[i]!.Value;
+            }
+            else
+            {
+                fi = fieldQueue is not null && i < fieldQueue.Length
+                    ? fieldQueue[i]!.Value
+                    : NextIndexFromWithOffset(field, _lastFieldIdx, i);
+                bi = benchQueue is not null && i < benchQueue.Length
+                    ? benchQueue[i]!.Value
+                    : NextIndexFromWithOffset(bench, _lastBenchIdx, i);
+            }
+
             if (fi >= 0 && bi >= 0)
                 RotationPairs.Add(new RotationPair(Players[bi].Name, Players[fi].Name));
         }
@@ -3522,7 +3670,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     }
 
     private void UpdateRotateButtonText()
-        => RotateButtonText = $"Rotate {RotationCount}";
+        => RotateButtonText = RotationCount <= 0 ? "Rotate" : $"Rotate {RotationCount}";
 
     private void UpdateStartButtonState()
     {
@@ -3753,10 +3901,25 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// Place the armed player on field cell <paramref name="cell"/> (swap if occupied).
+    /// Live match: Absent cannot be parked onto pitch cells; Bench → empty field is allowed.
     /// </summary>
     public bool TryCompleteFieldTapPlaceOnCell(int cell)
     {
-        if (!TryTakeArmedPlayer(out var player)) return false;
+        if (FieldTapPlaceSlotId is not int slotId) return false;
+        var player = Players.FirstOrDefault(p => p.SlotId == slotId);
+        if (player is null)
+        {
+            ClearFieldTapPlaceSelection();
+            return false;
+        }
+
+        if (IsMatchInProgress && player.Position == PlayerPosition.Inactive)
+        {
+            ClearFieldTapPlaceSelection();
+            return false;
+        }
+
+        if (!TryTakeArmedPlayer(out player)) return false;
         PlaceOrSwapOnFieldCell(player, cell);
         return true;
     }
@@ -3778,9 +3941,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             return false;
         }
 
-        // Live match: Field/Goalie may only leave via Bench (FIFO when zone tapped, not Absent).
+        // Live match routing for armed tap-to-place destinations.
         if (IsMatchInProgress)
         {
+            // Field/Goalie leave the pitch only via Bench — not straight to Absent.
             if (position == PlayerPosition.Inactive
                 && player.Position is PlayerPosition.Field or PlayerPosition.Goalie)
             {
@@ -3788,9 +3952,23 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 return false;
             }
 
+            // Bench → Absent (injury / remove from lineup).
+            if (position == PlayerPosition.Inactive && player.Position == PlayerPosition.Bench)
+            {
+                if (!TryTakeArmedPlayer(out var injured)) return false;
+                SetPlayerPosition(injured, PlayerPosition.Inactive);
+                return true;
+            }
+
+            // Field/Goalie → empty Bench area: demote only (vacate cell; no one comes on).
+            // Direct swap still happens when completing onto a specific Bench token.
             if (position == PlayerPosition.Bench
                 && player.Position is PlayerPosition.Field or PlayerPosition.Goalie)
-                return LiveSubstituteWithNextBench(player);
+            {
+                if (!TryTakeArmedPlayer(out var leaving)) return false;
+                SetPlayerPosition(leaving, PlayerPosition.Bench);
+                return true;
+            }
 
             if (position == PlayerPosition.Bench && player.Position == PlayerPosition.Inactive)
             {
@@ -3858,6 +4036,14 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 // Live: cannot send Field/Goalie to Absent (or other non-bench targets).
                 ClearFieldTapPlaceSelection();
                 return false;
+            }
+
+            // Bench → Absent token (same as Absent zone).
+            if (armed.Position == PlayerPosition.Bench && target.Position == PlayerPosition.Inactive)
+            {
+                if (!TryTakeArmedPlayer(out var injured)) return false;
+                SetPlayerPosition(injured, PlayerPosition.Inactive);
+                return true;
             }
 
             if (armed.Position == PlayerPosition.Inactive && target.Position == PlayerPosition.Bench)

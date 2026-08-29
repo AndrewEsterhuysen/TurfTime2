@@ -45,4 +45,18 @@ public static class RotationBasisOptions
             "No automatic selection. Tap Bench then Field to seed each rotation pair (up to the bench size). Tap Field first then Bench to substitute immediately. The rotation countdown still runs as a reminder.",
         _ => string.Empty
     };
+
+    /// <summary>Short yellow banner on the Game tab during a live match (Field View and Team roster).</summary>
+    public static string GameTabHint(RotationBasis basis) => basis switch
+    {
+        RotationBasis.Sequential =>
+            "Sequential — roster-order Rotate. Field then Bench = sub; Bench then Absent = out; re-tap Bench = next-up queue (Team or Field View).",
+        RotationBasis.TimeBased =>
+            "Time Based — most time off, least on. Field then Bench = sub; Bench then Absent = out; re-tap Bench = next-up queue (Team or Field View).",
+        RotationBasis.PositionBased =>
+            "Position Based — grid-row cycle. Field then Bench = sub; Bench then Absent = out; re-tap Bench = next-up queue (Team or Field View).",
+        RotationBasis.Manual =>
+            "Manual — Bench then Field = pair; Rotate only those pairs then clears. Field then Bench = sub; Bench then Absent = out.",
+        _ => string.Empty
+    };
 }

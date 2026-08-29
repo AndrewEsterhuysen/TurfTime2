@@ -162,6 +162,53 @@ public static class QrCodeService
         return QrImageDecoder.DecodeQrFromImageStream(imageStream);
     }
 
+    /// <summary>
+    /// True when <paramref name="raw"/> looks like a Turf Time invite/import (not OAuth /
+    /// unrelated custom schemes such as <c>com.googleusercontent…</c>).
+    /// Used to silently ignore non-team deep links on cold start.
+    /// </summary>
+    public static bool LooksLikeTurfTeamLink(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return false;
+
+        raw = raw.Trim();
+
+        if (raw.StartsWith("turf://", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (raw.StartsWith('{') || raw.StartsWith('['))
+            return true;
+
+        if (LooksLikeBareInviteCode(raw))
+            return true;
+
+        if (raw.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri))
+                return false;
+
+            var path = (uri.AbsolutePath ?? string.Empty).Trim('/').ToLowerInvariant();
+            var host = (uri.Host ?? string.Empty).ToLowerInvariant();
+            if (path.Contains("join", StringComparison.Ordinal) ||
+                path.Contains("import", StringComparison.Ordinal) ||
+                host.Equals("join", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("import", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return QueryHasInviteKey(uri.Query) ||
+                   TryGetQueryValue(uri.Query, out _, "team", "import");
+        }
+
+        // Base64url team payloads are typically long and URL-safe; reject short / scheme-like strings.
+        if (raw.Contains("://", StringComparison.Ordinal) || raw.Contains('.', StringComparison.Ordinal))
+            return false;
+
+        return raw.Length >= 24 && raw.All(c =>
+            char.IsLetterOrDigit(c) || c is '-' or '_' or '+' or '/' or '=');
+    }
+
     public static bool TryParseTeamShareData(string raw, out TeamShareData? teamData, out string error)
     {
         teamData = null;
@@ -198,6 +245,14 @@ public static class QrCodeService
 
         if (TryDecodeTeamSharePayload(payload, out teamData, out error))
             return true;
+
+        // Never surface raw System.Text.Json exceptions ("'c' is an invalid start…") to users.
+        if (error.Contains("invalid start of a value", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("BytePositionInLine", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("LineNumber", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "This link is not a valid Turf Time team invite or import.";
+        }
 
         return false;
     }
