@@ -46,6 +46,14 @@ public partial class OptionsPage : ContentPage
             RotationBasisPicker.SelectedIndex = basisIdx >= 0 ? basisIdx : 0;
             RotationBasisDescriptionLabel.Text = RotationBasisOptions.Description(basis);
 
+            var infoText = InformationTextOptions.IsEnabled();
+            InformationTextSwitch.IsToggled = infoText;
+            InformationTextStateLabel.Text = infoText ? "ON" : "OFF";
+
+            var teamView = TeamViewOptions.IsEnabled();
+            TeamViewSwitch.IsToggled = teamView;
+            TeamViewStateLabel.Text = teamView ? "ON" : "OFF";
+
             RemindersEnabledSwitch.IsToggled = MatchReminderOptions.IsEnabled;
             RemindersMasterLabel.Text = MatchReminderOptions.IsEnabled ? "ON" : "OFF";
             ReminderDetailsPanel.IsVisible = MatchReminderOptions.IsEnabled;
@@ -86,6 +94,20 @@ public partial class OptionsPage : ContentPage
         var basis = BasisOrder[idx];
         RotationBasisOptions.Set(basis);
         RotationBasisDescriptionLabel.Text = RotationBasisOptions.Description(basis);
+    }
+
+    private void OnInformationTextToggled(object? sender, ToggledEventArgs e)
+    {
+        if (_loading) return;
+        InformationTextOptions.SetEnabled(e.Value);
+        InformationTextStateLabel.Text = e.Value ? "ON" : "OFF";
+    }
+
+    private void OnTeamViewToggled(object? sender, ToggledEventArgs e)
+    {
+        if (_loading) return;
+        TeamViewOptions.SetEnabled(e.Value);
+        TeamViewStateLabel.Text = e.Value ? "ON" : "OFF";
     }
 
     private async void OnRemindersEnabledToggled(object sender, ToggledEventArgs e)

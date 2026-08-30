@@ -64,6 +64,66 @@
                 </VerticalStackLayout>
             </Frame>
 
+            <!-- Optional Game-tab tips (rotation basis line today; more later) -->
+            <Frame BackgroundColor="#2e7d32"
+                   CornerRadius="10"
+                   Padding="20"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Information text"
+                           FontSize="18"
+                           FontAttributes="Bold"
+                           TextColor="White" />
+                    <Label Text="Show short instructional tips on the Game tab (for example the yellow rotation tip above Field View during a match). Turn off for a cleaner sideline display."
+                           FontSize="12"
+                           TextColor="#C8E6C9" />
+                    <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
+                        <Label x:Name="InformationTextStateLabel"
+                               Text="ON"
+                               FontSize="16"
+                               FontAttributes="Bold"
+                               TextColor="#A5D6A7"
+                               VerticalOptions="Center"
+                               WidthRequest="48" />
+                        <Switch x:Name="InformationTextSwitch"
+                                IsToggled="True"
+                                Toggled="OnInformationTextToggled"
+                                HorizontalOptions="Start"
+                                VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Legacy Team (roster list) View — off by default -->
+            <Frame BackgroundColor="#2e7d32"
+                   CornerRadius="10"
+                   Padding="20"
+                   HasShadow="True">
+                <VerticalStackLayout Spacing="10">
+                    <Label Text="Enable Team View"
+                           FontSize="18"
+                           FontAttributes="Bold"
+                           TextColor="White" />
+                    <Label Text="Include the roster list in the View cycle (Field → Team → Rotation). Off by default — Field toggles only with Rotation."
+                           FontSize="12"
+                           TextColor="#C8E6C9" />
+                    <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
+                        <Label x:Name="TeamViewStateLabel"
+                               Text="OFF"
+                               FontSize="16"
+                               FontAttributes="Bold"
+                               TextColor="#A5D6A7"
+                               VerticalOptions="Center"
+                               WidthRequest="48" />
+                        <Switch x:Name="TeamViewSwitch"
+                                IsToggled="False"
+                                Toggled="OnTeamViewToggled"
+                                HorizontalOptions="Start"
+                                VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
             <!-- Match reminders (local notifications) -->
             <Frame BackgroundColor="#2e7d32"
                    CornerRadius="10"

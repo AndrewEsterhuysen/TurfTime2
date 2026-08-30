@@ -26,8 +26,10 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 |------------|-------------|--------------|--------|
 | `LocalGame` | Match timer, rotation, on-field play | Free | Never gate |
 | `RotationBasis` | Options: Sequential / Time Based / Position Based / Manual (Bench→Field pair seed; Field→Bench = live sub) | Free | Device Preference `game.rotationBasis` (default Time Based); Manual keeps countdown reminder; never gate |
-| `FieldView` | Game tab Field View (pitch + right-gutter Bench + Absent strip behind goalie) | Free | Default surface for view-only; admin third View toggle; Absent stays visible during match; never gate |
-| `FieldViewPlacement` | Interactive Field View: 4×4 pitch cells; Setup tap-place/rename; live: Bench taps = rotation queue, Field arm→Bench (token=direct sub, area=FIFO), Absent→Bench for late arrivals (no live Field→Absent) | Free | Reuses `SetPlayerPosition` / live substitute helpers / `SwapPlayerRoles`; never gate |
+| `InformationText` | Options: show/hide Game-tab instructional tips (yellow rotation-basis line today; more tips later) | Free | Preference `game.informationText` (default on); never gate |
+| `EnableTeamView` | Options: include legacy Team (roster list) in View cycle | Free | Preference `game.enableTeamView` (**default off**); Field ↔ Rotation only when off; list UI retained in binary; never gate |
+| `FieldView` | Game tab Field View (pitch + right-gutter Bench + Absent strip behind goalie) | Free | **Default** Game View; View cycles Field ↔ Rotation (Team list optional via Enable Team View); view-only stays on Field; Absent stays visible during match; never gate |
+| `FieldViewPlacement` | Interactive Field View: 4×4 pitch cells; Setup tap-place/rename; live: Bench taps = rotation queue, Field arm→Bench (token=direct sub, area=FIFO), Absent→Bench for late arrivals (no live Field→Absent) | Free | Tokens show discreet `MM:SS` under initials (Field/Goalie/Bench; Absent name-only); reuses `SetPlayerPosition` / live substitute helpers / `SwapPlayerRoles`; never gate |
 | `LocalReports` | Reports from on-device session history | Free | Never gate |
 | `LocalTeams` | Create/edit teams stored on device | Free | Never gate |
 | `QrTeamShare` | Share/import team via QR (device-to-device) | Free | Offline-friendly; keep free |

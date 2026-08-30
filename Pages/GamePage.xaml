@@ -630,15 +630,35 @@
                                     <Setter Property="StrokeThickness" Value="3.5" />
                                 </DataTrigger>
                             </Border.Triggers>
-                            <Label Text="{Binding ShortName}"
-                                   TextColor="White"
-                                   FontSize="12"
-                                   FontAttributes="Bold"
-                                   HorizontalOptions="Center"
-                                   VerticalOptions="Center"
-                                   HorizontalTextAlignment="Center"
-                                   VerticalTextAlignment="Center"
-                                   InputTransparent="True" />
+                            <VerticalStackLayout Spacing="0"
+                                                 Padding="0,2,0,2"
+                                                 HorizontalOptions="Center"
+                                                 VerticalOptions="Center"
+                                                 InputTransparent="True">
+                                <Label Text="{Binding ShortName}"
+                                       TextColor="White"
+                                       FontSize="10"
+                                       FontAttributes="Bold"
+                                       HorizontalOptions="Center"
+                                       HorizontalTextAlignment="Center"
+                                       LineBreakMode="NoWrap"
+                                       InputTransparent="True" />
+                                <Label Text="{Binding FieldTimeDisplay}"
+                                       TextColor="#D9FFFFFF"
+                                       FontSize="8"
+                                       HorizontalOptions="Center"
+                                       HorizontalTextAlignment="Center"
+                                       LineBreakMode="NoWrap"
+                                       InputTransparent="True">
+                                    <Label.Triggers>
+                                        <DataTrigger TargetType="Label"
+                                                     Binding="{Binding Position}"
+                                                     Value="{x:Static models:PlayerPosition.Inactive}">
+                                            <Setter Property="IsVisible" Value="False" />
+                                        </DataTrigger>
+                                    </Label.Triggers>
+                                </Label>
+                            </VerticalStackLayout>
                         </Border>
                     </DataTemplate>
                 </Grid.Resources>
@@ -702,11 +722,11 @@
                                                        VerticalOptions="Start"
                                                        InputTransparent="True" />
                                                 <Border IsVisible="{Binding HasPlayer}"
-                                                        WidthRequest="44"
-                                                        HeightRequest="44"
+                                                        WidthRequest="48"
+                                                        HeightRequest="48"
                                                         Stroke="{Binding Player.RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
                                                         StrokeThickness="1.5"
-                                                        StrokeShape="RoundRectangle 22"
+                                                        StrokeShape="RoundRectangle 24"
                                                         BackgroundColor="{Binding Player.Position, Converter={StaticResource PositionToColor}}"
                                                         HorizontalOptions="Center"
                                                         VerticalOptions="Center">
@@ -735,15 +755,27 @@
                                                             <Setter Property="StrokeThickness" Value="3.5" />
                                                         </DataTrigger>
                                                     </Border.Triggers>
-                                                    <Label Text="{Binding Player.ShortName}"
-                                                           TextColor="White"
-                                                           FontSize="11"
-                                                           FontAttributes="Bold"
-                                                           HorizontalOptions="Center"
-                                                           VerticalOptions="Center"
-                                                           HorizontalTextAlignment="Center"
-                                                           VerticalTextAlignment="Center"
-                                                           InputTransparent="True" />
+                                                    <VerticalStackLayout Spacing="0"
+                                                                         Padding="0,2,0,2"
+                                                                         HorizontalOptions="Center"
+                                                                         VerticalOptions="Center"
+                                                                         InputTransparent="True">
+                                                        <Label Text="{Binding Player.ShortName}"
+                                                               TextColor="White"
+                                                               FontSize="10"
+                                                               FontAttributes="Bold"
+                                                               HorizontalOptions="Center"
+                                                               HorizontalTextAlignment="Center"
+                                                               LineBreakMode="NoWrap"
+                                                               InputTransparent="True" />
+                                                        <Label Text="{Binding Player.FieldTimeDisplay}"
+                                                               TextColor="#D9FFFFFF"
+                                                               FontSize="8"
+                                                               HorizontalOptions="Center"
+                                                               HorizontalTextAlignment="Center"
+                                                               LineBreakMode="NoWrap"
+                                                               InputTransparent="True" />
+                                                    </VerticalStackLayout>
                                                 </Border>
                                             </Grid>
                                         </Border>

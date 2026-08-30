@@ -1321,12 +1321,25 @@ public partial class GamePage : ContentPage
     private void OnViewButtonClicked(object sender, EventArgs e)
     {
         if (_vm is null || _vm.IsMember) return;
-        var next = _vm.ViewMode switch
+
+        TeamViewMode next;
+        if (!TeamViewOptions.IsEnabled())
         {
-            TeamViewMode.Swipeable => TeamViewMode.Rotation,
-            TeamViewMode.Rotation  => TeamViewMode.Field,
-            _                      => TeamViewMode.Swipeable
-        };
+            // Default: Field ↔ Rotation only (Team list hidden).
+            next = _vm.ViewMode == TeamViewMode.Rotation
+                ? TeamViewMode.Field
+                : TeamViewMode.Rotation;
+        }
+        else
+        {
+            next = _vm.ViewMode switch
+            {
+                TeamViewMode.Swipeable => TeamViewMode.Rotation,
+                TeamViewMode.Rotation  => TeamViewMode.Field,
+                _                      => TeamViewMode.Swipeable
+            };
+        }
+
         _vm.ViewMode = next;
         ApplyViewMode(next);
     }
@@ -1429,6 +1442,14 @@ public partial class GamePage : ContentPage
         // View-only always stays on Field View (no Team / Rotation access).
         var effective = _vm?.IsMember == true ? TeamViewMode.Field : mode;
 
+        // Team list disabled: never show Swipeable — fall back to Field.
+        if (effective == TeamViewMode.Swipeable && !TeamViewOptions.IsEnabled())
+        {
+            effective = TeamViewMode.Field;
+            if (_vm is not null)
+                _vm.ViewMode = TeamViewMode.Field;
+        }
+
         SwipeableRoster.IsVisible = effective == TeamViewMode.Swipeable;
         RotationView.IsVisible    = effective == TeamViewMode.Rotation;
         FieldView.IsVisible       = effective == TeamViewMode.Field;
@@ -1478,6 +1499,12 @@ public partial class GamePage : ContentPage
     private void UpdateViewButtonText(TeamViewMode mode)
     {
         // Button text shows what view will be shown when pressed (admin only).
+        if (!TeamViewOptions.IsEnabled())
+        {
+            ViewBtn.Text = mode == TeamViewMode.Rotation ? "View: Field" : "View: Rotation";
+            return;
+        }
+
         ViewBtn.Text = mode switch
         {
             TeamViewMode.Swipeable => "View: Rotation",

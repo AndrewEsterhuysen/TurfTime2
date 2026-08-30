@@ -113,9 +113,13 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>True when Options → Rotation Basis is Manual (coach taps who rotates).</summary>
     public bool IsManualRotationBasis => RotationBasisOptions.Get() == RotationBasis.Manual;
 
-    /// <summary>Yellow Game-tab rotation-basis tip during a live match (all bases).</summary>
+    /// <summary>
+    /// Yellow Game-tab rotation-basis tip during a live match (all bases),
+    /// when Settings → Options → Information text is on.
+    /// </summary>
     public bool ShowRotationBasisHint
-        => Phase is not GamePhase.Setup and not GamePhase.Finished;
+        => InformationTextOptions.IsEnabled()
+           && Phase is not GamePhase.Setup and not GamePhase.Finished;
 
     /// <summary>Text for <see cref="ShowRotationBasisHint"/>.</summary>
     public string RotationBasisHintText
@@ -149,7 +153,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     private int? _manualPairBenchSlotId;
 
     // ── Bindable state ────────────────────────────────────────────────────
-    private TeamViewMode _viewMode = TeamViewMode.Swipeable;
+    private TeamViewMode _viewMode = TeamViewMode.Field;
     private int          _rotationCount = 1;
     private int          _rotationStyle = 1;
     private int          _teamAScore;
@@ -228,6 +232,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         }
 
         RotationBasisOptions.Changed += OnRotationBasisOptionsChanged;
+        InformationTextOptions.Changed += OnInformationTextOptionsChanged;
+        TeamViewOptions.Changed += OnTeamViewOptionsChanged;
 
         // Build default 16-player roster on Bench (#01…#16 for unique Field View tokens)
         for (int i = 1; i <= 16; i++)
@@ -554,8 +560,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             }
             else if (!IsMember)
             {
-                // Brand-new team (no saved snapshot): default to Team View for setup.
-                ViewMode = TeamViewMode.Swipeable;
+                // Brand-new team (no saved snapshot): default to Field View.
+                ViewMode = TeamViewMode.Field;
             }
 
             // Start-configuration is admin-local only (field/bench layout remembered on this device).
@@ -837,8 +843,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _manualFieldQueue.Clear();
         _manualBenchQueue.Clear();
 
-        // New / reset roster starts on Team View (admins); members still forced to Field on load.
-        ViewMode = TeamViewMode.Swipeable;
+        // New / reset roster starts on Field View (admins); members still forced to Field on load.
+        ViewMode = TeamViewMode.Field;
 
         UpdateTimerDisplays();
         UpdateRotateButtonText();
@@ -872,7 +878,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _initialArrangementDone = false;
         _manualFieldQueue.Clear();
         _manualBenchQueue.Clear();
-        ViewMode = TeamViewMode.Swipeable;
+        ViewMode = TeamViewMode.Field;
 
         UpdateTimerDisplays();
         UpdateRotateButtonText();
@@ -1876,8 +1882,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             {
                 TeamViewMode.Rotation => TeamViewMode.Rotation,
                 TeamViewMode.Field    => TeamViewMode.Field,
-                _                     => TeamViewMode.Swipeable
+                _                     => TeamViewOptions.IsEnabled()
+                    ? TeamViewMode.Swipeable
+                    : TeamViewMode.Field
             };
+            EnforceTeamViewAvailability();
 
         var rosterChanged = false;
         if (s.Players.Count > 0)
@@ -3224,6 +3233,22 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(RotationBasisHintText));
     }
 
+    private void OnInformationTextOptionsChanged(object? sender, EventArgs e)
+        => MainThread.BeginInvokeOnMainThread(NotifyRotationBasisUi);
+
+    private void OnTeamViewOptionsChanged(object? sender, EventArgs e)
+        => MainThread.BeginInvokeOnMainThread(EnforceTeamViewAvailability);
+
+    /// <summary>
+    /// When Options → Enable Team View is off, never stay on the roster list (Swipeable).
+    /// </summary>
+    public void EnforceTeamViewAvailability()
+    {
+        if (TeamViewOptions.IsEnabled()) return;
+        if (ViewMode != TeamViewMode.Swipeable) return;
+        ViewMode = TeamViewMode.Field;
+    }
+
     /// <summary>
     /// After Field View drag-subs / Team View swipes, queue entries may still point at players
     /// who are no longer Field or Bench. Drop those entries and keep both queues the same length
@@ -4231,6 +4256,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         RotationBasisOptions.Changed -= OnRotationBasisOptionsChanged;
+        InformationTextOptions.Changed -= OnInformationTextOptionsChanged;
+        TeamViewOptions.Changed -= OnTeamViewOptionsChanged;
         StopControllerHeartbeat();
         StopCloudMirror();
         _timer.MatchTickOccurred     -= OnMatchTick;

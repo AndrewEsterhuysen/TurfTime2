@@ -261,13 +261,14 @@ namespace TurfTime2
                 [5] = 10
             };
 
-        /// <summary>Idempotent demo-team migrations (countdown, names, field cells, Absent).</summary>
+        /// <summary>Idempotent demo-team migrations (countdown, names, field cells, Absent, ViewMode).</summary>
         private static void EnsureDemoTeamDefaults()
         {
             EnsureDemoTeamCountdownPreset();
             EnsureDemoTeamPlayerNames();
             EnsureDemoTeamFieldCells();
             EnsureDemoTeamAbsentPlayers();
+            EnsureDemoTeamFieldViewDefault();
         }
 
         private static void EnsureDemoTeamCountdownPreset()
@@ -295,6 +296,32 @@ namespace TurfTime2
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[App] Failed to enforce demo countdown preset: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Demo Team opens on Field View (Field View is the product default as of 3.0.0).
+        /// </summary>
+        private static void EnsureDemoTeamFieldViewDefault()
+        {
+            try
+            {
+                var snapshotKey = $"roster_snapshot_{DEMO_TEAM_ID}";
+                var snapshotRaw = Preferences.Get(snapshotKey, string.Empty);
+                if (string.IsNullOrWhiteSpace(snapshotRaw)) return;
+
+                var snapshot = JsonSerializer.Deserialize<RosterSnapshot>(snapshotRaw);
+                if (snapshot is null) return;
+                if (snapshot.ViewMode == (int)TeamViewMode.Field) return;
+
+                snapshot.ViewMode = (int)TeamViewMode.Field;
+                snapshot.LastModifiedUtc = DateTimeOffset.UtcNow;
+                Preferences.Set(snapshotKey, JsonSerializer.Serialize(snapshot));
+                System.Diagnostics.Debug.WriteLine("[App] ✅ Demo team ViewMode set to Field View.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Failed to set demo Field View default: {ex.Message}");
             }
         }
 
@@ -531,7 +558,7 @@ namespace TurfTime2
                 CurrentHalf = "setup",
                 TimerRunning = false,
                 CountdownPresetSeconds = DEMO_ROTATION_SECONDS,
-                ViewMode = 0,
+                ViewMode = (int)TeamViewMode.Field,
                 TeamAScore = 0,
                 TeamBScore = 0,
                 Players = players

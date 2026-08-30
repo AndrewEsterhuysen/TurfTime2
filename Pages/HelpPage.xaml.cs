@@ -131,115 +131,95 @@ public partial class HelpPage : ContentPage
     </p>
     <p style='color:#ccc;font-size:0.9em;'>Include your device type (iPhone / Android), app version from the build box above, and steps to reproduce when reporting a bug.</p>
 
-    <h1>⚽ Turf Timer Help 🥅</h1>
+    <h1>⚽ Turf Time Help 🥅</h1>
+    <p style='text-align:center;color:#ccc;font-size:0.9em;'>Your sideline companion — Field View by default, fair rotations when you glance at the phone.</p>
 
     <!-- ═══════════════════════════════════════════════════ -->
-    <h3>👥 Player Roster</h3>
-    <p>Each row shows:</p>
+    <h3>🏟️ Field View <em>(default Game screen)</em></h3>
+    <p>This is the main screen for setting up and managing the match. Watch the pitch; use the phone only when you need to place someone or rotate.</p>
     <ul>
-        <li><strong>☰</strong> drag handle (left edge)</li>
-        <li><strong>Position icon</strong> — ⚽ Field &nbsp;|&nbsp; 🪑 Bench &nbsp;|&nbsp; 🥅 Goalie &nbsp;|&nbsp; ❌ Inactive</li>
-        <li><strong>➤</strong> cyan arrow — this player is <em>next to rotate</em></li>
-        <li><strong>Player name</strong></li>
-        <li><strong>Field time</strong> (MM:SS) — cumulative time on field / as goalie (right edge)</li>
-    </ul>
-    <p>The row background colour matches the player's position:
-        <span class='badge badge-field'>Field</span>
-        <span class='badge badge-bench'>Bench</span>
-        <span class='badge badge-goalie'>Goalie</span>
-        <span class='badge badge-inactive'>Inactive</span>
-    </p>
-
-    <!-- ═══════════════════════════════════════════════════ -->
-    <h3>👆 Gestures on a Player Row</h3>
-    <ul>
-        <li><strong>Tap:</strong>
+        <li><strong>4×4 pitch</strong> (cells 1–16, top-left = 1): one outfield player per cell. Drag or tap-to-place from Bench / Goalie / Absent.</li>
+        <li><strong>Bench</strong> (right sideline): new-team players start here. Scroll; drag or tap onto the pitch, Goalie, or Absent. Stays visible during the match.</li>
+        <li><strong>Goalie</strong> (over the goal): assign the keeper. A <strong>+</strong> appears on valid drop targets while dragging.</li>
+        <li><strong>Absent</strong> (strip behind the goalie): park unavailable players. Move-only (no swap). Stays visible after Start for late arrivals.</li>
+        <li><strong>Setup:</strong> tap a token to arm it, then tap a destination (cell / Bench / Goalie / Absent). Double-tap to rename.</li>
+        <li><strong>Live match:</strong>
             <ul>
-                <li><em>Before game starts:</em> Opens rename dialog.</li>
-                <li><em>During match:</em> Queues this player as the next to rotate in (bench) or out (field). The cyan ➤ arrow marks the queued player.</li>
+                <li><em>Field then Bench</em> — substitute (player leaves the pitch via the Bench).</li>
+                <li><em>Bench then Field</em> (Manual basis) — seed a rotation pair; other bases use Bench taps for next-up queues.</li>
+                <li><em>Bench then Absent</em> — injury / remove from lineup.</li>
+                <li><em>Absent then Bench</em> — late arrival back into the pool.</li>
+                <li>Live Field → Absent is blocked (leave via Bench first).</li>
             </ul>
         </li>
-        <li><strong>Swipe left</strong> (→ left): cycles position <em>Field → Goalie</em>, or <em>Inactive → Field</em>.</li>
-        <li><strong>Swipe right</strong> (→ right): cycles position <em>Field → Bench → Inactive</em>.</li>
-        <li><strong>Long-press + drag</strong> (☰ handle): reorders the player in the rotation list. Works at any time, including during a live match.</li>
-    </ul>
-
-
-    <!-- ═══════════════════════════════════════════════════ -->
-    <h3>🏆 Scores (Us / Them)</h3>
-    <ul>
-        <li>Scores appear in the header once the game starts.</li>
-        <li><strong>Tap</strong> a score to <em>increment</em> (+1).</li>
-        <li><strong>Double-tap</strong> a score to <em>decrement</em> (−1) if you made a mistake. Minimum is 0.</li>
-        <li>Both the header score labels <em>and</em> the coloured side strips in Rotation view are tappable.</li>
-        <li><strong>Shared teams:</strong> only the <em>match controller</em> can change scores. View-only devices show scores but ignore taps.</li>
+        <li>Tokens show a short name plus discreet <strong>MM:SS</strong> field time (Field / Goalie / Bench). Absent stays name-only.</li>
+        <li>Coloured outlines mark who is next to rotate / paired. View-only shared members can watch but not drag.</li>
+        <li>Optional yellow tip above the view explains the current Rotation Basis — hide it under <strong>Settings → Options → Information text</strong>.</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
-    <h3>🎮 Bottom Buttons</h3>
+    <h3>🔁 Rotations <em>(core of the app)</em></h3>
     <ul>
-        <li><strong>Start</strong> (left):
+        <li>Choose <strong>Settings → Options → Rotation Basis</strong>:
             <ul>
-                <li>Starts or pauses the match timer.</li>
-                <li>When you <em>Start</em> from setup (kickoff), the app automatically switches to the <strong>Rotation</strong> view so the next swaps are visible immediately.</li>
-                <li>Shows <em>½ Time</em> at half-time — tap to begin the second half.</li>
-                <li><em>Hold 1 second</em> to fully restart / reset the game (resets timers and scores; releases match control on shared teams).</li>
+                <li><strong>Time Based</strong> (default) — most field time off; least on.</li>
+                <li><strong>Sequential</strong> — roster-order FIFO after the last who rotated.</li>
+                <li><strong>Position Based</strong> — cycles occupied Field View grid cells by row; Bench uses least time.</li>
+                <li><strong>Manual</strong> — you seed pairs (Bench then Field); Rotate only runs those pairs, then clears. Countdown still reminds you.</li>
             </ul>
         </li>
-        <li><strong>Rotate</strong> (centre):
-            <ul>
-                <li><strong>Tap</strong> executes the next rotation — swaps the selected number of field players off and bench players on.</li>
-                <li>Resets the rotation countdown.</li>
-                <li>Button label shows the current count, e.g. <span class='key'>Rotate 2</span>.</li>
-                <li><em>Hold ~1 second</em> to open a sheet: <strong>Reset Clk</strong> restarts the rotation countdown without swapping anyone (use when the clock timed out but you want to leave the field/bench as is); or choose <strong>1 … N</strong> bench players to rotate. Choosing a new count fully re-seeds the next-up FIFO queues from automatic order (manual queue picks are not kept).</li>
-                <li>Controller only on shared teams (view-only devices cannot rotate or change the count).</li>
-            </ul>
+        <li><strong>Rotate</strong> (bottom centre): tap to swap the queued pairs and reset the rotation countdown. Label shows the count (e.g. <span class='key'>Rotate 2</span>).</li>
+        <li><strong>Hold Rotate ~1s:</strong> <em>Reset Clk</em> (restart countdown without swapping) or pick how many pairs to rotate.</li>
+        <li>Matching outline colours link field ↔ bench next-up players on Field View and Team View.</li>
+        <li>A short vibration warns before a rotation is due.</li>
+        <li>On shared teams, only the match controller can rotate.</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>🔄 Rotation View <em>(glanceable sideline board)</em></h3>
+    <p>Built so you can <strong>watch the game</strong> and only glance at the phone when telling the bench who is on and who is off — large type, high contrast, no squinting.</p>
+    <ul>
+        <li>Opens when you <strong>Start</strong> from setup, or via <span class='key'>View</span> → Rotation anytime.</li>
+        <li><strong>Centre panel:</strong> each upcoming swap — bench coming <em>on</em> (blue) and field going <em>off</em> (orange). Pair count matches Rotate.</li>
+        <li><strong>Tap the centre</strong> to execute the same rotation as the Rotate button (controller only on shared teams).</li>
+        <li><strong>Hold ~1s</strong> on the centre (or Rotate) for Reset Clk / rotation count.</li>
+        <li><strong>Green / red side strips:</strong> Us / Them scores — tap +1, double-tap −1 (controller only).</li>
+    </ul>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <h3>📋 Team View <em>(optional)</em></h3>
+    <p>Legacy full roster list. <strong>Off by default</strong> — enable under <strong>Settings → Options → Enable Team View</strong> if you still want it in the View cycle.</p>
+    <ul>
+        <li>When enabled, View cycles <strong>Field → Team → Rotation</strong>.</li>
+        <li>Each row: drag handle, position icon, next-to-rotate arrow, name, and field time (MM:SS).</li>
+        <li>Row colour matches position:
+            <span class='badge badge-field'>Field</span>
+            <span class='badge badge-bench'>Bench</span>
+            <span class='badge badge-goalie'>Goalie</span>
+            <span class='badge badge-inactive'>Inactive / Absent</span>
         </li>
-        <li><strong>View</strong> (right):
-            <ul>
-                <li>Cycles <strong>Team → Rotation → Field</strong> (admins). View-only devices stay on Field View.</li>
-                <li>Label shows which view will appear when pressed.</li>
-            </ul>
-        </li>
+        <li><strong>Setup:</strong> tap a name to rename.</li>
+        <li><strong>Live:</strong> tap to queue next-up / use the same Field↔Bench / Bench↔Absent rules as Field View.</li>
+        <li><strong>Swipe left / right</strong> to cycle positions; <strong>long-press drag</strong> on ☰ to reorder (Sequential order).</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
-    <h3>🏟️ Field View</h3>
+    <h3>🎮 Bottom Buttons &amp; Scores</h3>
     <ul>
-        <li><strong>4×4 pitch grid</strong> (cells 1–16, top-left = 1): drop a player onto a cell to put them on the field in that spot (one player per cell). Dropping a <em>bench</em> player onto an occupied cell substitutes — the field player moves to the bench. Dropping one field player onto another swaps their cells.</li>
-        <li><strong>Bench</strong> (right edge, vertical list): everyone starts here on a new team. Scroll and drag/tap players onto the pitch, goalie zone, or Absent. During a match this stays visible as the sideline.</li>
-        <li><strong>Absent</strong> (strip behind the goalie): park players who are not available. Move-only (no swap). Stays visible after Start so late arrivals can be brought on.</li>
-        <li><strong>Goalie zone</strong> (over the goal area): drop a player here to assign Goalie. A <strong>+</strong> appears while dragging over a valid drop target.</li>
-        <li><strong>Tap</strong> a token in Setup to arm it, then tap a destination (cell / Bench / Goalie / Absent) to place or swap. Double-tap to rename. Absent is move-only.</li>
-        <li><strong>Tap</strong> a field or bench token during a live match to select/deselect them for the next rotation (same as Team View). Matching outline colours show who replaces whom.</li>
-        <li>Formation cells sync on shared teams with the roster. View-only members can watch but cannot drag.</li>
+        <li><strong>Start / Pause</strong> — match timer. At half-time shows <em>2nd Half</em>; mid-half pause shows Resume. Hold ~1s to restart / reset (releases shared match control).</li>
+        <li><strong>Rotate</strong> — see Rotations above.</li>
+        <li><strong>View</strong> — cycles <strong>Field ↔ Rotation</strong> by default (admins). Turn on <em>Enable Team View</em> in Options to insert the roster list. View-only devices stay on Field View.</li>
+        <li><strong>Scores</strong> appear once the match is live — header labels and Rotation View side strips. Shared: controller only.</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->
-    <h3>🔄 Rotation View</h3>
-    <p>Opens automatically when you Start a match from setup, or press <span class='key'>View: Rotation</span> anytime:</p>
+    <h3>⚙️ Options</h3>
     <ul>
-        <li><strong>Centre panel:</strong> Lists each upcoming swap — bench player coming <em>on</em> (blue, left-aligned) and field player going <em>off</em> (orange, right-aligned). How many pairs appear matches the rotation count.</li>
-        <li><strong>Tap to Rotate:</strong> Tap the centre panel to execute the same rotation as the bottom <span class='key'>Rotate</span> button (controller only on shared teams).</li>
-        <li><strong>Hold ~1 second</strong> on the centre panel (or on <span class='key'>Rotate</span>) for <strong>Reset Clk</strong> or to choose how many players to rotate (1 … max on the bench). Same sheet as holding Rotate.</li>
-        <li><strong>Left strip (green — Us):</strong> Shows your score. Tap to +1, double-tap to −1 (controller only on shared teams).</li>
-        <li><strong>Right strip (red — Them):</strong> Shows opponent score. Tap to +1, double-tap to −1 (controller only on shared teams).</li>
-        <li>Designed for sideline communication — large text, high contrast.</li>
-    </ul>
-
-    <!-- ═══════════════════════════════════════════════════ -->
-    <h3>🔁 How Rotation Order Works</h3>
-    <ul>
-        <li>Choose how players are selected under <strong>Settings → Options → Rotation Basis</strong>:</li>
-        <li><strong>Sequential</strong>: roster-order FIFO — next Field player after the last who came off (wraps the list); same idea for Bench coming on.</li>
-        <li><strong>Time Based</strong> (default): most field time (MM:SS) comes off; least field time comes on. Recomputed after each rotate.</li>
-        <li><strong>Position Based</strong>: cycles occupied players on the Field View 4×4 by row (1st occupied in each row top→bottom, then 2nd in each row, …). Bench side uses least field time. Players need a grid cell.</li>
-        <li><strong>Manual</strong> (default off): no automatic picks — tap <em>Bench then Field</em> to seed each next-rotation pair (up to the number on the bench). Tap <em>Field first then Bench</em> to substitute immediately. The rotation countdown still runs as a reminder.</li>
-        <li><strong>Non-Manual override:</strong> During a match, tap a bench player to grow the next-up queues (auto-pairs a field player). Matching coloured outlines mark queued field↔bench pairs.</li>
-        <li><strong>Rotation count (Rotate / Tap to Rotate hold):</strong> Sets how many pairs will swap. Changing the count re-seeds next-up (except Manual, which does not invent new picks).</li>
-        <li><strong>Reorder by dragging:</strong> Long-press and drag any row to permanently reposition the player in the Sequential roster order.</li>
-        <li>After each rotation executes, automatic modes re-seed queues for the next cycle.</li>
-        <li><strong>Rotation alert:</strong> Before a rotation is due, a short vibration fires as a heads-up.</li>
+        <li><strong>Rotation Basis</strong> — how next-up players are chosen (see Rotations).</li>
+        <li><strong>Information text</strong> — show or hide short Game-tab tips (e.g. the yellow rotation tip). Off = cleaner sideline display.</li>
+        <li><strong>Enable Team View</strong> — off by default; when on, adds the legacy roster list to the View cycle.</li>
+        <li><strong>Goal scorer &amp; assist</strong> — when logging goals, optionally pick scorer and assist for reports.</li>
+        <li><strong>Match reminders</strong> — day before, morning, and time-to-leave from Details → Location schedule.</li>
     </ul>
 
     <!-- ═══════════════════════════════════════════════════ -->

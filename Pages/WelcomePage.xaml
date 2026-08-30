@@ -65,7 +65,7 @@
                        Margin="0,0,0,24">
                     <Label.FormattedText>
                         <FormattedString>
-                            <Span Text="Built for parents, coaches, and managers — run fair rotations, keep rosters tidy, and share the game with your team. Local play always works offline; shared cloud teams add multi-device control with one Admin running the match at a time." />
+                            <Span Text="Built for parents, coaches, and managers — place your lineup on Field View, run fair rotations at a glance, and share the match with your team. Local play always works offline; shared cloud teams add multi-device control with one Admin running the match at a time." />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>
@@ -83,33 +83,19 @@
                        Margin="0,0,0,24">
                     <Label.FormattedText>
                         <FormattedString>
-                            <Span Text="🎬  " /><Span Text="Demo Team quick start" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — first launch includes a ready-to-play demo team so you can press Start and try the full game flow immediately." />
+                            <Span Text="🎬  " /><Span Text="Demo Team" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — first launch includes a ready lineup on Field View so you can Start and try rotations immediately." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="🏆  " /><Span Text="Multiple teams" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — create and switch between as many local or shared teams as you need from Team Details." />
+                            <Span Text="🏟️  " /><Span Text="Field View (default)" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — 4×4 pitch, Goalie, Bench, and Absent. Place players by tap or drag; tokens show short names plus discreet field time." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="💾  " /><Span Text="On-device storage" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — rosters, game history, and settings stay on your phone so you're never without your data." />
+                            <Span Text="🔄  " /><Span Text="Fair rotations" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — Time Based, Sequential, Position Based, or Manual. Match timer, Rotate, and a large Rotation View for clear on/off instructions when you glance at the phone." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="🔄  " /><Span Text="Match timer &amp; fair rotations" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — set field/bench, rotation order, and interval; Tap to Rotate shows who is coming on and off." />
+                            <Span Text="🏆  " /><Span Text="Local &amp; shared teams" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — create or switch teams on device; share via QR offline, or use shared cloud teams with invite codes, Owner / Admin / Member roles, and one match controller." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="⚽  " /><Span Text="Goals with scorer &amp; assist" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — log goals and pick who scored and assisted for cleaner match reports." />
+                            <Span Text="⚽  " /><Span Text="Scores, goals &amp; reports" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — log Us/Them scores, optional scorer &amp; assist, and review session reports after the game." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="📋  " /><Span Text="Game reports" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — post-game summaries from your session history, ready to review and share." />
+                            <Span Text="💬  " /><Span Text="Chat, kit, duties &amp; location" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — shared-team chat (with optional push), match venue schedule, kit notes, and duties under Details." />
                             <Span Text="&#10;&#10;" />
-                            <Span Text="📲  " /><Span Text="QR team share &amp; import" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — share a team to another device offline from Team Details, or import by scanning a code." />
-                            <Span Text="&#10;&#10;" />
-                            <Span Text="☁️  " /><Span Text="Shared cloud teams" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — create or join with an invite code; roster, timers, and scores sync across devices." />
-                            <Span Text="&#10;&#10;" />
-                            <Span Text="👑  " /><Span Text="Owner · Admin · Member" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — Owner manages the club; promote co-admins; members follow in view-only. Only one Admin controls a live match at a time (Request / Take control / Relinquish)." />
-                            <Span Text="&#10;&#10;" />
-                            <Span Text="💬  " /><Span Text="Team chat" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — message your shared team from the Chat tab using your display name." />
-                            <Span Text="&#10;&#10;" />
-                            <Span Text="📍  " /><Span Text="Match location" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — set venue details, GPS, and map links under Details → Location." />
-                            <Span Text="&#10;&#10;" />
-                            <Span Text="👕  " /><Span Text="Kit &amp; duties" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — kit colours and match-day duties (officer, canteen, grounds, pack-up) under Details — Admin-editable, members can view." />
-                            <Span Text="&#10;&#10;" />
-                            <Span Text="🔔  " /><Span Text="Team chat push alerts" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — get notified when teammates message on a shared team (when notification permission is allowed)." />
-                            <Span Text="&#10;&#10;" />
-                            <Span Text="⏰  " /><Span Text="Match reminder notifications" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — optional device reminders from your Details → Location schedule: day before, morning of match, and time-to-leave (arrive minus buffer). Turn on under Settings → Options." />
+                            <Span Text="⏰  " /><Span Text="Match reminders" FontAttributes="Bold" TextColor="#FFFFFF" /><Span Text=" — optional day-before, morning, and time-to-leave notifications from your schedule (Settings → Options)." />
                         </FormattedString>
                     </Label.FormattedText>
                 </Label>
