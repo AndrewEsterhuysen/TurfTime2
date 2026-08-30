@@ -245,139 +245,136 @@
 
     <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="0">
 
-        <!-- ══ HEADER ══ -->
+        <!-- ══ HEADER (compact for small phones) ══
+             Row 0: Turf Timer + yellow team name
+             Row 1: Us score | match timer | rotation timer | Them score -->
         <Grid Grid.Row="0"
-              RowDefinitions="Auto,Auto,Auto,Auto"
+              RowDefinitions="Auto,Auto"
               BackgroundColor="#0a0a0a"
-              Padding="8,6,8,6">
+              Padding="8,4,8,4">
 
-            <!-- Row 0: ⚽  Turf Timer  🥅 -->
-            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto">
-                <Label Grid.Column="0"
-                       Text="⚽"
-                       FontSize="22"
-                       VerticalOptions="Center"
-                       HorizontalOptions="Start" />
-                <Label Grid.Column="1"
-                       Text="Turf Timer"
+            <!-- Title: Turf Timer - TeamName -->
+            <HorizontalStackLayout Grid.Row="0"
+                                   HorizontalOptions="Center"
+                                   VerticalOptions="Center"
+                                   Spacing="0"
+                                   Margin="0,0,0,2">
+                <Label Text="Turf Timer"
                        TextColor="White"
-                       FontSize="20"
+                       FontSize="18"
                        FontAttributes="Bold"
-                       HorizontalOptions="Center"
-                       VerticalOptions="Center" />
-                <Label Grid.Column="2"
-                       Text="🥅"
-                       FontSize="22"
                        VerticalOptions="Center"
-                       HorizontalOptions="End" />
-            </Grid>
+                       LineBreakMode="NoWrap" />
+                <Label Text="{Binding TeamName, StringFormat=' - {0}'}"
+                       TextColor="#ffe082"
+                       FontSize="13"
+                       FontAttributes="Bold"
+                       VerticalOptions="Center"
+                       LineBreakMode="TailTruncation"
+                       MaxLines="1" />
+            </HorizontalStackLayout>
 
-            <!-- Row 1: Team name -->
-            <Label Grid.Row="1"
-                   Text="{Binding TeamName}"
-                   TextColor="#ffe082"
-                   FontSize="13"
-                   FontAttributes="Bold"
-                   HorizontalOptions="Center"
-                   LineBreakMode="TailTruncation"
-                   Margin="0,2,0,0" />
-
-            <!-- Row 2: Column header labels -->
-            <Grid Grid.Row="2"
+            <!-- Scores + timers (Us / Them replace former ball / net) -->
+            <Grid Grid.Row="1"
                   ColumnDefinitions="*,*,*,*"
-                  Margin="0,6,0,1">
-                <Label Grid.Column="0"
-                       Text="Us"
-                       TextColor="#ccffcc"
-                       FontSize="11"
-                       HorizontalOptions="Center"
-                       IsVisible="{Binding ScoresVisible}" />
-                <Label Grid.Column="1"
-                       Text="{Binding MatchTimeLabelText}"
-                       TextColor="#99cc99"
-                       FontSize="11"
-                       HorizontalOptions="Center" />
-                <Label Grid.Column="2"
-                       Text="Rotate"
-                       TextColor="#99cc99"
-                       FontSize="11"
-                       HorizontalOptions="Center" />
-                <Label Grid.Column="3"
-                       Text="Them"
-                       TextColor="#ccffcc"
-                       FontSize="11"
-                       HorizontalOptions="Center"
-                       IsVisible="{Binding ScoresVisible}" />
-            </Grid>
-
-            <!-- Row 3: Values — scores, match timer, rotation timer -->
-            <Grid Grid.Row="3"
-                  ColumnDefinitions="*,*,*,*"
-                  Margin="0,0,0,2">
-                <!-- Us score — full cell is the tap target (controller only) -->
-                <Grid Grid.Column="0"
-                      IsVisible="{Binding ScoresVisible}"
-                      InputTransparent="{Binding IsMember}">
-                    <Grid.GestureRecognizers>
+                  Margin="0,0,0,0">
+                <!-- Us score -->
+                <VerticalStackLayout Grid.Column="0"
+                                     Spacing="0"
+                                     HorizontalOptions="Center"
+                                     VerticalOptions="Center"
+                                     IsVisible="{Binding ScoresVisible}"
+                                     InputTransparent="{Binding IsMember}">
+                    <VerticalStackLayout.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnTeamAScoreTapped" />
-                    </Grid.GestureRecognizers>
+                    </VerticalStackLayout.GestureRecognizers>
+                    <Label Text="Us"
+                           TextColor="#ccffcc"
+                           FontSize="10"
+                           HorizontalOptions="Center"
+                           InputTransparent="True" />
                     <Label Text="{Binding TeamAScore}"
                            TextColor="{StaticResource AccentColor}"
-                           FontSize="24"
+                           FontSize="22"
                            FontAttributes="Bold"
                            HorizontalOptions="Center"
-                           VerticalOptions="Center"
                            InputTransparent="True" />
-                </Grid>
-                <!-- Match timer: bright white high-contrast (Style null so app Label theme cannot dull it on Android) -->
-                <Label Grid.Column="1"
-                       x:Name="MatchTimerLabel"
-                       Text="{Binding MatchTimeDisplay}"
-                       Style="{x:Null}"
-                       TextColor="#FFFFFF"
-                       FontSize="26"
-                       FontAttributes="Bold"
-                       FontFamily="OpenSansSemibold"
-                       HorizontalOptions="Center"
-                       HorizontalTextAlignment="Center"
-                       VerticalOptions="Center"
-                       Opacity="1">
-                    <Label.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnMatchTimerTapped" />
-                    </Label.GestureRecognizers>
-                </Label>
-                <!-- Rotation countdown: same bright white, slightly smaller than match timer -->
-                <Label Grid.Column="2"
-                       x:Name="CountdownLabel"
-                       Text="{Binding CountdownDisplay}"
-                       Style="{x:Null}"
-                       TextColor="#FFFFFF"
-                       FontSize="22"
-                       FontAttributes="Bold"
-                       FontFamily="OpenSansSemibold"
-                       HorizontalOptions="Center"
-                       HorizontalTextAlignment="Center"
-                       VerticalOptions="Center"
-                       Opacity="1">
-                    <Label.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnCountdownTimerTapped" />
-                    </Label.GestureRecognizers>
-                </Label>
-                <!-- Them score — full cell is the tap target (controller only) -->
-                <Grid Grid.Column="3"
-                      IsVisible="{Binding ScoresVisible}"
-                      InputTransparent="{Binding IsMember}">
-                    <Grid.GestureRecognizers>
+                </VerticalStackLayout>
+
+                <!-- Match timer -->
+                <VerticalStackLayout Grid.Column="1"
+                                     Spacing="0"
+                                     HorizontalOptions="Center"
+                                     VerticalOptions="Center">
+                    <Label Text="{Binding MatchTimeLabelText}"
+                           TextColor="#99cc99"
+                           FontSize="10"
+                           HorizontalOptions="Center"
+                           InputTransparent="True" />
+                    <Label x:Name="MatchTimerLabel"
+                           Text="{Binding MatchTimeDisplay}"
+                           Style="{x:Null}"
+                           TextColor="#FFFFFF"
+                           FontSize="22"
+                           FontAttributes="Bold"
+                           FontFamily="OpenSansSemibold"
+                           HorizontalOptions="Center"
+                           HorizontalTextAlignment="Center"
+                           Opacity="1">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnMatchTimerTapped" />
+                        </Label.GestureRecognizers>
+                    </Label>
+                </VerticalStackLayout>
+
+                <!-- Rotation countdown -->
+                <VerticalStackLayout Grid.Column="2"
+                                     Spacing="0"
+                                     HorizontalOptions="Center"
+                                     VerticalOptions="Center">
+                    <Label Text="Rotate"
+                           TextColor="#99cc99"
+                           FontSize="10"
+                           HorizontalOptions="Center"
+                           InputTransparent="True" />
+                    <Label x:Name="CountdownLabel"
+                           Text="{Binding CountdownDisplay}"
+                           Style="{x:Null}"
+                           TextColor="#FFFFFF"
+                           FontSize="20"
+                           FontAttributes="Bold"
+                           FontFamily="OpenSansSemibold"
+                           HorizontalOptions="Center"
+                           HorizontalTextAlignment="Center"
+                           Opacity="1">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnCountdownTimerTapped" />
+                        </Label.GestureRecognizers>
+                    </Label>
+                </VerticalStackLayout>
+
+                <!-- Them score -->
+                <VerticalStackLayout Grid.Column="3"
+                                     Spacing="0"
+                                     HorizontalOptions="Center"
+                                     VerticalOptions="Center"
+                                     IsVisible="{Binding ScoresVisible}"
+                                     InputTransparent="{Binding IsMember}">
+                    <VerticalStackLayout.GestureRecognizers>
                         <TapGestureRecognizer Tapped="OnTeamBScoreTapped" />
-                    </Grid.GestureRecognizers>
+                    </VerticalStackLayout.GestureRecognizers>
+                    <Label Text="Them"
+                           TextColor="#ccffcc"
+                           FontSize="10"
+                           HorizontalOptions="Center"
+                           InputTransparent="True" />
                     <Label Text="{Binding TeamBScore}"
                            TextColor="{StaticResource AccentColor}"
-                           FontSize="24"
+                           FontSize="22"
                            FontAttributes="Bold"
                            HorizontalOptions="Center"
-                           VerticalOptions="Center"
                            InputTransparent="True" />
-                </Grid>
+                </VerticalStackLayout>
             </Grid>
 
         </Grid>
