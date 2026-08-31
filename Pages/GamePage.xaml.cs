@@ -1,4 +1,5 @@
-﻿using TurfTime2.Models;
+﻿using Microsoft.Maui.Controls.Shapes;
+using TurfTime2.Models;
 using TurfTime2.Services;
 using TurfTime2.ViewModels;
 
@@ -10,7 +11,74 @@ public partial class GamePage : ContentPage
     /// <summary>How often to re-check cloud role while Game is open (Promote to Admin without leaving tab).</summary>
     private static readonly TimeSpan RolePollInterval = TimeSpan.FromSeconds(8);
 
+    // ── Field View responsive layout (bound from DataTemplates via AncestorType) ──
+    public static readonly BindableProperty FieldTokenSizeProperty =
+        BindableProperty.Create(nameof(FieldTokenSize), typeof(double), typeof(GamePage), 48.0);
+
+    public static readonly BindableProperty FieldTokenNameFontSizeProperty =
+        BindableProperty.Create(nameof(FieldTokenNameFontSize), typeof(double), typeof(GamePage), 10.0);
+
+    public static readonly BindableProperty FieldTokenTimeFontSizeProperty =
+        BindableProperty.Create(nameof(FieldTokenTimeFontSize), typeof(double), typeof(GamePage), 8.0);
+
+    public static readonly BindableProperty FieldCellSizeProperty =
+        BindableProperty.Create(nameof(FieldCellSize), typeof(double), typeof(GamePage), 52.0);
+
+    public static readonly BindableProperty FieldTokenStrokeShapeProperty =
+        BindableProperty.Create(
+            nameof(FieldTokenStrokeShape), typeof(RoundRectangle), typeof(GamePage),
+            defaultValueCreator: static _ => new RoundRectangle { CornerRadius = new CornerRadius(24) });
+
+    public static readonly BindableProperty FieldCellStrokeShapeProperty =
+        BindableProperty.Create(
+            nameof(FieldCellStrokeShape), typeof(RoundRectangle), typeof(GamePage),
+            defaultValueCreator: static _ => new RoundRectangle { CornerRadius = new CornerRadius(6) });
+
+    /// <summary>Player token diameter (field / goalie / bench / absent).</summary>
+    public double FieldTokenSize
+    {
+        get => (double)GetValue(FieldTokenSizeProperty);
+        set => SetValue(FieldTokenSizeProperty, value);
+    }
+
+    public double FieldTokenNameFontSize
+    {
+        get => (double)GetValue(FieldTokenNameFontSizeProperty);
+        set => SetValue(FieldTokenNameFontSizeProperty, value);
+    }
+
+    public double FieldTokenTimeFontSize
+    {
+        get => (double)GetValue(FieldTokenTimeFontSizeProperty);
+        set => SetValue(FieldTokenTimeFontSizeProperty, value);
+    }
+
+    /// <summary>Outfield grid cell edge length (keeps 4×4 cells roughly square).</summary>
+    public double FieldCellSize
+    {
+        get => (double)GetValue(FieldCellSizeProperty);
+        set => SetValue(FieldCellSizeProperty, value);
+    }
+
+    public RoundRectangle FieldTokenStrokeShape
+    {
+        get => (RoundRectangle)GetValue(FieldTokenStrokeShapeProperty);
+        set => SetValue(FieldTokenStrokeShapeProperty, value);
+    }
+
+    public RoundRectangle FieldCellStrokeShape
+    {
+        get => (RoundRectangle)GetValue(FieldCellStrokeShapeProperty);
+        set => SetValue(FieldCellStrokeShapeProperty, value);
+    }
+
     private GameViewModel? _vm;
+
+    /// <summary>Last applied Field View token size — skip no-op layout passes (avoids SizeChanged loops).</summary>
+    private double _lastFieldLayoutToken = double.NaN;
+    private double _lastFieldLayoutGridH = double.NaN;
+    private double _lastFieldLayoutViewW;
+    private double _lastFieldLayoutViewH;
 
     private CancellationTokenSource? _startLongPressCts;
     private CancellationTokenSource? _rotateLongPressCts;
@@ -1456,7 +1524,10 @@ public partial class GamePage : ContentPage
         UpdateViewButtonText(effective);
 
         if (effective == TeamViewMode.Field)
+        {
             AlignFieldViewBackground();
+            UpdateFieldViewLayout();
+        }
     }
 
     /// <summary>
@@ -1464,7 +1535,14 @@ public partial class GamePage : ContentPage
     /// Painted stadium benches were removed from field_view_bg.png (720×940); only the UI Bench remains.
     /// </summary>
     private void OnFieldViewSizeChanged(object? sender, EventArgs e)
-        => AlignFieldViewBackground();
+    {
+        AlignFieldViewBackground();
+        UpdateFieldViewLayout();
+    }
+
+    /// <summary>Re-measure after Absent/Goalie Auto rows get real heights (FieldView size alone may not re-fire).</summary>
+    private void OnFieldViewOverlaySizeChanged(object? sender, EventArgs e)
+        => UpdateFieldViewLayout();
 
     private void AlignFieldViewBackground()
     {
@@ -1494,6 +1572,197 @@ public partial class GamePage : ContentPage
         System.Diagnostics.Debug.WriteLine(
             $"[GamePage] FieldBg align view={viewW:0}x{viewH:0} drawn={drawnW:0}x{drawnH:0} " +
             $"ty={FieldViewBackground.TranslationY:0.0}");
+    }
+
+    /// <summary>
+    /// Size the 4×4 outfield grid and player tokens from the visible Field View area so the
+    /// full grid always fits (e.g. iPhone SE) and grows to fill most of the pitch on larger screens.
+    /// </summary>
+    private void UpdateFieldViewLayout()
+    {
+        if (FieldView is null || OutfieldGridHost is null || PitchBandsGrid is null) return;
+        if (!FieldView.IsVisible) return;
+
+        var viewW = FieldView.Width;
+        var viewH = FieldView.Height;
+        if (viewW <= 0 || viewH <= 0) return;
+
+        // Design reference (original fixed layout used only for relative scale)
+        const double designToken = 48;
+        // Smaller bottom margin places Goalie lower on the painted goal (72→46 historically).
+        const double designGoalieBottom = 22;
+        const double designAbsentMin = 72;
+        const double overlayPadX = 16; // Padding 8+8
+        const double overlayPadY = 10; // Padding 8+2
+        const double topInset = 4;
+        const double itemSpacing = 1;
+        const double leadingInset = 8; // empty left column — keep narrow so tiles can grow
+        const double gridGoalieGap = 6; // clear air between row 4 and Goalie (no overlap)
+        const double minCell = 44; // fit-first floor; prefer larger when space allows
+        const double maxCell = 128; // large phones / iPads reap the benefit
+        const double minToken = 40;
+        const double maxToken = 118;
+
+        // Absent strip (row Auto) — measured when laid out, else design minimum + vertical margins
+        var absentVisible = FieldViewAbsentStrip?.IsVisible == true;
+        double absentH = 0;
+        if (absentVisible)
+        {
+            absentH = FieldViewAbsentStrip!.Height > 1
+                ? FieldViewAbsentStrip.Height
+                : designAbsentMin;
+            absentH += 10; // Margin 4+6
+        }
+
+        // Space for pitch bands (outfield * + goalie Auto) inside the overlay
+        var pitchBudget = viewH - overlayPadY - absentH - topInset;
+        if (PitchBandsGrid.Height > 1)
+            pitchBudget = Math.Max(pitchBudget, PitchBandsGrid.Height);
+        if (pitchBudget < 140)
+            pitchBudget = 140;
+
+        // Gaps inside the 4×4 (3 spacings between 4 cells)
+        const double gaps = 3 * itemSpacing;
+
+        // Pass 1: width-driven cell using a provisional bench gutter, then reconcile with height.
+        // Give most of the pitch height to the outfield grid (~78%); goalie keeps the rest.
+        var provisionalBench = 56.0;
+        var middleW = viewW - overlayPadX - leadingInset - provisionalBench;
+        if (middleW < 140)
+            middleW = 140;
+
+        var outfieldBudgetH = pitchBudget * 0.78;
+        var cellFromH = (outfieldBudgetH - gaps) / 4.0;
+        var cellFromW = (middleW - gaps) / 4.0;
+        var cell = Math.Clamp(Math.Min(cellFromH, cellFromW), minCell, maxCell);
+
+        // Token fills nearly the whole cell (text readability)
+        var token = Math.Clamp(cell * 0.92, minToken, maxToken);
+
+        // Bench gutter tracks token; left column stays a slim inset
+        var gutterW = Math.Clamp(Math.Round(token + 10), 48, 96);
+        middleW = viewW - overlayPadX - leadingInset - gutterW;
+        if (middleW > 100)
+        {
+            cellFromW = (middleW - gaps) / 4.0;
+            cell = Math.Clamp(Math.Min(cellFromH, cellFromW), minCell, maxCell);
+            token = Math.Clamp(cell * 0.92, minToken, maxToken);
+            gutterW = Math.Clamp(Math.Round(token + 10), 48, 96);
+        }
+
+        cell = Math.Round(cell);
+        token = Math.Round(token);
+        var scale = token / designToken;
+
+        var gridH = Math.Round(cell * 4 + gaps);
+        var goalieH = Math.Round(Math.Clamp(token, 44, 100));
+        // Low bottom margin → Goalie sits further down over the painted goal mouth
+        var goalieBottom = Math.Round(Math.Clamp(designGoalieBottom * Math.Min(scale, 1.2), 14, 36));
+
+        // Final height fit: grid + gap + goalie must stay within pitchBudget (no negative overlap)
+        var maxGridH = pitchBudget - goalieH - goalieBottom - gridGoalieGap;
+        if (maxGridH > 0 && gridH > maxGridH)
+        {
+            gridH = Math.Floor(maxGridH);
+            cell = Math.Clamp(Math.Floor((gridH - gaps) / 4.0), minCell, maxCell);
+            token = Math.Clamp(Math.Round(cell * 0.92), minToken, maxToken);
+            scale = token / designToken;
+            goalieH = Math.Round(Math.Clamp(token, 44, 100));
+            goalieBottom = Math.Round(Math.Clamp(designGoalieBottom * Math.Min(scale, 1.2), 14, 36));
+            gridH = Math.Round(cell * 4 + gaps);
+            gutterW = Math.Clamp(Math.Round(token + 10), 48, 96);
+        }
+
+        // Fonts: considerably larger than the old 10/8 — scale with token diameter
+        var nameFs = Math.Clamp(Math.Round(token * 0.30, 1), 12, 22);
+        var timeFs = Math.Clamp(Math.Round(token * 0.22, 1), 10, 16);
+        var cellRadius = Math.Clamp(Math.Round(6.0 * scale), 4, 14);
+        var tokenRadius = Math.Round(token / 2.0);
+
+        // Skip apply when nothing meaningful changed (SizeChanged can re-enter after we set requests).
+        if (Math.Abs(token - _lastFieldLayoutToken) < 0.5
+            && Math.Abs(gridH - _lastFieldLayoutGridH) < 0.5
+            && Math.Abs(viewW - _lastFieldLayoutViewW) < 0.5
+            && Math.Abs(viewH - _lastFieldLayoutViewH) < 0.5)
+        {
+            return;
+        }
+
+        _lastFieldLayoutToken = token;
+        _lastFieldLayoutGridH = gridH;
+        _lastFieldLayoutViewW = viewW;
+        _lastFieldLayoutViewH = viewH;
+
+        // Bindable metrics for DataTemplates
+        FieldTokenSize = token;
+        FieldCellSize = cell;
+        FieldTokenNameFontSize = nameFs;
+        FieldTokenTimeFontSize = timeFs;
+        FieldTokenStrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(tokenRadius) };
+        FieldCellStrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(cellRadius) };
+
+        // Outfield host — End-aligned above Goalie with a clear gap (no overlap into row 4)
+        OutfieldGridHost.HeightRequest = gridH;
+        OutfieldGridHost.Margin = new Thickness(0, 0, 0, gridGoalieGap);
+
+        if (OutfieldGridView?.ItemsLayout is GridItemsLayout gridLayout)
+        {
+            gridLayout.HorizontalItemSpacing = itemSpacing;
+            gridLayout.VerticalItemSpacing = itemSpacing;
+        }
+
+        // Slim leading inset + Bench-sized trailing gutter (asymmetric → wider tiles)
+        PitchBandsGrid.ColumnDefinitions =
+        [
+            new ColumnDefinition { Width = new GridLength(leadingInset) },
+            new ColumnDefinition { Width = GridLength.Star },
+            new ColumnDefinition { Width = new GridLength(gutterW) }
+        ];
+        PitchBandsGrid.RowSpacing = 0;
+
+        if (BenchDropBand is not null)
+        {
+            BenchDropBand.WidthRequest = gutterW;
+            BenchDropBand.MaximumWidthRequest = gutterW;
+            BenchDropBand.Margin = new Thickness(2, 0, 0, gridGoalieGap);
+        }
+
+        if (GoalieDropBand is not null)
+        {
+            GoalieDropBand.HeightRequest = goalieH;
+            var goalieSide = Math.Round(Math.Clamp(48 * scale, 40, 80));
+            // Bottom margin only — keeps Goalie lower on screen over the goal mouth
+            GoalieDropBand.Margin = new Thickness(goalieSide, 0, goalieSide, goalieBottom);
+        }
+
+        // Absent token row tracks token size
+        if (InactiveHitLayer is not null)
+        {
+            var absentRowH = Math.Max(token + 8, 52);
+            InactiveHitLayer.HeightRequest = absentRowH;
+            InactiveHitLayer.MinimumHeightRequest = absentRowH;
+        }
+
+        if (FieldViewAbsentStrip is not null)
+            FieldViewAbsentStrip.MinimumHeightRequest = Math.Max(token + 24, 64);
+
+        // CollectionView often keeps first-measure item sizes; force cells to rebuild with new bindings.
+        RefreshOutfieldGridItems();
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[GamePage] FieldLayout view={viewW:0}x{viewH:0} cell={cell} token={token} gridH={gridH} " +
+            $"gutter={gutterW} goalieH={goalieH} nameFs={nameFs} absentH={absentH:0} scale={scale:0.00}");
+    }
+
+    /// <summary>
+    /// Rebind the outfield CollectionView so cell/token size bindings re-apply after layout metrics change.
+    /// </summary>
+    private void RefreshOutfieldGridItems()
+    {
+        if (OutfieldGridView is null) return;
+        var src = OutfieldGridView.ItemsSource;
+        OutfieldGridView.ItemsSource = null;
+        OutfieldGridView.ItemsSource = src;
     }
 
     private void UpdateViewButtonText(TeamViewMode mode)

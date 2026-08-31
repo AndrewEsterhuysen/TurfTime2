@@ -28,8 +28,8 @@
 		<!-- Versions -->
 		<!-- ApplicationDisplayVersion = marketing version (CFBundleShortVersionString / versionName).
 		     ApplicationVersion = integer build (CFBundleVersion / versionCode). Store rejects reuse. -->
-		<ApplicationDisplayVersion>3.0.0</ApplicationDisplayVersion>
-		<ApplicationVersion>30</ApplicationVersion>
+		<ApplicationDisplayVersion>3.1.0</ApplicationDisplayVersion>
+		<ApplicationVersion>31</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
@@ -307,6 +307,25 @@ public static class BuildInfo
 		</ItemGroup>
 
 		<Message Text="Build Metadata: Commit=$(GitCommitHash), Time=$(BuildTimestamp) UTC" Importance="high" />
+	</Target>
+
+	<!-- MAUI/iOS merge can drop UIRequiresFullScreen / collapse iPad orientations.
+	     Re-inject into the built .app Info.plist before codesign / IPA packaging so
+	     App Store Connect accepts portrait-first apps (multitasking rule). -->
+	<Target Name="InjectIosUIRequiresFullScreen"
+	        AfterTargets="_CompileAppManifest"
+	        Condition="'$(TargetFramework)' == 'net10.0-ios'">
+		<PropertyGroup>
+			<_AppInfoPlist Condition="Exists('$(AppBundleDir)Info.plist')">$(AppBundleDir)Info.plist</_AppInfoPlist>
+			<_AppInfoPlist Condition="'$(_AppInfoPlist)' == '' And Exists('$(AppBundlePath)/Info.plist')">$(AppBundlePath)/Info.plist</_AppInfoPlist>
+			<_AppInfoPlist Condition="'$(_AppInfoPlist)' == '' And Exists('$(OutputPath)$(AssemblyName).app/Info.plist')">$(OutputPath)$(AssemblyName).app/Info.plist</_AppInfoPlist>
+		</PropertyGroup>
+		<Exec Condition="'$(_AppInfoPlist)' != '' And Exists('$(_AppInfoPlist)')"
+		      Command="PL='$(_AppInfoPlist)'; /usr/libexec/PlistBuddy -c 'Set :UIRequiresFullScreen true' &quot;$PL&quot; 2>/dev/null || /usr/libexec/PlistBuddy -c 'Add :UIRequiresFullScreen bool true' &quot;$PL&quot;; for KEY in UISupportedInterfaceOrientations 'UISupportedInterfaceOrientations~ipad'; do /usr/libexec/PlistBuddy -c &quot;Delete :$KEY&quot; &quot;$PL&quot; 2>/dev/null || true; /usr/libexec/PlistBuddy -c &quot;Add :$KEY array&quot; &quot;$PL&quot;; /usr/libexec/PlistBuddy -c &quot;Add :$KEY:0 string UIInterfaceOrientationPortrait&quot; &quot;$PL&quot;; /usr/libexec/PlistBuddy -c &quot;Add :$KEY:1 string UIInterfaceOrientationPortraitUpsideDown&quot; &quot;$PL&quot;; /usr/libexec/PlistBuddy -c &quot;Add :$KEY:2 string UIInterfaceOrientationLandscapeLeft&quot; &quot;$PL&quot;; /usr/libexec/PlistBuddy -c &quot;Add :$KEY:3 string UIInterfaceOrientationLandscapeRight&quot; &quot;$PL&quot;; done"
+		      IgnoreExitCode="false" />
+		<Message Condition="'$(_AppInfoPlist)' != ''"
+		         Text="[iOS] Ensured UIRequiresFullScreen + all orientations in $(_AppInfoPlist)"
+		         Importance="high" />
 	</Target>
 
 </Project>

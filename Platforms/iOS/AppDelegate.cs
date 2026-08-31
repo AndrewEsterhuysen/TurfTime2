@@ -9,6 +9,15 @@ namespace TurfTime2
         protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
 
         /// <summary>
+        /// Info.plist lists all orientations for App Store iPad multitasking rules,
+        /// but the sideline UI is portrait-only — lock at runtime.
+        /// </summary>
+        [Export("application:supportedInterfaceOrientationsForWindow:")]
+        public UIInterfaceOrientationMask GetSupportedInterfaceOrientations(
+            UIApplication application, UIWindow? forWindow)
+            => UIInterfaceOrientationMask.Portrait;
+
+        /// <summary>
         /// Custom scheme opens (turf://v1/join?invite=…, turf://v1/import?team=…).
         /// Explicitly hand off so join/import still runs if MAUI's default path is missed.
         /// </summary>

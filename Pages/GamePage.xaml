@@ -1,5 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage x:Class="TurfTime2.GamePage"
+             x:Name="ThisPage"
              xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:models="clr-namespace:TurfTime2.Models"
@@ -588,14 +589,15 @@
                   BackgroundColor="#000000"
                   SizeChanged="OnFieldViewSizeChanged">
                 <Grid.Resources>
-                    <!-- Shared Field View player token (field / goalie / bench) -->
+                    <!-- Shared Field View player token (field / goalie / bench / absent).
+                         Sizes bind to GamePage Field* properties (updated from viewport). -->
                     <DataTemplate x:Key="FieldViewTokenTemplate" x:DataType="models:Player">
-                        <Border WidthRequest="48"
-                                HeightRequest="48"
-                                Margin="5"
+                        <Border WidthRequest="{Binding Source={x:Reference ThisPage}, Path=FieldTokenSize}"
+                                HeightRequest="{Binding Source={x:Reference ThisPage}, Path=FieldTokenSize}"
+                                Margin="2"
                                 Stroke="{Binding RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
                                 StrokeThickness="1.5"
-                                StrokeShape="RoundRectangle 24"
+                                StrokeShape="{Binding Source={x:Reference ThisPage}, Path=FieldTokenStrokeShape}"
                                 BackgroundColor="{Binding Position, Converter={StaticResource PositionToColor}}"
                                 HorizontalOptions="Center"
                                 VerticalOptions="Center">
@@ -634,7 +636,7 @@
                                                  InputTransparent="True">
                                 <Label Text="{Binding ShortName}"
                                        TextColor="White"
-                                       FontSize="10"
+                                       FontSize="{Binding Source={x:Reference ThisPage}, Path=FieldTokenNameFontSize}"
                                        FontAttributes="Bold"
                                        HorizontalOptions="Center"
                                        HorizontalTextAlignment="Center"
@@ -642,7 +644,7 @@
                                        InputTransparent="True" />
                                 <Label Text="{Binding FieldTimeDisplay}"
                                        TextColor="#D9FFFFFF"
-                                       FontSize="8"
+                                       FontSize="{Binding Source={x:Reference ThisPage}, Path=FieldTokenTimeFontSize}"
                                        HorizontalOptions="Center"
                                        HorizontalTextAlignment="Center"
                                        LineBreakMode="NoWrap"
@@ -671,20 +673,25 @@
                 <Grid x:Name="FieldViewOverlay"
                       RowDefinitions="*,Auto,Auto"
                       Padding="8,8,8,2"
-                      RowSpacing="0">
-                    <!-- Pitch: outfield grid sits just above the goal; Bench on trailing edge -->
-                    <Grid Grid.Row="0"
+                      RowSpacing="0"
+                      SizeChanged="OnFieldViewOverlaySizeChanged">
+                    <!-- Pitch: outfield grid sits just above the goal; Bench on trailing edge.
+                         Column widths + outfield HeightRequest set in UpdateFieldViewLayout(). -->
+                    <Grid x:Name="PitchBandsGrid"
+                          Grid.Row="0"
                           RowDefinitions="*,Auto"
                           ColumnDefinitions="56,*,56"
                           RowSpacing="2">
-                        <!-- Outfield 4×4 — fixed-height host End-aligned so grid bottom meets top of goal -->
-                        <Grid Grid.Row="0"
+                        <!-- Outfield 4×4 — height sized to viewport; End-aligned to the goal -->
+                        <Grid x:Name="OutfieldGridHost"
+                              Grid.Row="0"
                               Grid.Column="1"
                               VerticalOptions="End"
                               HorizontalOptions="Fill"
                               HeightRequest="236"
                               Margin="0,0,0,-18">
-                            <CollectionView ItemsSource="{Binding FieldGridCells}"
+                            <CollectionView x:Name="OutfieldGridView"
+                                            ItemsSource="{Binding FieldGridCells}"
                                             SelectionMode="None"
                                             BackgroundColor="Transparent"
                                             VerticalOptions="Fill"
@@ -692,18 +699,20 @@
                                 <CollectionView.ItemsLayout>
                                     <GridItemsLayout Orientation="Vertical"
                                                      Span="4"
-                                                     HorizontalItemSpacing="2"
-                                                     VerticalItemSpacing="2" />
+                                                     HorizontalItemSpacing="1"
+                                                     VerticalItemSpacing="1" />
                                 </CollectionView.ItemsLayout>
                                 <CollectionView.ItemTemplate>
                                     <DataTemplate x:DataType="models:FieldCellSlot">
                                         <Border Stroke="#55FFFFFF"
                                                 StrokeThickness="1"
-                                                StrokeShape="RoundRectangle 6"
+                                                StrokeShape="{Binding Source={x:Reference ThisPage}, Path=FieldCellStrokeShape}"
                                                 BackgroundColor="#22000000"
-                                                Margin="1"
-                                                MinimumHeightRequest="52"
-                                                MinimumWidthRequest="52">
+                                                Margin="0"
+                                                WidthRequest="{Binding Source={x:Reference ThisPage}, Path=FieldCellSize}"
+                                                HeightRequest="{Binding Source={x:Reference ThisPage}, Path=FieldCellSize}"
+                                                MinimumHeightRequest="{Binding Source={x:Reference ThisPage}, Path=FieldCellSize}"
+                                                MinimumWidthRequest="{Binding Source={x:Reference ThisPage}, Path=FieldCellSize}">
                                             <Border.GestureRecognizers>
                                                 <DropGestureRecognizer AllowDrop="True"
                                                                        DragOver="OnFieldCellDragOver"
@@ -713,17 +722,17 @@
                                             <Grid>
                                                 <Label Text="{Binding CellLabel}"
                                                        TextColor="#66FFFFFF"
-                                                       FontSize="10"
+                                                       FontSize="{Binding Source={x:Reference ThisPage}, Path=FieldTokenTimeFontSize}"
                                                        Margin="4,2,0,0"
                                                        HorizontalOptions="Start"
                                                        VerticalOptions="Start"
                                                        InputTransparent="True" />
                                                 <Border IsVisible="{Binding HasPlayer}"
-                                                        WidthRequest="48"
-                                                        HeightRequest="48"
+                                                        WidthRequest="{Binding Source={x:Reference ThisPage}, Path=FieldTokenSize}"
+                                                        HeightRequest="{Binding Source={x:Reference ThisPage}, Path=FieldTokenSize}"
                                                         Stroke="{Binding Player.RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
                                                         StrokeThickness="1.5"
-                                                        StrokeShape="RoundRectangle 24"
+                                                        StrokeShape="{Binding Source={x:Reference ThisPage}, Path=FieldTokenStrokeShape}"
                                                         BackgroundColor="{Binding Player.Position, Converter={StaticResource PositionToColor}}"
                                                         HorizontalOptions="Center"
                                                         VerticalOptions="Center">
@@ -759,7 +768,7 @@
                                                                          InputTransparent="True">
                                                         <Label Text="{Binding Player.ShortName}"
                                                                TextColor="White"
-                                                               FontSize="10"
+                                                               FontSize="{Binding Source={x:Reference ThisPage}, Path=FieldTokenNameFontSize}"
                                                                FontAttributes="Bold"
                                                                HorizontalOptions="Center"
                                                                HorizontalTextAlignment="Center"
@@ -767,7 +776,7 @@
                                                                InputTransparent="True" />
                                                         <Label Text="{Binding Player.FieldTimeDisplay}"
                                                                TextColor="#D9FFFFFF"
-                                                               FontSize="8"
+                                                               FontSize="{Binding Source={x:Reference ThisPage}, Path=FieldTokenTimeFontSize}"
                                                                HorizontalOptions="Center"
                                                                HorizontalTextAlignment="Center"
                                                                LineBreakMode="NoWrap"
@@ -874,13 +883,13 @@
                             </Grid>
                         </Border>
 
-                        <!-- Goalie drop zone over the painted goal; ~½ tile lower than prior (bottom margin 72→46) -->
+                        <!-- Goalie over painted goal; bottom margin + gap from UpdateFieldViewLayout (no overlap with row 4) -->
                         <Border x:Name="GoalieDropBand"
                                 Grid.Row="1"
                                 Grid.Column="0"
                                 Grid.ColumnSpan="3"
                                 HeightRequest="48"
-                                Margin="64,0,64,46"
+                                Margin="64,0,64,22"
                                 Padding="0"
                                 Stroke="Transparent"
                                 StrokeThickness="0"
