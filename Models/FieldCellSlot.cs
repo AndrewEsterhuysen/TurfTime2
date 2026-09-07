@@ -7,6 +7,10 @@ namespace TurfTime2.Models;
 public sealed class FieldCellSlot : INotifyPropertyChanged
 {
     private Player? _player;
+    private double _cellSize = 52;
+    private double _tokenSize = 48;
+    private double _nameFontSize = 10;
+    private double _timeFontSize = 8;
 
     public FieldCellSlot(int cellNumber)
     {
@@ -31,6 +35,61 @@ public sealed class FieldCellSlot : INotifyPropertyChanged
     }
 
     public bool HasPlayer => Player is not null;
+
+    /// <summary>Outfield cell edge length — set by GamePage responsive layout (Android CollectionView-safe).</summary>
+    public double CellSize
+    {
+        get => _cellSize;
+        set
+        {
+            if (Math.Abs(_cellSize - value) < 0.01) return;
+            _cellSize = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>Player token diameter inside this cell.</summary>
+    public double TokenSize
+    {
+        get => _tokenSize;
+        set
+        {
+            if (Math.Abs(_tokenSize - value) < 0.01) return;
+            _tokenSize = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double NameFontSize
+    {
+        get => _nameFontSize;
+        set
+        {
+            if (Math.Abs(_nameFontSize - value) < 0.01) return;
+            _nameFontSize = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public double TimeFontSize
+    {
+        get => _timeFontSize;
+        set
+        {
+            if (Math.Abs(_timeFontSize - value) < 0.01) return;
+            _timeFontSize = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>Apply responsive layout metrics from Field View sizing.</summary>
+    public void ApplyLayout(double cellSize, double tokenSize, double nameFontSize, double timeFontSize)
+    {
+        CellSize = cellSize;
+        TokenSize = tokenSize;
+        NameFontSize = nameFontSize;
+        TimeFontSize = timeFontSize;
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

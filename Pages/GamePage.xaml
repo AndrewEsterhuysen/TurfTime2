@@ -703,16 +703,18 @@
                                                      VerticalItemSpacing="1" />
                                 </CollectionView.ItemsLayout>
                                 <CollectionView.ItemTemplate>
+                                    <!-- Sizes bind to FieldCellSlot (not x:Reference page) — Android CollectionView
+                                         often fails to resolve page references inside item templates. -->
                                     <DataTemplate x:DataType="models:FieldCellSlot">
                                         <Border Stroke="#55FFFFFF"
                                                 StrokeThickness="1"
-                                                StrokeShape="{Binding Source={x:Reference ThisPage}, Path=FieldCellStrokeShape}"
+                                                StrokeShape="RoundRectangle 8"
                                                 BackgroundColor="#22000000"
                                                 Margin="0"
-                                                WidthRequest="{Binding Source={x:Reference ThisPage}, Path=FieldCellSize}"
-                                                HeightRequest="{Binding Source={x:Reference ThisPage}, Path=FieldCellSize}"
-                                                MinimumHeightRequest="{Binding Source={x:Reference ThisPage}, Path=FieldCellSize}"
-                                                MinimumWidthRequest="{Binding Source={x:Reference ThisPage}, Path=FieldCellSize}">
+                                                WidthRequest="{Binding CellSize}"
+                                                HeightRequest="{Binding CellSize}"
+                                                MinimumHeightRequest="{Binding CellSize}"
+                                                MinimumWidthRequest="{Binding CellSize}">
                                             <Border.GestureRecognizers>
                                                 <DropGestureRecognizer AllowDrop="True"
                                                                        DragOver="OnFieldCellDragOver"
@@ -722,17 +724,17 @@
                                             <Grid>
                                                 <Label Text="{Binding CellLabel}"
                                                        TextColor="#66FFFFFF"
-                                                       FontSize="{Binding Source={x:Reference ThisPage}, Path=FieldTokenTimeFontSize}"
+                                                       FontSize="{Binding TimeFontSize}"
                                                        Margin="4,2,0,0"
                                                        HorizontalOptions="Start"
                                                        VerticalOptions="Start"
                                                        InputTransparent="True" />
                                                 <Border IsVisible="{Binding HasPlayer}"
-                                                        WidthRequest="{Binding Source={x:Reference ThisPage}, Path=FieldTokenSize}"
-                                                        HeightRequest="{Binding Source={x:Reference ThisPage}, Path=FieldTokenSize}"
+                                                        WidthRequest="{Binding TokenSize}"
+                                                        HeightRequest="{Binding TokenSize}"
                                                         Stroke="{Binding Player.RotationPairIndex, Converter={StaticResource RotationPairOutline}}"
                                                         StrokeThickness="1.5"
-                                                        StrokeShape="{Binding Source={x:Reference ThisPage}, Path=FieldTokenStrokeShape}"
+                                                        StrokeShape="RoundRectangle 60"
                                                         BackgroundColor="{Binding Player.Position, Converter={StaticResource PositionToColor}}"
                                                         HorizontalOptions="Center"
                                                         VerticalOptions="Center">
@@ -768,7 +770,7 @@
                                                                          InputTransparent="True">
                                                         <Label Text="{Binding Player.ShortName}"
                                                                TextColor="White"
-                                                               FontSize="{Binding Source={x:Reference ThisPage}, Path=FieldTokenNameFontSize}"
+                                                               FontSize="{Binding NameFontSize}"
                                                                FontAttributes="Bold"
                                                                HorizontalOptions="Center"
                                                                HorizontalTextAlignment="Center"
@@ -776,7 +778,7 @@
                                                                InputTransparent="True" />
                                                         <Label Text="{Binding Player.FieldTimeDisplay}"
                                                                TextColor="#D9FFFFFF"
-                                                               FontSize="{Binding Source={x:Reference ThisPage}, Path=FieldTokenTimeFontSize}"
+                                                               FontSize="{Binding TimeFontSize}"
                                                                HorizontalOptions="Center"
                                                                HorizontalTextAlignment="Center"
                                                                LineBreakMode="NoWrap"

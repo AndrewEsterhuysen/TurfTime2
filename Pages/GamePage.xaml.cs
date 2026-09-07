@@ -118,7 +118,32 @@ public partial class GamePage : ContentPage
     {
         WireTransparentScroll(BenchTokenScroll);
         WireTransparentScroll(InactiveTokenScroll);
+#if ANDROID
+        // iOS: empty Bench taps already reach BenchHitLayer. Android: when Field/Goalie is armed
+        // the Bench ScrollView stays interactive (for token direct-subs) and swallows empty-area
+        // taps — forward them so demote / late-arrival matches iOS without changing iOS wiring.
+        EnsureAndroidBenchScrollTapForwarding();
+#endif
     }
+
+#if ANDROID
+    private bool _androidBenchScrollTapWired;
+
+    /// <summary>
+    /// Android-only: BenchTokenScroll has Drop but no Tap in XAML (by design — iOS hit-tests
+    /// through to BenchHitLayer). Attach Tap → <see cref="OnBenchBandTapped"/> so Field/Goalie
+    /// → empty Bench and Absent → empty Bench complete the same as on iOS.
+    /// Token children still receive taps first for live direct substitutes.
+    /// </summary>
+    private void EnsureAndroidBenchScrollTapForwarding()
+    {
+        if (_androidBenchScrollTapWired || BenchTokenScroll is null) return;
+        var tap = new TapGestureRecognizer();
+        tap.Tapped += OnBenchBandTapped;
+        BenchTokenScroll.GestureRecognizers.Add(tap);
+        _androidBenchScrollTapWired = true;
+    }
+#endif
 
     private static void WireTransparentScroll(ScrollView? scroll)
     {
@@ -1693,13 +1718,20 @@ public partial class GamePage : ContentPage
         _lastFieldLayoutViewW = viewW;
         _lastFieldLayoutViewH = viewH;
 
-        // Bindable metrics for DataTemplates
+        // Page-level metrics (Goalie / Bench / Absent BindableLayouts — x:Reference works there)
         FieldTokenSize = token;
         FieldCellSize = cell;
         FieldTokenNameFontSize = nameFs;
         FieldTokenTimeFontSize = timeFs;
         FieldTokenStrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(tokenRadius) };
         FieldCellStrokeShape = new RoundRectangle { CornerRadius = new CornerRadius(cellRadius) };
+
+        // Outfield CollectionView items bind to FieldCellSlot sizes (Android-safe; page x:Reference fails there)
+        if (_vm is not null)
+        {
+            foreach (var slot in _vm.FieldGridCells)
+                slot.ApplyLayout(cell, token, nameFs, timeFs);
+        }
 
         // Outfield host — End-aligned above Goalie with a clear gap (no overlap into row 4)
         OutfieldGridHost.HeightRequest = gridH;
@@ -1746,8 +1778,10 @@ public partial class GamePage : ContentPage
         if (FieldViewAbsentStrip is not null)
             FieldViewAbsentStrip.MinimumHeightRequest = Math.Max(token + 24, 64);
 
-        // CollectionView often keeps first-measure item sizes; force cells to rebuild with new bindings.
+        // iOS: bounce ItemsSource so first-measure sizes refresh. Android: nulling empties the CV.
+#if !ANDROID
         RefreshOutfieldGridItems();
+#endif
 
         System.Diagnostics.Debug.WriteLine(
             $"[GamePage] FieldLayout view={viewW:0}x{viewH:0} cell={cell} token={token} gridH={gridH} " +
@@ -1756,6 +1790,7 @@ public partial class GamePage : ContentPage
 
     /// <summary>
     /// Rebind the outfield CollectionView so cell/token size bindings re-apply after layout metrics change.
+    /// Do not call on Android — clearing ItemsSource during layout leaves an empty grid.
     /// </summary>
     private void RefreshOutfieldGridItems()
     {
