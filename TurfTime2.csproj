@@ -29,7 +29,8 @@
 		<!-- ApplicationDisplayVersion = marketing version (CFBundleShortVersionString / versionName).
 		     ApplicationVersion = integer build (CFBundleVersion / versionCode). Store rejects reuse. -->
 		<ApplicationDisplayVersion>3.2.0</ApplicationDisplayVersion>
-		<ApplicationVersion>33</ApplicationVersion>
+		<!-- Build 34: App Store / Play Store upload for 3.2.0 (controller End release + Firestore cost fixes). -->
+		<ApplicationVersion>34</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
