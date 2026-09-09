@@ -50,6 +50,13 @@ public interface IGameTimerService
     /// <summary>Reset all timers to initial setup state.</summary>
     void Reset();
 
+    /// <summary>
+    /// Mark the match finished after End (session archived). Stops timers and sets
+    /// <see cref="GamePhase.Finished"/> so Reset can run and cloud saves are allowed
+    /// without a live controller.
+    /// </summary>
+    void MarkFinished();
+
     void ResetCountdown(bool continueRunning);
 
     /// <summary>

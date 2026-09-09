@@ -124,6 +124,14 @@ public sealed class GameTimerService : IGameTimerService, IDisposable
         CountdownRemainingSeconds = CountdownPresetSeconds;
     }
 
+    public void MarkFinished()
+    {
+        StopBackgroundLoop();
+        TimerRunning = false;
+        _countdownRunning = false;
+        Phase = GamePhase.Finished;
+    }
+
     public void ResetCountdown(bool continueRunning)
     {
         CountdownRemainingSeconds = CountdownPresetSeconds;

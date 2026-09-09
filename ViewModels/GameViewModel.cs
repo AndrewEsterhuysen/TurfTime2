@@ -3005,12 +3005,58 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     {
         var teamName = Preferences.Get("team_name", string.Empty);
         _logger.EndSession(Players, TeamAScore, TeamBScore, teamName);
+
+        // Finished (not Ended): allows Reset on next tap and ForceCloudSave without a live controller.
+        _timer.MarkFinished();
+
+        // Same as Reset: stop heartbeat and clear the lock so Firestore traffic drops and
+        // any Admin can start the next match. Do not RestartGame here (scores stay until Reset).
+        ClearControllerLock();
+
         StartButtonText = "Reset";
+        UpdateStartButtonState();
         OnPropertyChanged(nameof(Phase));
+        OnPropertyChanged(nameof(ScoresVisible));
         OnPropertyChanged(nameof(ShowFieldViewAbsentZone));
-        // Keep controller until Reset so only they can finalize; optional clear on End:
-        // leave lock until Restart/Reset for cleaner handoff after full stop.
-        _ = ForceCloudSaveAsync();
+
+        _ = PublishControllerReleasedAfterEndAsync();
+    }
+
+    /// <summary>
+    /// After End: patch empty control fields + roster sync so peers and activeControllers clear.
+    /// </summary>
+    private async Task PublishControllerReleasedAfterEndAsync()
+    {
+        try
+        {
+            var teamId = _currentTeamId;
+            if (string.IsNullOrWhiteSpace(teamId))
+                teamId = Preferences.Get("team_id", string.Empty);
+
+            if (!string.IsNullOrWhiteSpace(teamId)
+                && !teamId.StartsWith("local_", StringComparison.Ordinal)
+                && !string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal))
+            {
+                try
+                {
+                    await _cloud.PatchGameControlAsync(
+                        teamId, "", "", "", "", "", DateTimeOffset.UnixEpoch)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[GameViewModel] End control patch: {ex.Message}");
+                }
+            }
+
+            await ForceCloudSaveAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameViewModel] End controller release: {ex.Message}");
+        }
     }
 
     /// <summary>Public surface for the long-press restart command in the code-behind.</summary>
