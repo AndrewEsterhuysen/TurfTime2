@@ -682,11 +682,12 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>
     /// Stop Firestore listener for pure members when the page is hidden.
-    /// Cloud Admins keep the listener so control requests / relinquish / server release still arrive.
+    /// Cloud Admins keep the listener during a live match so control requests arrive;
+    /// after End/Reset (Setup/Finished) they release it too — no controller channel needed.
     /// </summary>
     public void PauseCloudMirror()
     {
-        if (IsCloudAdmin)
+        if (IsCloudAdmin && Phase is not GamePhase.Setup and not GamePhase.Finished)
         {
             System.Diagnostics.Debug.WriteLine(
                 "[GameViewModel] PauseCloudMirror skipped for cloud Admin (need control channel)");
@@ -894,11 +895,11 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         switch (Phase)
         {
             case GamePhase.Ended:
+                // Always finalize on End — even if already paused in overtime.
+                // (Previously required TimerRunning, so a paused Ended match ignored End.)
                 if (_timer.TimerRunning)
-                {
                     _timer.PauseMatch();
-                    EndGame();
-                }
+                EndGame();
                 return;
 
             case GamePhase.Finished:
@@ -2296,6 +2297,17 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             ? s.HalfDurationSeconds
             : Math.Max(1, (s.MatchDurationSeconds > 0 ? s.MatchDurationSeconds : 90 * 60) / 2);
 
+        // After local End (Finished), ignore stale cloud Ended+running snapshots that arrive
+        // from control-field patches before the finished roster save lands — those were
+        // restarting the PeriodicTimer and keeping heartbeat/listener traffic alive.
+        if (_timer.Phase == GamePhase.Finished
+            && phase is not GamePhase.Setup and not GamePhase.Finished)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[GameViewModel] Timer apply skipped — local Finished, cloud still {phase} running={running}");
+            return;
+        }
+
         var phaseChanged = phase != _timer.Phase;
         var runningChanged = running != _timer.TimerRunning;
         var localCd = _timer.CountdownRemainingSeconds;
@@ -3019,38 +3031,43 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(ScoresVisible));
         OnPropertyChanged(nameof(ShowFieldViewAbsentZone));
 
+        // Drop live roster watch now that the match is finished (Admin control channel unused).
+        StopCloudMirror();
+
         _ = PublishControllerReleasedAfterEndAsync();
     }
 
     /// <summary>
-    /// After End: patch empty control fields + roster sync so peers and activeControllers clear.
+    /// After End: publish Finished + stopped timers first, then clear control fields /
+    /// activeControllers so peers do not revive an Ended+running snapshot.
     /// </summary>
     private async Task PublishControllerReleasedAfterEndAsync()
     {
         try
         {
+            // Roster save first (phase=finished, timerRunning=false, empty controller in snapshot).
+            await ForceCloudSaveAsync().ConfigureAwait(false);
+
             var teamId = _currentTeamId;
             if (string.IsNullOrWhiteSpace(teamId))
                 teamId = Preferences.Get("team_id", string.Empty);
 
-            if (!string.IsNullOrWhiteSpace(teamId)
-                && !teamId.StartsWith("local_", StringComparison.Ordinal)
-                && !string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal))
-            {
-                try
-                {
-                    await _cloud.PatchGameControlAsync(
-                        teamId, "", "", "", "", "", DateTimeOffset.UnixEpoch)
-                        .ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[GameViewModel] End control patch: {ex.Message}");
-                }
-            }
+            if (string.IsNullOrWhiteSpace(teamId)
+                || teamId.StartsWith("local_", StringComparison.Ordinal)
+                || string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal))
+                return;
 
-            await ForceCloudSaveAsync().ConfigureAwait(false);
+            try
+            {
+                await _cloud.PatchGameControlAsync(
+                    teamId, "", "", "", "", "", DateTimeOffset.UnixEpoch)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GameViewModel] End control patch: {ex.Message}");
+            }
         }
         catch (Exception ex)
         {

@@ -1256,6 +1256,13 @@ public partial class GamePage : ContentPage
         _vm.ToggleStartPause();
         _vm.RotationDue = false;
 
+        // After End (Finished): stop role polling (was ~7.5 Firestore reads/min).
+        // After Reset → Setup: resume so Promote still works without leaving the tab.
+        if (_vm.Phase == GamePhase.Finished)
+            StopRolePolling();
+        else if (_vm.Phase == GamePhase.Setup)
+            StartRolePolling(Preferences.Get("team_id", string.Empty));
+
         // After kickoff, show the next-rotation call-out immediately.
         if (startingFromSetup
             && _vm.Phase is GamePhase.FirstHalf or GamePhase.SecondHalf)
