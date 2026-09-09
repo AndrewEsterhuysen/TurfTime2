@@ -25,6 +25,19 @@ public sealed class ChatService : IChatService
         _db = db;
     }
 
+    private static async Task<HttpResponseMessage> SendTrackedAsync(HttpRequestMessage req)
+    {
+        var method = req.Method.Method;
+        var url = req.RequestUri?.ToString();
+        var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        var len = resp.Content?.Headers?.ContentLength;
+        FirestoreUsageMeter.RecordRest(
+            method,
+            url,
+            len is long l and >= 0 and <= int.MaxValue ? (int)l : null);
+        return resp;
+    }
+
     public async Task<IDisposable?> SubscribeAsync(
         string teamId,
         Action<IReadOnlyList<ChatMessage>> onMessages,
@@ -57,13 +70,15 @@ public sealed class ChatService : IChatService
                 .OrderBy("timestamp", descending: false)
                 .LimitedTo(100);
 
-            return query.AddSnapshotListener<Dictionary<string, object>>(
+            FirestoreUsageMeter.SetFlag("watchingChat", true);
+            var registration = query.AddSnapshotListener<Dictionary<string, object>>(
                 snapshot =>
                 {
                     _ = Task.Run(async () =>
                     {
                         try
                         {
+                            FirestoreUsageMeter.RecordListener("Chat");
                             var list = ParseSdkSnapshot(snapshot, uid);
                             // Empty docs or empty-field docs → REST is source of truth.
                             var docCount = snapshot?.Documents?.Count() ?? 0;
@@ -74,6 +89,7 @@ public sealed class ChatService : IChatService
                             {
                                 System.Diagnostics.Debug.WriteLine(
                                     $"[ChatService] Listener empty/partial Data — REST refresh team={teamId}");
+                                FirestoreUsageMeter.Increment("ChatWatchRestFallback");
                                 list = await LoadMessagesViaRestAsync(teamId, uid).ConfigureAwait(false);
                             }
 
@@ -91,23 +107,38 @@ public sealed class ChatService : IChatService
                 {
                     System.Diagnostics.Debug.WriteLine(
                         $"[ChatService] Subscribe error: {ex.Message}");
+                    FirestoreUsageMeter.RecordListenerError("Chat");
                     onError?.Invoke(ex);
                     _ = Task.Run(async () =>
                     {
                         try
                         {
+                            FirestoreUsageMeter.Increment("ChatWatchRestFallback");
                             var list = await LoadMessagesViaRestAsync(teamId, uid).ConfigureAwait(false);
                             onMessages(list);
                         }
                         catch { /* ignore */ }
                     });
                 });
+            return new ChatWatchHandle(registration);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[ChatService] Subscribe: {ex.Message}");
             onError?.Invoke(ex);
             return null;
+        }
+    }
+
+    private sealed class ChatWatchHandle : IDisposable
+    {
+        private IDisposable? _inner;
+        public ChatWatchHandle(IDisposable? inner) => _inner = inner;
+        public void Dispose()
+        {
+            try { _inner?.Dispose(); } catch { /* ignore */ }
+            _inner = null;
+            FirestoreUsageMeter.SetFlag("watchingChat", false);
         }
     }
 
@@ -311,7 +342,7 @@ public sealed class ChatService : IChatService
         };
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", idToken);
 
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         var respBody = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {
@@ -349,7 +380,7 @@ public sealed class ChatService : IChatService
         };
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", idToken);
 
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {
@@ -369,7 +400,7 @@ public sealed class ChatService : IChatService
                 $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/teams/{Uri.EscapeDataString(teamId)}/messages/{Uri.EscapeDataString(messageId)}";
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", idToken);
-            using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+            using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) return result;
             var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             using var json = JsonDocument.Parse(body);
@@ -393,7 +424,7 @@ public sealed class ChatService : IChatService
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", idToken);
 
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             return [];
@@ -715,7 +746,7 @@ public sealed class ChatService : IChatService
                 $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/teams/{Uri.EscapeDataString(teamId)}/members/{Uri.EscapeDataString(uid)}";
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", idToken);
-            using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+            using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) return list;
             var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             using var json = JsonDocument.Parse(body);
@@ -790,7 +821,7 @@ public sealed class ChatService : IChatService
         };
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", idToken);
 
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {

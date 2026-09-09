@@ -453,11 +453,12 @@ async function hardDeleteTeam(db, teamId, meta) {
 /**
  * Scheduled: release stale match controllers (multi-admin single-controller lock).
  *
- * Clients write controllerHeartbeatUtc while holding control. The server — not peers —
- * is authoritative for auto-release so:
- *   - lock clears even if no other Admin app is open
- *   - clients do not need to poll/patch release themselves (less traffic)
+ * Firebase data reads (cost fix): previously this job did collectionGroup('roster').get()
+ * every minute (~N reads/min project-wide even with zero apps open → Cloud Run + Firestore
+ * charges during testing). Now clients maintain activeControllers/{teamId} on claim/clear;
+ * this job lists only that index (≈0 document reads when empty) then GETs those roster docs.
  *
+ * Clients write controllerHeartbeatUtc on teams/{id}/roster/data while holding control.
  * Schedule: every 1 minute.
  * Deploy: firebase deploy --only functions:releaseStaleGameControllers --project turf-timer
  */
@@ -477,35 +478,55 @@ exports.releaseStaleGameControllers = onSchedule(
                 `(stale=${CONTROLLER_STALE_MS / 1000}s)`
         );
 
-        // teams/{teamId}/roster/data documents (collection group "roster")
-        const rosterGroup = await db.collectionGroup('roster').get();
-        let scanned = 0;
-        let withController = 0;
+        const indexSnap = await db.collection('activeControllers').get();
+        let indexDocs = indexSnap.size;
+        let checked = 0;
         let released = 0;
+        let reconciled = 0;
         let errors = 0;
 
-        for (const doc of rosterGroup.docs) {
-            // App stores live state at roster/data only
-            if (doc.id !== 'data') continue;
-            scanned += 1;
+        for (const indexDoc of indexSnap.docs) {
+            const teamId = indexDoc.id;
+            checked += 1;
 
             try {
-                const data = doc.data() || {};
+                const rosterRef = db
+                    .collection('teams')
+                    .doc(teamId)
+                    .collection('roster')
+                    .doc('data');
+                const rosterSnap = await rosterRef.get();
+
+                if (!rosterSnap.exists) {
+                    await indexDoc.ref.delete();
+                    reconciled += 1;
+                    console.log(
+                        `[releaseStaleGameControllers] Reconcile missing roster team=${teamId}`
+                    );
+                    continue;
+                }
+
+                const data = rosterSnap.data() || {};
                 const controllerUid = String(data.controllerUid || '').trim();
-                if (!controllerUid) continue;
-                withController += 1;
+                if (!controllerUid) {
+                    await indexDoc.ref.delete();
+                    reconciled += 1;
+                    console.log(
+                        `[releaseStaleGameControllers] Reconcile empty controller team=${teamId}`
+                    );
+                    continue;
+                }
 
                 const hbMs = resolveControllerHeartbeatMs(data);
                 if (hbMs > cutoffMs) continue;
 
-                const teamId = doc.ref.parent.parent ? doc.ref.parent.parent.id : '?';
                 console.log(
                     `[releaseStaleGameControllers] Releasing team=${teamId} ` +
                         `controller=${controllerUid.substring(0, 8)}… ` +
                         `heartbeat=${hbMs ? new Date(hbMs).toISOString() : 'missing'}`
                 );
 
-                await doc.ref.update({
+                await rosterRef.update({
                     controllerUid: '',
                     controllerDisplayName: '',
                     controlRequestUid: '',
@@ -514,16 +535,20 @@ exports.releaseStaleGameControllers = onSchedule(
                     controllerHeartbeatUtc: Timestamp.fromMillis(0),
                     lastModifiedUtc: FieldValue.serverTimestamp(),
                 });
+                await indexDoc.ref.delete();
                 released += 1;
             } catch (err) {
                 errors += 1;
-                console.error(`[releaseStaleGameControllers] Failed ${doc.ref.path}:`, err);
+                console.error(
+                    `[releaseStaleGameControllers] Failed team=${teamId}:`,
+                    err
+                );
             }
         }
 
         console.log(
-            `[releaseStaleGameControllers] Done scanned=${scanned} withController=${withController} ` +
-                `released=${released} errors=${errors}`
+            `[releaseStaleGameControllers] Done indexDocs=${indexDocs} checked=${checked} ` +
+                `released=${released} reconciled=${reconciled} errors=${errors}`
         );
         return null;
     }

@@ -16,11 +16,29 @@ public sealed class CloudTeamService : ICloudTeamService
 
     private readonly IFirebaseAuthService _auth;
     private readonly IFirebaseFirestore _db;
+    private readonly ICloudRosterService _roster;
 
-    public CloudTeamService(IFirebaseAuthService auth, IFirebaseFirestore db)
+    public CloudTeamService(
+        IFirebaseAuthService auth,
+        IFirebaseFirestore db,
+        ICloudRosterService roster)
     {
         _auth = auth;
         _db = db;
+        _roster = roster;
+    }
+
+    private static async Task<HttpResponseMessage> SendTrackedAsync(HttpRequestMessage req)
+    {
+        var method = req.Method.Method;
+        var url = req.RequestUri?.ToString();
+        var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        var len = resp.Content?.Headers?.ContentLength;
+        FirestoreUsageMeter.RecordRest(
+            method,
+            url,
+            len is long l and >= 0 and <= int.MaxValue ? (int)l : null);
+        return resp;
     }
 
     /// <summary>
@@ -305,7 +323,7 @@ public sealed class CloudTeamService : ICloudTeamService
             req.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
-            using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+            using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
             var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
 
             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -732,6 +750,7 @@ public sealed class CloudTeamService : ICloudTeamService
                 .GetHttpsCallable("requestAdminRecoveryEmail")
                 .CallAsync<Dictionary<string, object>>(payload)
                 .ConfigureAwait(false);
+            FirestoreUsageMeter.RecordCallable("requestAdminRecoveryEmail");
 
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] requestAdminRecoveryEmail (SDK) → {result}");
             if (result is null)
@@ -767,6 +786,8 @@ public sealed class CloudTeamService : ICloudTeamService
             var response = await client.PostAsync(functionUrl,
                 new StringContent(payload, System.Text.Encoding.UTF8, "application/json")).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            FirestoreUsageMeter.RecordCallable("requestAdminRecoveryEmail");
+            FirestoreUsageMeter.RecordRestBody("POST", functionUrl, body);
             if (!response.IsSuccessStatusCode)
                 return $"error: Server returned {(int)response.StatusCode}.";
 
@@ -855,7 +876,7 @@ public sealed class CloudTeamService : ICloudTeamService
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
         if (!resp.IsSuccessStatusCode) return null;
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -954,7 +975,7 @@ public sealed class CloudTeamService : ICloudTeamService
         req.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             return list;
@@ -1041,7 +1062,7 @@ public sealed class CloudTeamService : ICloudTeamService
         req.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode) return;
 
@@ -1329,7 +1350,7 @@ public sealed class CloudTeamService : ICloudTeamService
             req.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
-            using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+            using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
             if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
                 return null;
             if (!resp.IsSuccessStatusCode)
@@ -1379,7 +1400,7 @@ public sealed class CloudTeamService : ICloudTeamService
         req.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {
@@ -1528,7 +1549,7 @@ public sealed class CloudTeamService : ICloudTeamService
         req.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
         // 404 = already gone → treat as success
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -1556,7 +1577,7 @@ public sealed class CloudTeamService : ICloudTeamService
         {
             getReq.Headers.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
-            using var getResp = await RestHttp.SendAsync(getReq).ConfigureAwait(false);
+            using var getResp = await SendTrackedAsync(getReq).ConfigureAwait(false);
             if (!getResp.IsSuccessStatusCode) return;
             var getBody = await getResp.Content.ReadAsStringAsync().ConfigureAwait(false);
             using var json = JsonDocument.Parse(getBody);
@@ -1590,11 +1611,20 @@ public sealed class CloudTeamService : ICloudTeamService
         };
         patchReq.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
-        using var patchResp = await RestHttp.SendAsync(patchReq).ConfigureAwait(false);
+        using var patchResp = await SendTrackedAsync(patchReq).ConfigureAwait(false);
         if (patchResp.IsSuccessStatusCode)
         {
             System.Diagnostics.Debug.WriteLine(
                 $"[CloudTeam] Cleared match controller after removing {memberUid[..Math.Min(6, memberUid.Length)]}…");
+            try
+            {
+                await _roster.SyncActiveControllerIndexAsync(teamId, null).ConfigureAwait(false);
+            }
+            catch (Exception idxEx)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudTeam] activeControllers clear after remove: {idxEx.Message}");
+            }
         }
     }
 
@@ -1739,7 +1769,7 @@ public sealed class CloudTeamService : ICloudTeamService
         using var req = new HttpRequestMessage(HttpMethod.Delete, url);
         req.Headers.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
-        using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             return;
         if (!resp.IsSuccessStatusCode)

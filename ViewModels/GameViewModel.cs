@@ -2624,6 +2624,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
 
         StopControllerHeartbeat();
         // Immediate ping, then periodic — server uses this for stale auto-release.
+        Services.FirestoreUsageMeter.SetFlag("heartbeatOn", true);
         _ = SendControllerHeartbeatAsync();
         _controllerHeartbeatTimer = new System.Threading.Timer(
             _ => _ = SendControllerHeartbeatAsync(),
@@ -2637,6 +2638,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         try { _controllerHeartbeatTimer?.Dispose(); }
         catch { /* ignore */ }
         _controllerHeartbeatTimer = null;
+        Services.FirestoreUsageMeter.SetFlag("heartbeatOn", false);
     }
 
     private async Task SendControllerHeartbeatAsync()

@@ -12,6 +12,7 @@ rules_version = '2';
 //   teams/{teamId}/sessions/{sessionId}
 //   teams/{teamId}/public/invite     (join reverse-lookup under team tree)
 //   invite_codes/{code}             (O(1) join lookup)
+//   activeControllers/{teamId}      (presence index for stale controller release)
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -45,6 +46,14 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid;
       allow update, delete: if signedIn()
         && resource.data.createdBy == request.auth.uid;
+    }
+
+    // Firebase data reads: presence index for releaseStaleGameControllers (avoids
+    // scanning every teams/*/roster/data each minute). Doc id = teamId.
+    // Clients (admins) upsert/delete; Admin SDK in Cloud Functions also writes.
+    match /activeControllers/{teamId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isTeamAdmin(teamId);
     }
 
     // Team metadata — any signed-in user may create a new team; only admin updates.

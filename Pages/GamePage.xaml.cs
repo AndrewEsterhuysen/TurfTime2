@@ -263,6 +263,7 @@ public partial class GamePage : ContentPage
             return;
 
         _rolePollCts = new CancellationTokenSource();
+        TurfTime2.Services.FirestoreUsageMeter.SetFlag("rolePollOn", true);
         var token = _rolePollCts.Token;
         _ = PollCloudRoleLoopAsync(teamId, token);
     }
@@ -274,6 +275,7 @@ public partial class GamePage : ContentPage
         try { _rolePollCts?.Dispose(); }
         catch { /* ignore */ }
         _rolePollCts = null;
+        TurfTime2.Services.FirestoreUsageMeter.SetFlag("rolePollOn", false);
     }
 
     private async Task PollCloudRoleLoopAsync(string teamId, CancellationToken token)
@@ -340,6 +342,7 @@ public partial class GamePage : ContentPage
             var cloudTeam = services?.GetService<ICloudTeamService>();
             if (cloudTeam is null) return fallbackRole;
 
+            TurfTime2.Services.FirestoreUsageMeter.RecordRolePoll();
             var cloudRole = await cloudTeam.GetMyRoleAsync(teamId).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(cloudRole))
             {

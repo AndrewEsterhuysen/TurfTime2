@@ -70,6 +70,7 @@ public sealed class SessionStorageService : ISessionStorageService
             await _db.GetDocument($"teams/{teamId}/sessions/{session.SessionId}")
                 .SetDataAsync(data, SetOptions.Merge())
                 .ConfigureAwait(false);
+            FirestoreUsageMeter.RecordSdk("Set", "Session");
 
             System.Diagnostics.Debug.WriteLine(
                 $"[SessionStorage] Session {session.SessionId} saved (schema v{SessionSchemaVersion})");
@@ -106,6 +107,7 @@ public sealed class SessionStorageService : ISessionStorageService
             var snap = await _db.GetDocument($"teams/{teamId}/sessions/{sessionId}")
                 .GetDocumentSnapshotAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
+            FirestoreUsageMeter.RecordSdk("Get", "Session");
             return ParseSessionData(snap?.Data);
         }
         catch (Exception ex)
@@ -174,6 +176,7 @@ public sealed class SessionStorageService : ISessionStorageService
             var querySnap = await _db.GetCollection($"teams/{teamId}/sessions")
                 .GetDocumentsAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
+            FirestoreUsageMeter.RecordSdk("Query", "Session");
 
             var result = new List<SessionSummary>();
             if (querySnap?.Documents == null)

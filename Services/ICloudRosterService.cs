@@ -69,4 +69,15 @@ public interface ICloudRosterService
 
     /// <summary>Current Firebase Auth uid after ensure-sign-in, or null.</summary>
     Task<string?> GetSignedInUidAsync();
+
+    /// <summary>
+    /// Maintain root <c>activeControllers/{teamId}</c> for the stale-release Cloud Function.
+    /// Pass a non-empty uid to upsert; null/empty deletes the index doc. Fail-soft.
+    /// </summary>
+    /// <remarks>
+    /// Firebase data reads: the scheduled function must not <c>collectionGroup('roster')</c>
+    /// every minute. Clients keep this tiny presence index in sync so idle projects cost ~0
+    /// document reads/hour from that job; heartbeat still lives on <c>roster/data</c> only.
+    /// </remarks>
+    Task SyncActiveControllerIndexAsync(string teamId, string? controllerUid);
 }

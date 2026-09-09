@@ -192,12 +192,14 @@ public sealed class MatchScheduleService : IMatchScheduleService
         try
         {
             _watchTeamId = teamId;
+            FirestoreUsageMeter.SetFlag("watchingSchedule", true);
             var doc = _db.GetDocument($"teams/{teamId}/{DocPathSuffix}");
             _watchRegistration = doc.AddSnapshotListener<Dictionary<string, object>>(
                 snap =>
                 {
                     try
                     {
+                        FirestoreUsageMeter.RecordListener("Schedule");
                         MatchSchedule? schedule = null;
                         if (snap?.Data is not null)
                             schedule = FromDictionary(teamId, snap.Data);
@@ -209,17 +211,21 @@ public sealed class MatchScheduleService : IMatchScheduleService
                             onUpdate(schedule);
                         }
 
+                        FirestoreUsageMeter.Increment("ScheduleWatchRestFallback");
                         _ = DeliverViaRestAsync(teamId, onUpdate);
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"[MatchSchedule] Watch: {ex.Message}");
+                        FirestoreUsageMeter.Increment("ScheduleWatchRestFallback");
                         _ = DeliverViaRestAsync(teamId, onUpdate);
                     }
                 },
                 error =>
                 {
                     System.Diagnostics.Debug.WriteLine($"[MatchSchedule] Watch error: {error.Message}");
+                    FirestoreUsageMeter.RecordListenerError("Schedule");
+                    FirestoreUsageMeter.Increment("ScheduleWatchRestFallback");
                     _ = DeliverViaRestAsync(teamId, onUpdate);
                 });
 
@@ -262,6 +268,7 @@ public sealed class MatchScheduleService : IMatchScheduleService
             await _db.GetDocument($"teams/{teamId}/{DocPathSuffix}")
                 .SetDataAsync(payload)
                 .ConfigureAwait(false);
+            FirestoreUsageMeter.RecordSdk("Set", "Schedule");
             System.Diagnostics.Debug.WriteLine($"[MatchSchedule] SDK SetData team={teamId}");
         }
         catch (Exception ex)
@@ -313,6 +320,7 @@ public sealed class MatchScheduleService : IMatchScheduleService
 
         using var resp = await RestHttp.SendAsync(patch).ConfigureAwait(false);
         var respBody = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        FirestoreUsageMeter.RecordRestBody("PATCH", patchUrl, respBody);
         if (!resp.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
@@ -343,6 +351,7 @@ public sealed class MatchScheduleService : IMatchScheduleService
             var snap = await _db.GetDocument($"teams/{teamId}/{DocPathSuffix}")
                 .GetDocumentSnapshotAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
+            FirestoreUsageMeter.RecordSdk("Get", "Schedule");
             if (snap?.Data is not null)
                 return FromDictionary(teamId, snap.Data);
         }
@@ -369,8 +378,13 @@ public sealed class MatchScheduleService : IMatchScheduleService
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
         using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            FirestoreUsageMeter.RecordRest("GET", url, 0);
+            return null;
+        }
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        FirestoreUsageMeter.RecordRestBody("GET", url, body);
         if (!resp.IsSuccessStatusCode)
         {
             System.Diagnostics.Debug.WriteLine(
@@ -414,6 +428,7 @@ public sealed class MatchScheduleService : IMatchScheduleService
         catch { /* ignore */ }
         _watchRegistration = null;
         _watchTeamId = null;
+        FirestoreUsageMeter.SetFlag("watchingSchedule", false);
     }
 
     private sealed class WatchHandle : IDisposable

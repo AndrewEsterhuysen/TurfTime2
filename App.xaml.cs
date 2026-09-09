@@ -35,6 +35,11 @@ namespace TurfTime2
         {
             InitializeComponent();
 
+#if DEBUG
+            // Client-side cloud traffic meter — filter logs for [FirestoreUsage]
+            Services.FirestoreUsageMeter.StartPeriodicLogging();
+#endif
+
             // Initialize FCM
             _ = InitializeFcmAsync();
         }
@@ -65,6 +70,9 @@ namespace TurfTime2
         protected override void OnSleep()
         {
             base.OnSleep();
+#if DEBUG
+            Services.FirestoreUsageMeter.LogSummary(flushWindow: false);
+#endif
             Sleeping?.Invoke(this, EventArgs.Empty);
         }
 
@@ -72,6 +80,9 @@ namespace TurfTime2
         {
             base.OnResume();
             Resumed?.Invoke(this, EventArgs.Empty);
+#if DEBUG
+            Services.FirestoreUsageMeter.StartPeriodicLogging();
+#endif
 #if IOS
             // Keep banner presentation delegate installed (Plugin.Firebase can overwrite it).
             FcmService.InstallIosNotificationDelegate();

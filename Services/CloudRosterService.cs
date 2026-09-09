@@ -180,11 +180,15 @@ public sealed class CloudRosterService : ICloudRosterService
 
         using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        FirestoreUsageMeter.RecordRestBody("PATCH", url, body);
         if (!resp.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
                 $"Control patch {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
         }
+
+        // Keep stale-release index in sync (presence only; heartbeat stays on roster).
+        _ = SyncActiveControllerIndexAsync(teamId, clearControl ? null : controllerUid);
 
         System.Diagnostics.Debug.WriteLine(
             $"[CloudRosterService] Control patch team={teamId} controller={controllerUid[..Math.Min(6, (controllerUid ?? "").Length)]}… request={controlRequestUid[..Math.Min(6, (controlRequestUid ?? "").Length)]}…");
@@ -222,12 +226,19 @@ public sealed class CloudRosterService : ICloudRosterService
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
         using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+        var hbBody = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        FirestoreUsageMeter.RecordHeartbeat();
+        FirestoreUsageMeter.RecordRestBody("PATCH", url, hbBody);
         if (!resp.IsSuccessStatusCode)
         {
-            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             throw new InvalidOperationException(
-                $"Heartbeat patch {(int)resp.StatusCode}: {body[..Math.Min(160, body.Length)]}");
+                $"Heartbeat patch {(int)resp.StatusCode}: {hbBody[..Math.Min(160, hbBody.Length)]}");
         }
+
+        // Heal index if an older build claimed control without writing activeControllers.
+        var uid = _auth.UserId;
+        if (!string.IsNullOrEmpty(uid))
+            _ = SyncActiveControllerIndexAsync(teamId, uid);
     }
 
     public async Task PatchControlRequestAsync(
@@ -267,6 +278,7 @@ public sealed class CloudRosterService : ICloudRosterService
 
         using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        FirestoreUsageMeter.RecordRestBody("PATCH", url, body);
         if (!resp.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
@@ -288,12 +300,14 @@ public sealed class CloudRosterService : ICloudRosterService
         try
         {
             _watchTeamId = teamId;
+            FirestoreUsageMeter.SetFlag("watchingRoster", true);
             var doc = _db.GetDocument($"teams/{teamId}/roster/data");
             _watchRegistration = doc.AddSnapshotListener<Dictionary<string, object>>(
                 snap =>
                 {
                     try
                     {
+                        FirestoreUsageMeter.RecordListener("Roster");
                         var data = snap?.Data;
                         RosterSnapshot? roster = null;
                         if (data is not null)
@@ -313,12 +327,14 @@ public sealed class CloudRosterService : ICloudRosterService
                             SaveLocal(teamId, roster);
                             onUpdate(roster);
                         }
+                        FirestoreUsageMeter.Increment("RosterWatchRestFallback");
                         _ = DeliverViaRestAsync(teamId, onUpdate);
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine(
                             $"[CloudRosterService] Watch callback: {ex.Message}");
+                        FirestoreUsageMeter.Increment("RosterWatchRestFallback");
                         _ = DeliverViaRestAsync(teamId, onUpdate);
                     }
                 },
@@ -326,6 +342,8 @@ public sealed class CloudRosterService : ICloudRosterService
                 {
                     System.Diagnostics.Debug.WriteLine(
                         $"[CloudRosterService] Watch error: {error.Message}");
+                    FirestoreUsageMeter.RecordListenerError("Roster");
+                    FirestoreUsageMeter.Increment("RosterWatchRestFallback");
                     _ = DeliverViaRestAsync(teamId, onUpdate);
                 });
 
@@ -376,6 +394,7 @@ public sealed class CloudRosterService : ICloudRosterService
         catch { /* ignore */ }
         _watchRegistration = null;
         _watchTeamId = null;
+        FirestoreUsageMeter.SetFlag("watchingRoster", false);
     }
 
     private sealed class WatchHandle : IDisposable
@@ -455,6 +474,7 @@ public sealed class CloudRosterService : ICloudRosterService
             var payload = ToFirestorePayload(snapshot);
             var doc = _db.GetDocument($"teams/{teamId}/roster/data");
             await doc.SetDataAsync(payload).ConfigureAwait(false);
+            FirestoreUsageMeter.RecordSdk("Set", "Roster");
             System.Diagnostics.Debug.WriteLine(
                 $"[CloudRosterService] SDK SetDataAsync completed (team {teamId}, players={snapshot.Players.Count}) — verify via REST if members cannot see state");
             _ = TouchTeamLastActivityAsync(teamId);
@@ -575,6 +595,7 @@ public sealed class CloudRosterService : ICloudRosterService
 
         using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
         var respBody = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        FirestoreUsageMeter.RecordRestBody("PATCH", patchUrl, respBody);
         if (!resp.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
@@ -604,6 +625,89 @@ public sealed class CloudRosterService : ICloudRosterService
         {
             System.Diagnostics.Debug.WriteLine(
                 $"[CloudRosterService] REST upload OK team={teamId} (response parse skipped)");
+        }
+
+        var ctrl = snapshot.ControllerUid?.Trim();
+        _ = SyncActiveControllerIndexAsync(teamId, string.IsNullOrEmpty(ctrl) ? null : ctrl);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Firebase data reads: presence-only index for <c>releaseStaleGameControllers</c>.
+    /// Claim/heartbeat upsert; clear/relinquish/empty roster upload delete. Fail-soft so
+    /// gameplay still works if the index write fails.
+    /// </remarks>
+    public async Task SyncActiveControllerIndexAsync(string teamId, string? controllerUid)
+    {
+        if (string.IsNullOrWhiteSpace(teamId) || IsLocalOnlyTeam(teamId))
+            return;
+
+        try
+        {
+            var idToken = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(idToken))
+                idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(idToken))
+                return;
+
+            var url =
+                $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/activeControllers/{Uri.EscapeDataString(teamId)}";
+
+            if (string.IsNullOrWhiteSpace(controllerUid))
+            {
+                using var del = new HttpRequestMessage(HttpMethod.Delete, url);
+                del.Headers.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+                using var delResp = await RestHttp.SendAsync(del).ConfigureAwait(false);
+                var delBody = await delResp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                FirestoreUsageMeter.RecordRestBody("DELETE", url, delBody);
+                // 404 = already absent — fine
+                if (!delResp.IsSuccessStatusCode
+                    && delResp.StatusCode != System.Net.HttpStatusCode.NotFound)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[CloudRosterService] activeControllers delete {(int)delResp.StatusCode}: " +
+                        $"{delBody[..Math.Min(120, delBody.Length)]}");
+                }
+                return;
+            }
+
+            var nowTs = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+            var fields = new Dictionary<string, object>
+            {
+                ["controllerUid"] = new Dictionary<string, object>
+                {
+                    ["stringValue"] = controllerUid.Trim()
+                },
+                ["updatedAt"] = new Dictionary<string, object>
+                {
+                    ["timestampValue"] = nowTs
+                }
+            };
+            var mask =
+                "updateMask.fieldPaths=controllerUid&updateMask.fieldPaths=updatedAt&allowMissing=true";
+            var patchUrl = $"{url}?{mask}";
+            var json = JsonSerializer.Serialize(new { fields });
+            using var req = new HttpRequestMessage(HttpMethod.Patch, patchUrl)
+            {
+                Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+            };
+            req.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+            using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            FirestoreUsageMeter.RecordRestBody("PATCH", patchUrl, body);
+            if (!resp.IsSuccessStatusCode)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudRosterService] activeControllers upsert {(int)resp.StatusCode}: " +
+                    $"{body[..Math.Min(120, body.Length)]}");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudRosterService] activeControllers sync: {ex.Message}");
         }
     }
 
@@ -641,6 +745,7 @@ public sealed class CloudRosterService : ICloudRosterService
             var snap = await _db.GetDocument($"teams/{teamId}/roster/data")
                 .GetDocumentSnapshotAsync<Dictionary<string, object>>()
                 .ConfigureAwait(false);
+            FirestoreUsageMeter.RecordSdk("Get", "Roster");
             if (snap?.Data is not null)
             {
                 var roster = FromDictionary(snap.Data);
@@ -673,8 +778,13 @@ public sealed class CloudRosterService : ICloudRosterService
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
 
         using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
-        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            FirestoreUsageMeter.RecordRest("GET", url, 0);
+            return null;
+        }
         var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        FirestoreUsageMeter.RecordRestBody("GET", url, body);
         if (!resp.IsSuccessStatusCode)
         {
             System.Diagnostics.Debug.WriteLine(

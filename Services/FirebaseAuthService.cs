@@ -70,6 +70,8 @@ public sealed class FirebaseAuthService : IFirebaseAuthService
             if (user is null)
                 return null;
 
+            if (forceRefresh)
+                FirestoreUsageMeter.RecordAuthTokenRefresh();
             var result = await user.GetIdTokenResultAsync(forceRefresh).ConfigureAwait(false);
             return result?.Token;
         }
