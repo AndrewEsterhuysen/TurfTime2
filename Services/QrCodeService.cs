@@ -598,7 +598,9 @@ public static class QrCodeService
         string displayName,
         string? inviteCode = null,
         string role = "member",
-        bool isOwner = false)
+        bool isOwner = false,
+        string? clubId = null,
+        string? clubName = null)
     {
         var normalizedRole = string.IsNullOrWhiteSpace(role)
             ? "member"
@@ -606,21 +608,89 @@ public static class QrCodeService
         if (normalizedRole is not ("admin" or "member"))
             normalizedRole = "member";
 
+        var display = Helpers.ClubTeamNames.ComposeDisplayName(teamName, clubName);
+        if (string.IsNullOrWhiteSpace(display))
+            display = teamName;
+
         Preferences.Set(TeamModeKey, "shared");
         Preferences.Set(TeamIdKey, teamId);
-        Preferences.Set(TeamNameKey, teamName);
+        Preferences.Set(TeamNameKey, display);
         Preferences.Set(UserRoleKey, normalizedRole);
         Preferences.Set($"{teamId}_role", normalizedRole);
-        Preferences.Set($"{teamId}_name", teamName);
+        Preferences.Set($"{teamId}_name", display);
+        Preferences.Set($"{teamId}_team_name", teamName ?? "");
         Preferences.Set($"{teamId}_isOwner", isOwner);
         Preferences.Set($"team_mode_{teamId}", "shared");
         Preferences.Set($"user_role_{teamId}", normalizedRole);
+
+        var cid = (clubId ?? "").Trim();
+        var cname = (clubName ?? "").Trim();
+        Preferences.Set($"{teamId}_club_id", cid);
+        Preferences.Set($"{teamId}_club_name", cname);
+
         // Persist invite so a later Promote-to-Admin can show/share it without recreating the team.
         var code = NormalizeInviteCode(inviteCode);
         if (!string.IsNullOrEmpty(code))
             Preferences.Set($"{teamId}_invite_code", code);
         UserDisplayName.Set(displayName);
         RegisterSharedTeamId(teamId);
+    }
+
+    /// <summary>Remember a club this user can create teams under (Owner / Club Admin).</summary>
+    public static void RegisterManagedClub(string clubId, string clubName)
+    {
+        if (string.IsNullOrWhiteSpace(clubId)) return;
+        const string key = "managed_club_id_list";
+        try
+        {
+            var json = Preferences.Get(key, "[]");
+            var list = System.Text.Json.JsonSerializer.Deserialize<List<ManagedClubPref>>(json)
+                       ?? new List<ManagedClubPref>();
+            var existing = list.FirstOrDefault(c =>
+                string.Equals(c.ClubId, clubId, StringComparison.Ordinal));
+            if (existing is not null)
+            {
+                if (!string.IsNullOrWhiteSpace(clubName))
+                    existing.ClubName = clubName.Trim();
+            }
+            else
+            {
+                list.Add(new ManagedClubPref
+                {
+                    ClubId = clubId.Trim(),
+                    ClubName = (clubName ?? "").Trim()
+                });
+            }
+            Preferences.Set(key, System.Text.Json.JsonSerializer.Serialize(list));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[QrCode] RegisterManagedClub: {ex.Message}");
+        }
+    }
+
+    public static IReadOnlyList<(string ClubId, string ClubName)> GetManagedClubs()
+    {
+        try
+        {
+            var json = Preferences.Get("managed_club_id_list", "[]");
+            var list = System.Text.Json.JsonSerializer.Deserialize<List<ManagedClubPref>>(json)
+                       ?? new List<ManagedClubPref>();
+            return list
+                .Where(c => !string.IsNullOrWhiteSpace(c.ClubId))
+                .Select(c => (c.ClubId, c.ClubName ?? ""))
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<(string, string)>();
+        }
+    }
+
+    private sealed class ManagedClubPref
+    {
+        public string ClubId { get; set; } = "";
+        public string ClubName { get; set; } = "";
     }
 
     private static void RegisterSharedTeamId(string teamId)

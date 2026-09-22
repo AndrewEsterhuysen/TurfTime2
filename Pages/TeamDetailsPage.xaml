@@ -479,18 +479,34 @@
                                 <StackLayout x:Name="CreateTeamContent" IsVisible="False" Spacing="10" Padding="0,4,0,0">
                                     <StackLayout x:Name="CreateSharedSection" IsVisible="False" Spacing="10">
                                         <Label Text="☁️ New Shared Team" FontAttributes="Bold" FontSize="14"/>
-                                        <Label Text="Team &amp; Club" FontSize="12" TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                                        <Label Text="Create a new club + team (you become Club Owner), add a team under a club you already manage, or use a nickname for a standalone team."
+                                               FontSize="11"
+                                               TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
+
+                                        <Label Text="New club + team" FontSize="12" FontAttributes="Bold"
+                                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
                                         <Entry x:Name="TeamEntry"
                                                Placeholder="Team name (e.g., U17 Boys)"
                                                TextChanged="OnClubTeamChanged"/>
                                         <Entry x:Name="ClubEntry"
                                                Placeholder="Club name (e.g., Manchester United FC)"
                                                TextChanged="OnClubTeamChanged"/>
-                                        <Label Text="OR" HorizontalOptions="Center" FontAttributes="Bold" Margin="0,3"/>
-                                        <Label Text="Nickname" FontSize="12" TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+
+                                        <Label Text="OR add team to a club you manage" HorizontalOptions="Center"
+                                               FontAttributes="Bold" Margin="0,6,0,0" FontSize="12"/>
+                                        <Picker x:Name="ManagedClubPicker"
+                                                Title="Select managed club"
+                                                SelectedIndexChanged="OnManagedClubPickerChanged"/>
+                                        <Entry x:Name="UnderClubTeamEntry"
+                                               Placeholder="New team name under selected club"
+                                               TextChanged="OnUnderClubTeamChanged"/>
+
+                                        <Label Text="OR nickname (standalone — no club)" HorizontalOptions="Center"
+                                               FontAttributes="Bold" Margin="0,6,0,0" FontSize="12"/>
                                         <Entry x:Name="NicknameEntry"
                                                Placeholder="Team nickname (e.g., Socceroos)"
                                                TextChanged="OnNicknameChanged"/>
+
                                         <Label Text="Your display name (shown in Chat)"
                                                FontSize="12"
                                                TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
@@ -577,14 +593,14 @@
                         </Label.GestureRecognizers>
                     </Label>
                     <StackLayout x:Name="RecoverAdminContent" IsVisible="False" Spacing="10">
-                        <Label Text="Use this if you changed devices and need Owner access again. The recovery code is a master key: it makes this account the Owner (and Admin)."
+                        <Label Text="Enter any Team ID under your club plus a recovery code. A Team Owner Recovery Code restores that team; a Club Owner Recovery Code restores the club (Team ID is only used to find the club)."
                                FontSize="12"
                                TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
                         <Entry x:Name="AdminRejoinTeamIdEntry"
-                               Placeholder="Team ID (e.g. myclub-a1b2c3)"
+                               Placeholder="Team ID (e.g. u17-boys-a1b2c3)"
                                MaxLength="60"/>
                         <Entry x:Name="AdminRejoinCodeEntry"
-                               Placeholder="Owner Recovery Code"
+                               Placeholder="Team or Club Owner Recovery Code"
                                MaxLength="24"/>
                         <Entry x:Name="AdminRejoinDisplayNameEntry"
                                Placeholder="Your display name (shown in Chat)"
@@ -598,11 +614,11 @@
                                 FontSize="14"/>
                         <BoxView HeightRequest="1"
                                  Color="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"/>
-                        <Label Text="📧 Forgot your Owner Recovery Code?"
+                        <Label Text="📧 Forgot your Team Owner Recovery Code?"
                                FontAttributes="Bold"
                                FontSize="13"
                                TextColor="#E65100"/>
-                        <Label Text="Enter Team ID — recovery reminder goes to the email registered at create."
+                        <Label Text="Enter Team ID — team recovery reminder goes to the email registered at create. (Club recovery codes are not emailed yet.)"
                                FontSize="11"
                                TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
                         <Entry x:Name="EmailReminderTeamIdEntry"

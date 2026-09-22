@@ -402,6 +402,8 @@ public partial class TeamDetailsPage : ContentPage
 		bool isLocal  = LocalCheckbox.IsChecked;
 		CreateSharedSection.IsVisible = isShared;
 		CreateLocalSection.IsVisible  = isLocal;
+		if (isShared)
+			RefreshManagedClubPicker();
 	}
 
 	private async void OnLeaveTeamButtonClicked(object sender, EventArgs e)
@@ -1100,59 +1102,188 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
+	private enum SharedCreateMode
+	{
+		None,
+		NewClubAndTeam,
+		UnderManagedClub,
+		Nickname
+	}
+
+	private List<(string ClubId, string ClubName)> _managedClubChoices = new();
+
+	private void RefreshManagedClubPicker()
+	{
+		try
+		{
+			_managedClubChoices = QrCodeService.GetManagedClubs().ToList();
+			ManagedClubPicker.Items.Clear();
+			foreach (var c in _managedClubChoices)
+			{
+				var label = string.IsNullOrWhiteSpace(c.ClubName) ? c.ClubId : c.ClubName;
+				ManagedClubPicker.Items.Add(label);
+			}
+			ManagedClubPicker.IsEnabled = _managedClubChoices.Count > 0;
+			if (_managedClubChoices.Count == 0)
+				ManagedClubPicker.Title = "No managed clubs yet — create a club first";
+			else
+				ManagedClubPicker.Title = "Select managed club";
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] RefreshManagedClubPicker: {ex.Message}");
+		}
+
+		_ = SyncManagedClubsFromCloudAsync();
+	}
+
+	private async Task SyncManagedClubsFromCloudAsync()
+	{
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null) return;
+			var remote = await cloud.ListManagedClubsAsync();
+			foreach (var c in remote)
+				QrCodeService.RegisterManagedClub(c.ClubId, c.ClubName);
+
+			// Also register clubs from local shared teams where user is club owner/admin.
+			foreach (var teamId in GetSharedTeamIds())
+			{
+				var clubId = Preferences.Get($"{teamId}_club_id", string.Empty);
+				if (string.IsNullOrWhiteSpace(clubId)) continue;
+				var role = await cloud.GetMyClubRoleAsync(clubId);
+				if (role is "owner" or "admin")
+				{
+					var clubName = Preferences.Get($"{teamId}_club_name", string.Empty);
+					QrCodeService.RegisterManagedClub(clubId, clubName);
+				}
+			}
+
+			var refreshed = QrCodeService.GetManagedClubs().ToList();
+			if (refreshed.Count == _managedClubChoices.Count) return;
+
+			await MainThread.InvokeOnMainThreadAsync(() =>
+			{
+				_managedClubChoices = refreshed;
+				var selected = ManagedClubPicker.SelectedIndex;
+				ManagedClubPicker.Items.Clear();
+				foreach (var c in _managedClubChoices)
+				{
+					var label = string.IsNullOrWhiteSpace(c.ClubName) ? c.ClubId : c.ClubName;
+					ManagedClubPicker.Items.Add(label);
+				}
+				ManagedClubPicker.IsEnabled = _managedClubChoices.Count > 0;
+				if (selected >= 0 && selected < _managedClubChoices.Count)
+					ManagedClubPicker.SelectedIndex = selected;
+			});
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] SyncManagedClubs: {ex.Message}");
+		}
+	}
+
+	private static List<string> GetSharedTeamIds()
+	{
+		try
+		{
+			var json = Preferences.Get("team_id_list", "[]");
+			return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? [];
+		}
+		catch
+		{
+			return [];
+		}
+	}
+
+	private SharedCreateMode DetectSharedCreateMode()
+	{
+		var hasNickname = !string.IsNullOrWhiteSpace(NicknameEntry.Text);
+		var hasNewClub = !string.IsNullOrWhiteSpace(ClubEntry.Text) && !string.IsNullOrWhiteSpace(TeamEntry.Text);
+		var hasUnderClub = ManagedClubPicker.SelectedIndex >= 0
+		                   && !string.IsNullOrWhiteSpace(UnderClubTeamEntry.Text);
+
+		var count = (hasNickname ? 1 : 0) + (hasNewClub ? 1 : 0) + (hasUnderClub ? 1 : 0);
+		if (count != 1)
+			return SharedCreateMode.None;
+		if (hasNickname) return SharedCreateMode.Nickname;
+		if (hasUnderClub) return SharedCreateMode.UnderManagedClub;
+		return SharedCreateMode.NewClubAndTeam;
+	}
+
 	private void OnClubTeamChanged(object sender, TextChangedEventArgs e)
 	{
-		// If either Club or Team has text, disable Nickname
 		if (!string.IsNullOrWhiteSpace(ClubEntry.Text) || !string.IsNullOrWhiteSpace(TeamEntry.Text))
 		{
 			NicknameEntry.IsEnabled = false;
 			NicknameEntry.Text = string.Empty;
+			UnderClubTeamEntry.IsEnabled = false;
+			UnderClubTeamEntry.Text = string.Empty;
+			ManagedClubPicker.SelectedIndex = -1;
+			ManagedClubPicker.IsEnabled = false;
 		}
 		else
 		{
 			NicknameEntry.IsEnabled = true;
+			UnderClubTeamEntry.IsEnabled = true;
+			ManagedClubPicker.IsEnabled = _managedClubChoices.Count > 0;
 		}
 	}
 
+	private void OnUnderClubTeamChanged(object sender, TextChangedEventArgs e)
+	{
+		if (!string.IsNullOrWhiteSpace(UnderClubTeamEntry.Text) || ManagedClubPicker.SelectedIndex >= 0)
+		{
+			NicknameEntry.IsEnabled = false;
+			NicknameEntry.Text = string.Empty;
+			ClubEntry.IsEnabled = false;
+			TeamEntry.IsEnabled = false;
+			ClubEntry.Text = string.Empty;
+			TeamEntry.Text = string.Empty;
+		}
+		else if (string.IsNullOrWhiteSpace(NicknameEntry.Text))
+		{
+			ClubEntry.IsEnabled = true;
+			TeamEntry.IsEnabled = true;
+			NicknameEntry.IsEnabled = true;
+		}
+	}
+
+	private void OnManagedClubPickerChanged(object sender, EventArgs e)
+		=> OnUnderClubTeamChanged(sender, new TextChangedEventArgs(null, UnderClubTeamEntry.Text));
+
 	private void OnNicknameChanged(object sender, TextChangedEventArgs e)
 	{
-		// If Nickname has text, disable Club and Team
 		if (!string.IsNullOrWhiteSpace(NicknameEntry.Text))
 		{
 			ClubEntry.IsEnabled = false;
 			TeamEntry.IsEnabled = false;
 			ClubEntry.Text = string.Empty;
 			TeamEntry.Text = string.Empty;
+			UnderClubTeamEntry.IsEnabled = false;
+			UnderClubTeamEntry.Text = string.Empty;
+			ManagedClubPicker.SelectedIndex = -1;
+			ManagedClubPicker.IsEnabled = false;
 		}
 		else
 		{
 			ClubEntry.IsEnabled = true;
 			TeamEntry.IsEnabled = true;
+			UnderClubTeamEntry.IsEnabled = true;
+			ManagedClubPicker.IsEnabled = _managedClubChoices.Count > 0;
 		}
 	}
 
 	private async void OnCreateTeamClicked(object sender, EventArgs e)
 	{
-		string teamName;
-		string teamId;
-
-		// Validate input before showing the spinner
-		if (!string.IsNullOrWhiteSpace(NicknameEntry.Text))
+		var mode = DetectSharedCreateMode();
+		if (mode == SharedCreateMode.None)
 		{
-			teamName = NicknameEntry.Text.Trim();
-			teamId = GenerateTeamId(teamName);
-		}
-		else if (!string.IsNullOrWhiteSpace(ClubEntry.Text) && !string.IsNullOrWhiteSpace(TeamEntry.Text))
-		{
-			var club = ClubEntry.Text.Trim();
-			var team = TeamEntry.Text.Trim();
-			// Single display string: Team first so truncation still shows which side (e.g. "U17 Boys - Manchester…")
-			teamName = $"{team} - {club}";
-			teamId = GenerateTeamId(team, club);
-		}
-		else
-		{
-			await DisplayAlert("Invalid Input", "Please enter either Team + Club or a Nickname.", "OK");
+			await DisplayAlert(
+				"Invalid Input",
+				"Choose one path:\n• Club name + Team name (new club)\n• Managed club + new team name\n• Nickname (standalone)",
+				"OK");
 			return;
 		}
 
@@ -1162,7 +1293,6 @@ public partial class TeamDetailsPage : ContentPage
 			return;
 		}
 
-		// Show loading state
 		CreateSharedTeamButton.IsEnabled = false;
 		CreateTeamLoadingSection.IsVisible = true;
 		CreateTeamSpinner.IsRunning = true;
@@ -1173,57 +1303,75 @@ public partial class TeamDetailsPage : ContentPage
 			var adminCode = GenerateAdminCode();
 			var adminCodeHash = HashAdminCode(adminCode);
 			var creatorEmail = CreatorEmailEntry.Text?.Trim() ?? string.Empty;
-			var result = await CreateTeamInFirestore(teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
+			var cloud = ResolveCloudTeam();
+			if (cloud is null)
+			{
+				await DisplayAlert("Error", "Cloud team service not available", "OK");
+				return;
+			}
 
-				if (result == "success")
+			string teamId;
+			string teamName;
+			string clubId = "";
+			string clubName = "";
+			string result;
+
+			switch (mode)
+			{
+				case SharedCreateMode.Nickname:
+					teamName = NicknameEntry.Text!.Trim();
+					teamId = GenerateTeamId(teamName);
+					result = await cloud.CreateNicknameTeamAsync(
+						teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
+					break;
+
+				case SharedCreateMode.UnderManagedClub:
 				{
-					// Save locally as well for Phase 1 compatibility
-					Preferences.Set($"{teamId}_invite_code", inviteCode);
-					Preferences.Set($"{teamId}_name", teamName);
-					// Creator is the team owner (club manager) — only they may hard-delete the cloud team.
-					Preferences.Set($"{teamId}_isOwner", true);
-					RegisterTeamId(teamId);
-					UserDisplayName.Set(displayName);
+					var idx = ManagedClubPicker.SelectedIndex;
+					if (idx < 0 || idx >= _managedClubChoices.Count)
+					{
+						await DisplayAlert("Invalid Input", "Select a managed club.", "OK");
+						return;
+					}
+					clubId = _managedClubChoices[idx].ClubId;
+					clubName = _managedClubChoices[idx].ClubName;
+					teamName = UnderClubTeamEntry.Text!.Trim();
+					teamId = GenerateTeamId(teamName, clubName);
+					result = await cloud.CreateTeamUnderClubAsync(
+						clubId, teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
+					break;
+				}
 
-					// Set as current team
-						Preferences.Set(TEAM_MODE_KEY, "shared");
-						Preferences.Set(TEAM_ID_KEY, teamId);
-						Preferences.Set(TEAM_NAME_KEY, teamName);
-						Preferences.Set(USER_ROLE_KEY, "admin");
-						Preferences.Set($"{teamId}_role", "admin");
+				default: // NewClubAndTeam
+				{
+					clubName = ClubEntry.Text!.Trim();
+					teamName = TeamEntry.Text!.Trim();
+					clubId = GenerateTeamId("club", clubName);
+					teamId = GenerateTeamId(teamName, clubName);
+					var clubRecovery = GenerateAdminCode();
+					var clubRecoveryHash = HashAdminCode(clubRecovery);
+					result = await cloud.CreateClubWithTeamAsync(
+						clubId, clubName, teamId, teamName, inviteCode, adminCodeHash,
+						clubRecoveryHash, creatorEmail, displayName);
 
-						// ALSO store per-team keys for GamePage polling
-						Preferences.Set($"team_mode_{teamId}", "shared");
-						Preferences.Set($"user_role_{teamId}", "admin");
+					if (result == "success")
+					{
+						// Show club recovery in the success alert via local capture below
+						Preferences.Set($"{clubId}_owner_recovery_shown", true);
+						await FinishSharedTeamCreateAsync(
+							teamId, teamName, inviteCode, adminCode, displayName, creatorEmail,
+							clubId, clubName, clubOwnerRecoveryCode: clubRecovery);
+						return;
+					}
+					break;
+				}
+			}
 
-					var emailNote = !string.IsNullOrWhiteSpace(creatorEmail)
-						? $"\n\nA recovery reminder has been sent to:\n{creatorEmail}"
-						: "\n\n⚠️ No email provided — save this code now, it will NOT be shown again.";
-
-						await DisplayAlert("Team Created!",
-							$"Team: {teamName}\n\n" +
-							$"Team ID: {teamId}\n\n" +
-							$"Your chat name: {displayName}\n\n" +
-							$"Invite Code (members): {inviteCode}\n\n" +
-							$"⚠️ OWNER RECOVERY CODE:\n{adminCode}\n\n" +
-							"Save this Owner recovery code in a secure location outside this device (e.g. a password manager). " +
-							"You will need it to regain admin access if you reinstall the app or change devices.\n\n" +
-							"Next: Open the Game screen to name players, assign positions (field = swipe left, bench = swipe right, goalie = swipe left twice), and set timers." +
-							emailNote,
-							"OK");
-
-					RefreshAppShellMenu();
-					LoadCurrentTeam();
-
-					// Persist FCM token on the new admin member doc so others can notify this device.
-					_ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
-
-					// Clear inputs
-					ClubEntry.Text = string.Empty;
-					TeamEntry.Text = string.Empty;
-					NicknameEntry.Text = string.Empty;
-					CreatorEmailEntry.Text = string.Empty;
-					// Keep CreateDisplayNameEntry — useful if they create another team
+			if (result == "success")
+			{
+				await FinishSharedTeamCreateAsync(
+					teamId, teamName, inviteCode, adminCode, displayName, creatorEmail,
+					clubId, clubName, clubOwnerRecoveryCode: null);
 			}
 			else
 			{
@@ -1236,11 +1384,82 @@ public partial class TeamDetailsPage : ContentPage
 		}
 		finally
 		{
-			// Always restore UI regardless of success or failure
 			CreateTeamSpinner.IsRunning = false;
 			CreateTeamLoadingSection.IsVisible = false;
 			CreateSharedTeamButton.IsEnabled = true;
 		}
+	}
+
+	private async Task FinishSharedTeamCreateAsync(
+		string teamId,
+		string teamName,
+		string inviteCode,
+		string adminCode,
+		string displayName,
+		string creatorEmail,
+		string clubId,
+		string clubName,
+		string? clubOwnerRecoveryCode)
+	{
+		var display = ClubTeamNames.ComposeDisplayName(teamName, clubName);
+		Preferences.Set($"{teamId}_invite_code", inviteCode);
+		Preferences.Set($"{teamId}_name", display);
+		Preferences.Set($"{teamId}_team_name", teamName);
+		Preferences.Set($"{teamId}_club_id", clubId ?? "");
+		Preferences.Set($"{teamId}_club_name", clubName ?? "");
+		Preferences.Set($"{teamId}_isOwner", true);
+		RegisterTeamId(teamId);
+		UserDisplayName.Set(displayName);
+
+		if (!string.IsNullOrWhiteSpace(clubId))
+			QrCodeService.RegisterManagedClub(clubId, clubName);
+
+		Preferences.Set(TEAM_MODE_KEY, "shared");
+		Preferences.Set(TEAM_ID_KEY, teamId);
+		Preferences.Set(TEAM_NAME_KEY, display);
+		Preferences.Set(USER_ROLE_KEY, "admin");
+		Preferences.Set($"{teamId}_role", "admin");
+		Preferences.Set($"team_mode_{teamId}", "shared");
+		Preferences.Set($"user_role_{teamId}", "admin");
+
+		var emailNote = !string.IsNullOrWhiteSpace(creatorEmail)
+			? $"\n\nA recovery reminder has been sent to:\n{creatorEmail}"
+			: "\n\n⚠️ No email provided — save recovery codes now; they will NOT be shown again.";
+
+		var clubNote = string.IsNullOrWhiteSpace(clubId)
+			? ""
+			: $"\n\nClub: {clubName}\n(Club id is stored in the app — share the team invite, not the club id.)";
+
+		var clubRecoveryNote = string.IsNullOrWhiteSpace(clubOwnerRecoveryCode)
+			? ""
+			: $"\n\n⚠️ CLUB OWNER RECOVERY CODE:\n{clubOwnerRecoveryCode}\n\n" +
+			  "Save this to reclaim the club if you reinstall or change devices.";
+
+		await DisplayAlert("Team Created!",
+			$"Team: {display}\n\n" +
+			$"Team ID: {teamId}\n\n" +
+			$"Your chat name: {displayName}\n\n" +
+			$"Invite Code (members): {inviteCode}\n\n" +
+			$"⚠️ TEAM OWNER RECOVERY CODE:\n{adminCode}\n\n" +
+			"Save this Owner recovery code in a secure location outside this device (e.g. a password manager). " +
+			"You will need it to regain admin access if you reinstall the app or change devices." +
+			clubNote +
+			clubRecoveryNote +
+			"\n\nNext: Open the Game screen to name players, assign positions, and set timers." +
+			emailNote,
+			"OK");
+
+		RefreshAppShellMenu();
+		LoadCurrentTeam();
+		RefreshManagedClubPicker();
+		_ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+
+		ClubEntry.Text = string.Empty;
+		TeamEntry.Text = string.Empty;
+		NicknameEntry.Text = string.Empty;
+		UnderClubTeamEntry.Text = string.Empty;
+		ManagedClubPicker.SelectedIndex = -1;
+		CreatorEmailEntry.Text = string.Empty;
 	}
 
 private static string? _firebaseUserId;
@@ -1346,78 +1565,59 @@ private void RegisterTeamId(string teamId)
 			// Try to join team via Firestore first
 			var result = await JoinTeamInFirestore(inviteCode, displayName);
 
-			if (result.StartsWith("success:"))
+			if (result.IsSuccess)
 			{
-				// Parse result: "success:teamId:teamName" — limit to 3 parts so colons in team name are preserved
-				var parts = result.Split(':', 3);
-				if (parts.Length >= 3)
-				{
-					var teamId = parts[1];
-					var teamName = parts[2];
+				var teamId = result.TeamId;
+				var teamName = result.TeamName;
+				QrCodeService.ApplySharedJoinLocalState(
+					teamId, teamName, displayName, inviteCode,
+					role: "member", isOwner: false,
+					clubId: result.ClubId, clubName: result.ClubName);
 
-					// Save locally
-					Preferences.Set(TEAM_MODE_KEY, "shared");
-					Preferences.Set(TEAM_ID_KEY, teamId);
-					Preferences.Set(TEAM_NAME_KEY, teamName);
-					Preferences.Set(USER_ROLE_KEY, "member");
-					Preferences.Set($"{teamId}_role", "member");
-					Preferences.Set($"{teamId}_name", teamName);
-					Preferences.Set($"{teamId}_isOwner", false);
-					Preferences.Set($"{teamId}_invite_code", QrCodeService.NormalizeInviteCode(inviteCode));
-					UserDisplayName.Set(displayName);
-
-					// ALSO store per-team keys for GamePage polling
-					Preferences.Set($"team_mode_{teamId}", "shared");
-					Preferences.Set($"user_role_{teamId}", "member");
-
-					RegisterTeamId(teamId);
-
-					await DisplayAlert("Joined Team!", 
-							$"Successfully joined: {teamName}\n\n" +
-							$"Role: Member\n" +
-							$"Chat name: {displayName}\n\n" +
-							"You can now collaborate with your team.", 
-							"OK");
-
-						SyncTeamIdToLocalStorage(teamId);
-						RefreshAppShellMenu();
-						LoadCurrentTeam();
-						// Save this device's FCM token so chat pushes can reach it.
-						_ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
-						InviteCodeEntry.Text = string.Empty;
-						return;
-				}
-			}
-			else if (result.StartsWith("already_member:"))
-			{
-				var parts = result.Split(':', 3);
-				if (parts.Length >= 3)
-				{
-					// Common after Debug reinstall: Preferences wiped, but Firebase Auth UID
-					// still matches teams/{id}/members/{uid}. Re-bind local team selection.
-					var existingTeamId = parts[1];
-					var teamName = parts[2];
-					await RestoreExistingSharedMembershipAsync(
-						existingTeamId, teamName, displayName, inviteCode);
-
-					var role = Preferences.Get(USER_ROLE_KEY, "member");
-					var roleLabel = string.IsNullOrEmpty(role)
-						? "Member"
-						: char.ToUpperInvariant(role[0]) + role[1..];
-					var ownerNote = Preferences.Get($"{existingTeamId}_isOwner", false)
-						? "\nOwner: Yes (club manager)"
-						: string.Empty;
-
-					await DisplayAlert(
-						"Team Restored",
-						$"You were already on '{teamName}' in the cloud.\n\n" +
-						$"This device's local team list was rebuilt.\n" +
-						$"Role: {roleLabel}{ownerNote}\n" +
-						$"Chat name: {displayName}",
+				var label = ClubTeamNames.ComposeDisplayName(teamName, result.ClubName);
+				await DisplayAlert("Joined Team!",
+						$"Successfully joined: {label}\n\n" +
+						$"Role: Member\n" +
+						$"Chat name: {displayName}\n\n" +
+						"You can now collaborate with your team.",
 						"OK");
-					InviteCodeEntry.Text = string.Empty;
-					return;
-				}
+
+				SyncTeamIdToLocalStorage(teamId);
+				RefreshAppShellMenu();
+				LoadCurrentTeam();
+				_ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+				InviteCodeEntry.Text = string.Empty;
+				return;
+			}
+
+			if (result.IsAlreadyMember)
+			{
+				// Common after Debug reinstall: Preferences wiped, but Firebase Auth UID
+				// still matches teams/{id}/members/{uid}. Re-bind local team selection.
+				var existingTeamId = result.TeamId;
+				var teamName = result.TeamName;
+				await RestoreExistingSharedMembershipAsync(
+					existingTeamId, teamName, displayName, inviteCode,
+					result.ClubId, result.ClubName);
+
+				var role = Preferences.Get(USER_ROLE_KEY, "member");
+				var roleLabel = string.IsNullOrEmpty(role)
+					? "Member"
+					: char.ToUpperInvariant(role[0]) + role[1..];
+				var ownerNote = Preferences.Get($"{existingTeamId}_isOwner", false)
+					? "\nOwner: Yes"
+					: string.Empty;
+				var label = ClubTeamNames.ComposeDisplayName(teamName, result.ClubName);
+
+				await DisplayAlert(
+					"Team Restored",
+					$"You were already on '{label}' in the cloud.\n\n" +
+					$"This device's local team list was rebuilt.\n" +
+					$"Role: {roleLabel}{ownerNote}\n" +
+					$"Chat name: {displayName}",
+					"OK");
+				InviteCodeEntry.Text = string.Empty;
+				return;
 			}
 
 			// If Firebase fails, fall back to local search (Phase 1 compatibility)
@@ -1457,9 +1657,11 @@ private void RegisterTeamId(string teamId)
 			}
 			else
 			{
-				await DisplayAlert("Invalid Code", 
-					$"Invite code '{inviteCode}' not found.\n\n" +
-					result, 
+				var err = string.IsNullOrWhiteSpace(result.Message)
+					? "Invite code not found."
+					: result.Message;
+				await DisplayAlert("Invalid Code",
+					$"Invite code '{inviteCode}' not found.\n\n{err}",
 					"OK");
 			}
 
@@ -1480,7 +1682,10 @@ private void RegisterTeamId(string teamId)
 
 					if (string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(adminCode))
 					{
-						await DisplayAlert("Missing Info", "Please enter both the Team ID and your Owner Recovery Code.", "OK");
+						await DisplayAlert(
+							"Missing Info",
+							"Please enter both the Team ID and your Team or Club Owner Recovery Code.",
+							"OK");
 						return;
 					}
 
@@ -1494,42 +1699,73 @@ private void RegisterTeamId(string teamId)
 
 					var result = await RejoinAsAdminInFirestore(teamId, adminCode, displayName);
 
-					if (result.StartsWith("success:"))
+					if (result.IsSuccess)
 					{
-						var parts = result.Split(':', 3);
-						var restoredTeamId = parts[1];
-						var restoredTeamName = parts.Length >= 3 ? parts[2] : restoredTeamId;
+						var restoredTeamId = result.TeamId;
+						var restoredTeamName = string.IsNullOrWhiteSpace(result.TeamName)
+							? restoredTeamId
+							: result.TeamName;
+						var display = ClubTeamNames.ComposeDisplayName(restoredTeamName, result.ClubName);
+						if (string.IsNullOrWhiteSpace(display))
+							display = restoredTeamName;
 
 						Preferences.Set(TEAM_MODE_KEY, "shared");
 						Preferences.Set(TEAM_ID_KEY, restoredTeamId);
-						Preferences.Set(TEAM_NAME_KEY, restoredTeamName);
+						Preferences.Set(TEAM_NAME_KEY, display);
 						Preferences.Set(USER_ROLE_KEY, "admin");
 						Preferences.Set($"{restoredTeamId}_role", "admin");
 						Preferences.Set($"team_mode_{restoredTeamId}", "shared");
 						Preferences.Set($"user_role_{restoredTeamId}", "admin");
-						Preferences.Set($"{restoredTeamId}_name", restoredTeamName);
-						// Recovery code reclaims Owner (createdBy) for this Firebase UID.
-						var isOwner = true;
-						try
-						{
-							var c = ResolveCloudTeam();
-							if (c is not null)
-								isOwner = await c.IsTeamOwnerAsync(restoredTeamId);
-						}
-						catch { /* non-fatal — still treat as owner after successful reclaim */ }
-						Preferences.Set($"{restoredTeamId}_isOwner", isOwner);
+						Preferences.Set($"{restoredTeamId}_name", display);
+						Preferences.Set($"{restoredTeamId}_team_name", restoredTeamName);
+						Preferences.Set($"{restoredTeamId}_club_id", result.ClubId ?? "");
+						Preferences.Set($"{restoredTeamId}_club_name", result.ClubName ?? "");
 						UserDisplayName.Set(displayName);
 						RegisterTeamId(restoredTeamId);
 
-						await DisplayAlert("Owner Access Restored",
-							$"You have rejoined '{restoredTeamName}' as Owner (and Admin).\n\n" +
-							$"Chat name: {displayName}\n\n" +
-							"Your team data is intact in the cloud. This device is now the club-manager Owner account.",
-							"OK");
+						if (result.IsClubScope)
+						{
+							// Club ownership restored — do not claim team ownership locally.
+							Preferences.Set($"{restoredTeamId}_isOwner", false);
+							if (!string.IsNullOrWhiteSpace(result.ClubId))
+								QrCodeService.RegisterManagedClub(result.ClubId, result.ClubName);
+
+							await DisplayAlert(
+								"Club Owner Access Restored",
+								$"You are now the Club Owner of '{result.ClubName}'.\n\n" +
+								$"Anchor team on this device: {display}\n" +
+								$"(Team Admin on that team — team ownership was not changed.)\n\n" +
+								$"Chat name: {displayName}\n\n" +
+								"You can create more teams under this club from Create → managed club.",
+								"OK");
+						}
+						else
+						{
+							var isOwner = true;
+							try
+							{
+								var c = ResolveCloudTeam();
+								if (c is not null)
+									isOwner = await c.IsTeamOwnerAsync(restoredTeamId);
+							}
+							catch { /* non-fatal */ }
+							Preferences.Set($"{restoredTeamId}_isOwner", isOwner);
+
+							if (!string.IsNullOrWhiteSpace(result.ClubId))
+								QrCodeService.RegisterManagedClub(result.ClubId, result.ClubName);
+
+							await DisplayAlert(
+								"Team Owner Access Restored",
+								$"You have rejoined '{display}' as Team Owner (and Admin).\n\n" +
+								$"Chat name: {displayName}\n\n" +
+								"Your team data is intact in the cloud.",
+								"OK");
+						}
 
 						SyncTeamIdToLocalStorage(restoredTeamId);
 						RefreshAppShellMenu();
 						LoadCurrentTeam();
+						RefreshManagedClubPicker();
 						_ = LoadSharedTeamsAsync();
 
 						AdminRejoinTeamIdEntry.Text = string.Empty;
@@ -1537,7 +1773,9 @@ private void RegisterTeamId(string teamId)
 					}
 					else
 					{
-						var message = result.StartsWith("error:") ? result[6..] : result;
+						var message = string.IsNullOrWhiteSpace(result.Message)
+							? "Could not restore owner access."
+							: result.Message;
 						await DisplayAlert("Rejoin Failed", message, "OK");
 					}
 				}
@@ -1545,11 +1783,11 @@ private void RegisterTeamId(string teamId)
 				{
 					await DisplayAlert("Error", $"Failed to rejoin as admin: {ex.Message}", "OK");
 				}
-					finally
-					{
-						RejoinAsAdminButton.IsEnabled = true;
-					}
+				finally
+				{
+					RejoinAsAdminButton.IsEnabled = true;
 				}
+			}
 
 				private async void OnRequestAdminCodeEmailClicked(object sender, EventArgs e)
 				{
@@ -1599,39 +1837,39 @@ private void RegisterTeamId(string teamId)
 					}
 				}
 
-	private async Task<string> JoinTeamInFirestore(string inviteCode, string displayName)
+	private async Task<CloudTeamJoinResult> JoinTeamInFirestore(string inviteCode, string displayName)
 	{
 		System.Diagnostics.Debug.WriteLine($"[TeamDetails] JoinTeamInFirestore (SDK) - invite code: {inviteCode}");
 		var cloud = ResolveCloudTeam();
 		if (cloud is null)
-			return "error: Cloud team service not available";
+		{
+			return new CloudTeamJoinResult
+			{
+				Status = "error",
+				Message = "Cloud team service not available"
+			};
+		}
 
 		var result = await cloud.JoinByInviteCodeAsync(inviteCode, displayName);
-		if (result.StartsWith("success:", StringComparison.Ordinal) ||
-		    result.StartsWith("already_member:", StringComparison.Ordinal))
+		if (result.IsOk && !string.IsNullOrEmpty(result.TeamId))
 		{
-			var parts = result.Split(':');
-			if (parts.Length >= 2)
+			try
 			{
-				var teamId = parts[1];
-				try
+				// Seed the canonical local key used by ICloudRosterService / GameViewModel.
+				var services = Application.Current?.Handler?.MauiContext?.Services;
+				var rosterSvc = services?.GetService<Services.ICloudRosterService>();
+				if (rosterSvc is not null)
 				{
-					// Seed the canonical local key used by ICloudRosterService / GameViewModel.
-					var services = Application.Current?.Handler?.MauiContext?.Services;
-					var rosterSvc = services?.GetService<Services.ICloudRosterService>();
-					if (rosterSvc is not null)
-					{
-						var snap = await rosterSvc.LoadAsync(teamId, preferCloud: true);
-						System.Diagnostics.Debug.WriteLine(
-							snap is null
-								? $"[TeamDetails] No cloud roster yet for {teamId} (admin may not have configured)"
-								: $"[TeamDetails] Seeded local roster for {teamId}: {snap.Players.Count} players");
-					}
+					var snap = await rosterSvc.LoadAsync(result.TeamId, preferCloud: true);
+					System.Diagnostics.Debug.WriteLine(
+						snap is null
+							? $"[TeamDetails] No cloud roster yet for {result.TeamId} (admin may not have configured)"
+							: $"[TeamDetails] Seeded local roster for {result.TeamId}: {snap.Players.Count} players");
 				}
-				catch (Exception ex)
-				{
-					System.Diagnostics.Debug.WriteLine($"[TeamDetails] Roster download after join: {ex.Message}");
-				}
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] Roster download after join: {ex.Message}");
 			}
 		}
 		return result;
@@ -1645,7 +1883,9 @@ private void RegisterTeamId(string teamId)
 		string teamId,
 		string teamName,
 		string displayName,
-		string? inviteCode)
+		string? inviteCode,
+		string? clubId = null,
+		string? clubName = null)
 	{
 		UserDisplayName.Set(displayName);
 		_ = UpdateMemberDisplayNameInFirestore(teamId, displayName);
@@ -1675,7 +1915,7 @@ private void RegisterTeamId(string teamId)
 		}
 
 		QrCodeService.ApplySharedJoinLocalState(
-			teamId, teamName, displayName, inviteCode, role, isOwner);
+			teamId, teamName, displayName, inviteCode, role, isOwner, clubId, clubName);
 
 		// If join did not carry a code, pull metadata.inviteCode (Owner/Admin panel + Share).
 		if (string.IsNullOrWhiteSpace(Preferences.Get($"{teamId}_invite_code", string.Empty)))
@@ -1776,12 +2016,21 @@ private void RegisterTeamId(string teamId)
 		return await cloud.RequestAdminCodeEmailAsync(teamId);
 	}
 
-	private async Task<string> RejoinAsAdminInFirestore(string teamId, string adminCode, string displayName)
+	private async Task<CloudOwnerRecoveryResult> RejoinAsAdminInFirestore(
+		string teamId,
+		string adminCode,
+		string displayName)
 	{
 		System.Diagnostics.Debug.WriteLine($"[TeamDetails] RejoinAsAdminInFirestore (SDK) - team: {teamId}");
 		var cloud = ResolveCloudTeam();
 		if (cloud is null)
-			return "error: Cloud team service not available";
+		{
+			return new CloudOwnerRecoveryResult
+			{
+				Status = "error",
+				Message = "Cloud team service not available"
+			};
+		}
 		return await cloud.RejoinAsAdminAsync(teamId, adminCode, displayName, HashAdminCode);
 	}
 
@@ -2108,10 +2357,52 @@ private void RegisterTeamId(string teamId)
 			var result = await cloud.PromoteMemberToAdminAsync(teamId, target.Uid);
 			if (result == "success")
 			{
+				var clubId = Preferences.Get($"{teamId}_club_id", string.Empty);
+				var clubName = Preferences.Get($"{teamId}_club_name", string.Empty);
+				var alsoClub = false;
+				if (!string.IsNullOrWhiteSpace(clubId))
+				{
+					try
+					{
+						if (await cloud.IsClubOwnerAsync(clubId))
+						{
+							alsoClub = await DisplayAlert(
+								"Also Club Admin?",
+								$"{target.DisplayName} is now a Team Admin.\n\n" +
+								$"Also make them a Club Admin for '{clubName}'?\n" +
+								"Club Admins can create additional teams under this club.",
+								"Yes, Club Admin",
+								"Team Admin only");
+							if (alsoClub)
+							{
+								var clubResult = await cloud.PromoteClubMemberToAdminAsync(clubId, target.Uid);
+								if (clubResult != "success")
+								{
+									var cmsg = clubResult.StartsWith("error:", StringComparison.Ordinal)
+										? clubResult["error:".Length..].Trim()
+										: clubResult;
+									await DisplayAlert(
+										"Team Admin OK — Club Admin failed",
+										cmsg,
+										"OK");
+									alsoClub = false;
+								}
+							}
+						}
+					}
+					catch (Exception clubEx)
+					{
+						System.Diagnostics.Debug.WriteLine($"[TeamDetails] Club promote: {clubEx.Message}");
+					}
+				}
+
 				await DisplayAlert(
 					"Promoted",
-					$"{target.DisplayName} is now an Admin.\n\n" +
-					"Ask them to open the Game tab (or switch away and back) so their device picks up Admin controls.",
+					alsoClub
+						? $"{target.DisplayName} is now a Team Admin and Club Admin.\n\n" +
+						  "They can create teams under this club from Create → managed club picker (after they refresh / rejoin on their device)."
+						: $"{target.DisplayName} is now an Admin.\n\n" +
+						  "Ask them to open the Game tab (or switch away and back) so their device picks up Admin controls.",
 					"OK");
 			}
 			else
@@ -2448,7 +2739,14 @@ private void RegisterTeamId(string teamId)
 				// Soft refresh in case another Admin regenerated (does not block the QR modal).
 				_ = RefreshInviteCodeFromCloudAsync(teamId);
 
-				var sharedData = QrCodeService.CreateSharedJoinInvite(inviteCode, teamName);
+				var clubName = Preferences.Get($"{teamId}_club_name", string.Empty);
+				var teamOnly = Preferences.Get($"{teamId}_team_name", string.Empty);
+				if (string.IsNullOrWhiteSpace(teamOnly))
+					teamOnly = teamName;
+				var shareTitle = ClubTeamNames.ComposeDisplayName(teamOnly, clubName);
+				if (string.IsNullOrWhiteSpace(shareTitle))
+					shareTitle = teamName;
+				var sharedData = QrCodeService.CreateSharedJoinInvite(inviteCode, shareTitle);
 				await Navigation.PushModalAsync(new QrShareModal(sharedData));
 				return;
 			}

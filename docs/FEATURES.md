@@ -39,6 +39,7 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 | `MultiDeviceAdmin` | Admin role, multi-device team administration | Free (candidate paid) | **UI unlocked** (create/join/rejoin) |
 | `PushTeamAlerts` | FCM / push for team events | Free (candidate paid) | Use no-op when disabled |
 | `CloudTeamJoin` | Join existing cloud team | Free (candidate paid) | **UI unlocked** |
+| `CloudClubs` | First-class clubs with opaque `clubId`; Owner elevates Club Admins; Admins create teams under club; nickname teams stay standalone | Free (candidate paid) | No public club directory; team invite lookup carries club+team; greenfield (wipe old teams) |
 | `CloudLocationShare` | Location under Details tab (match venue / GPS) for shared teams | Free (candidate paid) | **Details tab unlocked** for shared mode; Location is a Details submenu |
 | `CloudMatchSchedule` | Sync match date/time/arrive/venue for shared teams (`teams/{id}/details/location`) + live watch | Free (candidate paid) | Admin writes; members watch; local Preferences mirror; status/updated UI on Location page |
 | `MatchReminders` | Local match reminders (day before / morning / leave before arrive) from Location schedule + Settings → Options | Free | Device-local notifications; reschedule on schedule sync + option changes; not system Clock alarms |

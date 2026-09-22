@@ -4,14 +4,16 @@ rules_version = '2';
 // Deploy: firebase deploy --only firestore:rules --project turf-timer
 //
 // Model:
-//   teams/{teamId}/metadata/info
+//   clubs/{clubId}/metadata/info
+//   clubs/{clubId}/members/{uid}    (role: owner | admin | member)
+//   teams/{teamId}/metadata/info    (+ optional clubId/clubName/kind)
 //   teams/{teamId}/members/{uid}
 //   teams/{teamId}/roster/data
 //   teams/{teamId}/details/location  (match schedule / venue — admin write, member read)
 //   teams/{teamId}/messages/{messageId}
 //   teams/{teamId}/sessions/{sessionId}
 //   teams/{teamId}/public/invite     (join reverse-lookup under team tree)
-//   invite_codes/{code}             (O(1) join lookup)
+//   invite_codes/{code}             (O(1) join lookup; may include clubId/clubName)
 //   activeControllers/{teamId}      (presence index for stale controller release)
 
 service cloud.firestore {
@@ -31,11 +33,81 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Club manager / creator (metadata.createdBy) — only they may hard-delete the whole team.
+    // Team creator (metadata.createdBy) — only they may hard-delete the whole team.
     function isTeamOwner(teamId) {
       return signedIn()
         && exists(/databases/$(database)/documents/teams/$(teamId)/metadata/info)
         && get(/databases/$(database)/documents/teams/$(teamId)/metadata/info).data.createdBy == request.auth.uid;
+    }
+
+    function clubMetaPath(clubId) {
+      return /databases/$(database)/documents/clubs/$(clubId)/metadata/info;
+    }
+
+    function clubMemberPath(clubId) {
+      return /databases/$(database)/documents/clubs/$(clubId)/members/$(request.auth.uid);
+    }
+
+    function isClubOwner(clubId) {
+      return signedIn()
+        && exists(clubMetaPath(clubId))
+        && get(clubMetaPath(clubId)).data.createdBy == request.auth.uid;
+    }
+
+    function isClubOwnerOrAdmin(clubId) {
+      return isClubOwner(clubId)
+        || (
+          signedIn()
+          && exists(clubMemberPath(clubId))
+          && get(clubMemberPath(clubId)).data.role in ['owner', 'admin']
+        );
+    }
+
+    function isClubMember(clubId) {
+      return isClubOwner(clubId)
+        || (signedIn() && exists(clubMemberPath(clubId)));
+    }
+
+    // Club metadata — create any signed-in; updates by Owner.
+    // Recovery: signed-in user may rebind createdBy to self when only ownership
+    // recovery fields change (client validates Club Owner Recovery Code first).
+    match /clubs/{clubId}/metadata/info {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(['clubName', 'createdBy'])
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if signedIn() && (
+        (
+          isClubOwner(clubId)
+          && request.resource.data.createdBy == resource.data.createdBy
+        )
+        || (
+          request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['createdBy', 'previousOwnerUid', 'ownershipRecoveredAt'])
+        )
+      );
+      allow delete: if isClubOwner(clubId);
+    }
+
+    // Club members — Owner elevates Admins; self-join as member (via team invite path).
+    match /clubs/{clubId}/members/{userId} {
+      allow read: if isClubMember(clubId)
+        || (signedIn() && request.auth.uid == userId);
+
+      allow create: if signedIn() && request.auth.uid == userId
+        && request.resource.data.role in ['owner', 'admin', 'member'];
+
+      allow update: if isClubOwner(clubId)
+        || (
+          signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['displayName', 'addedAt'])
+        );
+
+      allow delete: if isClubOwner(clubId)
+        || (signedIn() && request.auth.uid == userId);
     }
 
     // O(1) invite lookup (root collection)
@@ -56,16 +128,34 @@ service cloud.firestore {
       allow create, update, delete: if isTeamAdmin(teamId);
     }
 
-    // Team metadata — any signed-in user may create a new team; only admin updates.
-    // createdBy (ownership) may only change when the current owner initiates transfer.
+    // Team metadata — nickname: any signed-in may create without clubId.
+    // Clubbed: create requires clubId and caller must be club Owner/Admin.
+    // createdBy may change when current Owner transfers, or via Owner Recovery
+    // (client validates Team Owner Recovery Code; only ownership fields may change).
     match /teams/{teamId}/metadata/info {
       allow read: if signedIn();
-      allow create: if signedIn();
-      allow update: if isTeamAdmin(teamId)
-        && (
-          request.resource.data.createdBy == resource.data.createdBy
-          || isTeamOwner(teamId)
-        );
+      allow create: if signedIn() && (
+        !('clubId' in request.resource.data)
+        || request.resource.data.clubId == null
+        || request.resource.data.clubId == ''
+        || isClubOwnerOrAdmin(request.resource.data.clubId)
+      );
+      allow update: if signedIn() && (
+        (
+          isTeamAdmin(teamId)
+          && (
+            request.resource.data.createdBy == resource.data.createdBy
+            || isTeamOwner(teamId)
+          )
+        )
+        || (
+          // Owner recovery reclaim (after client validates recovery code)
+          isTeamAdmin(teamId)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['createdBy', 'previousOwnerUid', 'ownershipRecoveredAt', 'lastActivityUtc'])
+        )
+      );
       allow delete: if isTeamAdmin(teamId);
     }
 

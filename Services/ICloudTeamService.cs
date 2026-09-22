@@ -4,7 +4,47 @@ public interface ICloudTeamService
 {
     Task<string?> EnsureSignedInAsync();
 
-    /// <summary>Returns "success" or "error: …".</summary>
+    /// <summary>
+    /// Creates a standalone nickname team (no club). Returns "success" or "error: …".
+    /// </summary>
+    Task<string> CreateNicknameTeamAsync(
+        string teamId,
+        string teamName,
+        string inviteCode,
+        string adminCodeHash,
+        string creatorEmail,
+        string displayName);
+
+    /// <summary>
+    /// Creates a new club (caller = Owner) and its first team. Returns "success" or "error: …".
+    /// </summary>
+    Task<string> CreateClubWithTeamAsync(
+        string clubId,
+        string clubName,
+        string teamId,
+        string teamName,
+        string inviteCode,
+        string adminCodeHash,
+        string? clubOwnerRecoveryCodeHash,
+        string creatorEmail,
+        string displayName);
+
+    /// <summary>
+    /// Creates a team under an existing club. Caller must be club Owner or Admin.
+    /// Returns "success" or "error: …".
+    /// </summary>
+    Task<string> CreateTeamUnderClubAsync(
+        string clubId,
+        string teamId,
+        string teamName,
+        string inviteCode,
+        string adminCodeHash,
+        string creatorEmail,
+        string displayName);
+
+    /// <summary>
+    /// Legacy entry point — creates a nickname team. Prefer <see cref="CreateNicknameTeamAsync"/>.
+    /// </summary>
     Task<string> CreateTeamAsync(
         string teamId,
         string teamName,
@@ -16,17 +56,20 @@ public interface ICloudTeamService
     Task<CloudTeamLookup?> LookupInviteCodeAsync(string inviteCode);
 
     /// <summary>
-    /// Join via invite code. Returns success:teamId:teamName, already_member:…, or error:…
+    /// Join via invite code. On success also upserts club membership when the team is clubbed.
     /// </summary>
-    Task<string> JoinByInviteCodeAsync(string inviteCode, string displayName);
+    Task<CloudTeamJoinResult> JoinByInviteCodeAsync(string inviteCode, string displayName);
 
     /// <summary>
-    /// Owner recovery: valid Admin Recovery Code elevates the current Firebase UID to
-    /// <c>role=admin</c> and rebinds <c>metadata.createdBy</c> (Owner) to this UID.
-    /// Treats the recovery code as a master key (can replace a prior Owner).
-    /// Returns success:teamId:teamName or error:…
+    /// Owner recovery using Team ID as anchor + a recovery code.
+    /// Tries the team's Owner Recovery Code first; if that fails and the team is clubbed,
+    /// tries the club's Owner Recovery Code. Same UI fields; branch on which hash matches.
     /// </summary>
-    Task<string> RejoinAsAdminAsync(string teamId, string adminCode, string displayName, Func<string, string> hashAdminCode);
+    Task<CloudOwnerRecoveryResult> RejoinAsAdminAsync(
+        string teamId,
+        string adminCode,
+        string displayName,
+        Func<string, string> hashAdminCode);
 
     Task<string> UpdateMemberDisplayNameAsync(string teamId, string displayName, string? roleHint = null);
 
@@ -46,7 +89,7 @@ public interface ICloudTeamService
     /// </summary>
     Task<string> DeleteTeamAsOwnerAsync(string teamId);
 
-    /// <summary>True when the signed-in user is metadata.createdBy (club manager / owner).</summary>
+    /// <summary>True when the signed-in user is metadata.createdBy (team owner).</summary>
     Task<bool> IsTeamOwnerAsync(string teamId);
 
     /// <summary>Uid of the team owner (metadata.createdBy), or null if unknown.</summary>
@@ -68,6 +111,12 @@ public interface ICloudTeamService
     Task<string> PromoteMemberToAdminAsync(string teamId, string memberUid);
 
     /// <summary>
+    /// Club Owner-only: elevate a club member to club <c>admin</c> (can create teams under the club).
+    /// Returns "success" or "error: …".
+    /// </summary>
+    Task<string> PromoteClubMemberToAdminAsync(string clubId, string memberUid);
+
+    /// <summary>
     /// Admin-only: remove a member from the team (deletes <c>teams/{id}/members/{uid}</c>).
     /// Cannot remove yourself, the owner, or another Admin unless you are the owner.
     /// Returns success or error: …
@@ -82,12 +131,78 @@ public interface ICloudTeamService
     /// Returns null if missing / unreachable.
     /// </summary>
     Task<string?> GetTeamInviteCodeAsync(string teamId);
+
+    /// <summary>Clubs where the signed-in user is Owner or Admin (for “add team to my club”).</summary>
+    Task<IReadOnlyList<CloudClubSummary>> ListManagedClubsAsync();
+
+    /// <summary>Teams under a club (for future filters). Caller should be a club member.</summary>
+    Task<IReadOnlyList<CloudTeamLookup>> ListTeamsForClubAsync(string clubId);
+
+    /// <summary>Club role for the signed-in user, or null if not a club member.</summary>
+    Task<string?> GetMyClubRoleAsync(string clubId);
+
+    /// <summary>True when signed-in user is club Owner (<c>metadata.createdBy</c>).</summary>
+    Task<bool> IsClubOwnerAsync(string clubId);
 }
 
 public sealed class CloudTeamLookup
 {
     public string TeamId { get; init; } = "";
     public string TeamName { get; init; } = "";
+    public string ClubId { get; init; } = "";
+    public string ClubName { get; init; } = "";
+    public string Kind { get; init; } = ""; // clubbed | nickname | ""
+}
+
+public sealed class CloudTeamJoinResult
+{
+    public string Status { get; init; } = ""; // success | already_member | error
+    public string TeamId { get; init; } = "";
+    public string TeamName { get; init; } = "";
+    public string ClubId { get; init; } = "";
+    public string ClubName { get; init; } = "";
+    public string Message { get; init; } = "";
+
+    public bool IsSuccess =>
+        string.Equals(Status, "success", StringComparison.OrdinalIgnoreCase);
+
+    public bool IsAlreadyMember =>
+        string.Equals(Status, "already_member", StringComparison.OrdinalIgnoreCase);
+
+    public bool IsOk => IsSuccess || IsAlreadyMember;
+}
+
+/// <summary>
+/// Result of Recover Owner Access. <see cref="Scope"/> is <c>team</c> or <c>club</c> on success.
+/// </summary>
+public sealed class CloudOwnerRecoveryResult
+{
+    public const string ScopeTeam = "team";
+    public const string ScopeClub = "club";
+
+    public string Status { get; init; } = ""; // success | error
+    public string Scope { get; init; } = "";  // team | club
+    public string TeamId { get; init; } = "";
+    public string TeamName { get; init; } = "";
+    public string ClubId { get; init; } = "";
+    public string ClubName { get; init; } = "";
+    public string Message { get; init; } = "";
+
+    public bool IsSuccess =>
+        string.Equals(Status, "success", StringComparison.OrdinalIgnoreCase);
+
+    public bool IsTeamScope =>
+        string.Equals(Scope, ScopeTeam, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsClubScope =>
+        string.Equals(Scope, ScopeClub, StringComparison.OrdinalIgnoreCase);
+}
+
+public sealed class CloudClubSummary
+{
+    public string ClubId { get; init; } = "";
+    public string ClubName { get; init; } = "";
+    public string Role { get; init; } = ""; // owner | admin
 }
 
 public sealed class CloudTeamMember

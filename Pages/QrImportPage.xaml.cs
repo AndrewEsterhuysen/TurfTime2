@@ -212,67 +212,63 @@ public partial class QrImportPage : ContentPage
         }
 
         var result = await cloud.JoinByInviteCodeAsync(code, displayName);
-        System.Diagnostics.Debug.WriteLine($"[QrImportPage] JoinByInviteCode result: {result}");
+        System.Diagnostics.Debug.WriteLine(
+            $"[QrImportPage] JoinByInviteCode status={result.Status} team={result.TeamId}");
 
-        if (result.StartsWith("success:", StringComparison.Ordinal))
+        if (result.IsSuccess)
         {
-            var parts = result.Split(':', 3);
-            if (parts.Length >= 3)
-            {
-                var teamId = parts[1];
-                var teamName = parts[2];
-                QrCodeService.ApplySharedJoinLocalState(teamId, teamName, displayName, code);
-                RefreshAppShellMenu();
-                _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+            var teamId = result.TeamId;
+            var teamName = result.TeamName;
+            QrCodeService.ApplySharedJoinLocalState(
+                teamId, teamName, displayName, code,
+                clubId: result.ClubId, clubName: result.ClubName);
+            RefreshAppShellMenu();
+            _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
 
-                await DisplayAlert(
-                    "Joined Team!",
-                    $"Successfully joined: {teamName}\n\nRole: Member\nChat name: {displayName}\n\nTeam data will load from the cloud.",
-                    "OK");
-                return true;
-            }
+            var label = Helpers.ClubTeamNames.ComposeDisplayName(teamName, result.ClubName);
+            await DisplayAlert(
+                "Joined Team!",
+                $"Successfully joined: {label}\n\nRole: Member\nChat name: {displayName}\n\nTeam data will load from the cloud.",
+                "OK");
+            return true;
         }
 
-        if (result.StartsWith("already_member:", StringComparison.Ordinal))
+        if (result.IsAlreadyMember)
         {
-            var parts = result.Split(':', 3);
-            if (parts.Length >= 3)
+            var teamId = result.TeamId;
+            var teamName = result.TeamName;
+            UserDisplayName.Set(displayName);
+
+            var role = "member";
+            var isOwner = false;
+            try
             {
-                var teamId = parts[1];
-                var teamName = parts[2];
-                UserDisplayName.Set(displayName);
-
-                var role = "member";
-                var isOwner = false;
-                try
-                {
-                    role = await cloud.GetMyRoleAsync(teamId) ?? "member";
-                    isOwner = await cloud.IsTeamOwnerAsync(teamId);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[QrImportPage] already_member role: {ex.Message}");
-                }
-
-                QrCodeService.ApplySharedJoinLocalState(
-                    teamId, teamName, displayName, code, role, isOwner);
-                RefreshAppShellMenu();
-                _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
-
-                var roleLabel = char.ToUpperInvariant(role[0]) + role[1..];
-                await DisplayAlert(
-                    "Team Restored",
-                    $"You were already on '{teamName}' in the cloud.\n\n" +
-                    $"Local team selection was rebuilt.\nRole: {roleLabel}\nChat name: {displayName}",
-                    "OK");
-                return true;
+                role = await cloud.GetMyRoleAsync(teamId) ?? "member";
+                isOwner = await cloud.IsTeamOwnerAsync(teamId);
             }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[QrImportPage] already_member role: {ex.Message}");
+            }
+
+            QrCodeService.ApplySharedJoinLocalState(
+                teamId, teamName, displayName, code, role, isOwner,
+                result.ClubId, result.ClubName);
+            RefreshAppShellMenu();
+            _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+
+            var roleLabel = char.ToUpperInvariant(role[0]) + role[1..];
+            var label = Helpers.ClubTeamNames.ComposeDisplayName(teamName, result.ClubName);
+            await DisplayAlert(
+                "Team Restored",
+                $"You were already on '{label}' in the cloud.\n\n" +
+                $"Local team selection was rebuilt.\nRole: {roleLabel}\nChat name: {displayName}",
+                "OK");
+            return true;
         }
 
-        var message = result.StartsWith("error:", StringComparison.Ordinal)
-            ? result["error:".Length..].Trim()
-            : result;
-        await DisplayAlert("Join Failed", string.IsNullOrWhiteSpace(message) ? "Could not join team." : message, "OK");
+        var message = string.IsNullOrWhiteSpace(result.Message) ? "Could not join team." : result.Message;
+        await DisplayAlert("Join Failed", message, "OK");
         return false;
     }
 

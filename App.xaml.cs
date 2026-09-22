@@ -787,49 +787,45 @@ namespace TurfTime2
             }
 
             var result = await cloud.JoinByInviteCodeAsync(code, displayName);
-            System.Diagnostics.Debug.WriteLine($"[App] JoinByInvite result: {result}");
+            System.Diagnostics.Debug.WriteLine(
+                $"[App] JoinByInvite status={result.Status} team={result.TeamId} club={result.ClubId}");
 
-            if (result.StartsWith("success:", StringComparison.Ordinal) ||
-                result.StartsWith("already_member:", StringComparison.Ordinal))
+            if (result.IsOk)
             {
-                var parts = result.Split(':', 3);
-                if (parts.Length >= 3)
+                Preferences.Remove("pending_join_invite");
+                var teamId = result.TeamId;
+                var teamName = result.TeamName;
+                var role = "member";
+                var isOwner = false;
+                if (result.IsAlreadyMember)
                 {
-                    Preferences.Remove("pending_join_invite");
-                    var teamId = parts[1];
-                    var teamName = parts[2];
-                    var role = "member";
-                    var isOwner = false;
-                    if (result.StartsWith("already_member:", StringComparison.Ordinal))
+                    try
                     {
-                        try
-                        {
-                            role = await cloud.GetMyRoleAsync(teamId) ?? "member";
-                            isOwner = await cloud.IsTeamOwnerAsync(teamId);
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[App] already_member role: {ex.Message}");
-                        }
+                        role = await cloud.GetMyRoleAsync(teamId) ?? "member";
+                        isOwner = await cloud.IsTeamOwnerAsync(teamId);
                     }
-
-                    QrCodeService.ApplySharedJoinLocalState(
-                        teamId, teamName, displayName, code, role, isOwner);
-                    _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
-                    _ = EnsureMatchScheduleSyncAsync();
-                    await ShowAlertAsync(
-                        result.StartsWith("success:", StringComparison.Ordinal) ? "Joined Team!" : "Team Restored",
-                        $"Team: {teamName}\nChat name: {displayName}");
-                    if (Shell.Current is not null)
-                        await Shell.Current.GoToAsync(AppShell.TeamDetailsRoute);
-                    return;
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[App] already_member role: {ex.Message}");
+                    }
                 }
+
+                QrCodeService.ApplySharedJoinLocalState(
+                    teamId, teamName, displayName, code, role, isOwner,
+                    result.ClubId, result.ClubName);
+                _ = FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+                _ = EnsureMatchScheduleSyncAsync();
+                var label = Helpers.ClubTeamNames.ComposeDisplayName(teamName, result.ClubName);
+                await ShowAlertAsync(
+                    result.IsSuccess ? "Joined Team!" : "Team Restored",
+                    $"Team: {label}\nChat name: {displayName}");
+                if (Shell.Current is not null)
+                    await Shell.Current.GoToAsync(AppShell.TeamDetailsRoute);
+                return;
             }
 
-            var msg = result.StartsWith("error:", StringComparison.Ordinal)
-                ? result["error:".Length..].Trim()
-                : result;
-            await ShowAlertAsync("Join Failed", string.IsNullOrWhiteSpace(msg) ? "Could not join team." : msg);
+            var msg = string.IsNullOrWhiteSpace(result.Message) ? "Could not join team." : result.Message;
+            await ShowAlertAsync("Join Failed", msg);
         }
 
         private static bool TryExtractImportPayload(Uri uri, out string payload)
