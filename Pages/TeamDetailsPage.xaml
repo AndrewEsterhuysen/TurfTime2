@@ -82,72 +82,86 @@
                                 HeightRequest="44"
                                 FontSize="14"/>
 
-                        <VerticalStackLayout x:Name="SharedAdminTools"
-                                             IsVisible="False"
-                                             Spacing="8">
-                            <Frame BackgroundColor="{AppThemeBinding Light=#FFF3CD, Dark=#4A3C1E}"
-                                   Padding="10"
-                                   CornerRadius="5">
-                                <VerticalStackLayout Spacing="4">
-                                    <Label Text="Invite Code" FontAttributes="Bold" FontSize="12"/>
-                                    <Label x:Name="InviteCodeDisplay"
-                                           Text="Loading..."
-                                           FontSize="18"
-                                           FontAttributes="Bold"
-                                           HorizontalOptions="Center"
-                                           LineBreakMode="MiddleTruncation"/>
-                                    <Label Text="Share this code with team members"
-                                           FontSize="10"
-                                           HorizontalOptions="Center"
-                                           TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                                </VerticalStackLayout>
-                            </Frame>
-                            <Button Text="Regenerate Invite Code"
-                                    Clicked="OnRegenerateCodeClicked"
-                                    BackgroundColor="#E65100"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
-                            <Button Text="View Team Members"
-                                    Clicked="OnViewMembersClicked"
-                                    BackgroundColor="#9C27B0"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
-                            <Button Text="Promote to Admin"
-                                    Clicked="OnPromoteToAdminClicked"
-                                    BackgroundColor="#2E7D32"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
-                            <Button Text="Remove Member"
-                                    Clicked="OnRemoveMemberClicked"
-                                    BackgroundColor="#C62828"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
-                            <Label Text="Removes someone from the cloud team. They must rejoin with the invite code. You cannot remove the Owner; only the Owner can remove other Admins."
-                                   FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                            <Button x:Name="RelinquishControlButton"
-                                    Text="Relinquish Match Control"
-                                    Clicked="OnRelinquishControlClicked"
-                                    BackgroundColor="#546E7A"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
-                            <Label Text="Hand over live-match control so another Admin can run the game. If you go offline, the server auto-releases control after ~90s."
-                                   FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                            <Button x:Name="TransferOwnershipButton"
-                                    Text="Transfer Ownership"
-                                    IsVisible="False"
-                                    Clicked="OnTransferOwnershipClicked"
-                                    BackgroundColor="#1565C0"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
-                        </VerticalStackLayout>
+                        <!-- Admin-only tools (online teams). Visible when role is Admin / Owner. -->
+                        <Frame x:Name="SharedAdminTools"
+                               IsVisible="False"
+                               BorderColor="{AppThemeBinding Light=#A5D6A7, Dark=#2E7D32}"
+                               BackgroundColor="{AppThemeBinding Light=#E8F5E9, Dark=#1B3D1E}"
+                               Padding="12"
+                               CornerRadius="8">
+                            <VerticalStackLayout Spacing="8">
+                                <Label Text="Admin"
+                                       FontAttributes="Bold"
+                                       FontSize="15"
+                                       TextColor="#2E7D32"/>
+                                <Label Text="Invite codes, members, and match control — Admin only."
+                                       FontSize="11"
+                                       TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                                <Frame BackgroundColor="{AppThemeBinding Light=#FFF3CD, Dark=#4A3C1E}"
+                                       Padding="10"
+                                       CornerRadius="5"
+                                       HasShadow="False">
+                                    <VerticalStackLayout Spacing="4">
+                                        <Label Text="Invite Code" FontAttributes="Bold" FontSize="12"/>
+                                        <Label x:Name="InviteCodeDisplay"
+                                               Text="Loading..."
+                                               FontSize="18"
+                                               FontAttributes="Bold"
+                                               HorizontalOptions="Center"
+                                               LineBreakMode="MiddleTruncation"/>
+                                        <Label Text="Share this code with team members"
+                                               FontSize="10"
+                                               HorizontalOptions="Center"
+                                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                                    </VerticalStackLayout>
+                                </Frame>
+                                <Button Text="Regenerate Invite Code"
+                                        Clicked="OnRegenerateCodeClicked"
+                                        BackgroundColor="#E65100"
+                                        TextColor="White"
+                                        HeightRequest="44"
+                                        FontSize="14"/>
+                                <Button Text="View Team Members"
+                                        Clicked="OnViewMembersClicked"
+                                        BackgroundColor="#9C27B0"
+                                        TextColor="White"
+                                        HeightRequest="44"
+                                        FontSize="14"/>
+                                <Button Text="Promote to Admin"
+                                        Clicked="OnPromoteToAdminClicked"
+                                        BackgroundColor="#2E7D32"
+                                        TextColor="White"
+                                        HeightRequest="44"
+                                        FontSize="14"/>
+                                <Button Text="Remove Member"
+                                        Clicked="OnRemoveMemberClicked"
+                                        BackgroundColor="#C62828"
+                                        TextColor="White"
+                                        HeightRequest="44"
+                                        FontSize="14"/>
+                                <Label Text="Removes someone from the cloud team. They must rejoin with the invite code. You cannot remove the Owner; only the Owner can remove other Admins."
+                                       FontSize="11"
+                                       TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                                <Button x:Name="RelinquishControlButton"
+                                        Text="Relinquish Match Control"
+                                        Clicked="OnRelinquishControlClicked"
+                                        BackgroundColor="#546E7A"
+                                        TextColor="White"
+                                        HeightRequest="44"
+                                        FontSize="14"/>
+                                <Label Text="Hand over live-match control so another Admin can run the game. If you go offline, the server auto-releases control after ~90s."
+                                       FontSize="11"
+                                       TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                                <Button x:Name="TransferOwnershipButton"
+                                        Text="Transfer Ownership"
+                                        IsVisible="False"
+                                        Clicked="OnTransferOwnershipClicked"
+                                        BackgroundColor="#1565C0"
+                                        TextColor="White"
+                                        HeightRequest="44"
+                                        FontSize="14"/>
+                            </VerticalStackLayout>
+                        </Frame>
 
                         <VerticalStackLayout Spacing="8" Margin="0,4,0,0">
                             <Button x:Name="LeaveTeamButton"
@@ -171,7 +185,7 @@
                 </VerticalStackLayout>
             </Frame>
 
-            <!-- ========== 2. Change Team: mode → list → join → create ========== -->
+            <!-- ========== 2. Select Team (switch between existing teams) ========== -->
             <Frame BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
                    Padding="14"
                    CornerRadius="8">
@@ -180,7 +194,7 @@
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnChangeTeamHeaderTapped"/>
                         </Grid.GestureRecognizers>
-                        <Label Text="Change Team"
+                        <Label Text="Select Team"
                                FontAttributes="Bold"
                                FontSize="16"
                                VerticalOptions="Center"/>
@@ -192,7 +206,7 @@
                                TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
                     </Grid>
                     <Label x:Name="ChangeTeamHint"
-                           Text="Tap to expand — switch, join, or create a team"
+                           Text="Tap to expand — switch between teams you already have"
                            FontSize="11"
                            TextColor="{AppThemeBinding Light=#999, Dark=#888}">
                         <Label.GestureRecognizers>
@@ -203,32 +217,37 @@
                     <VerticalStackLayout x:Name="ChangeTeamContent"
                                          IsVisible="False"
                                          Spacing="12">
-
-                        <!-- Mode -->
                         <HorizontalStackLayout Spacing="10">
                             <CheckBox x:Name="SharedCheckbox"
                                       CheckedChanged="OnSharedCheckboxChanged"/>
-                            <Label Text="Shared (cloud with teammates)"
+                            <Label Text="Online (cloud with teammates)"
                                    FontSize="14"
-                                   VerticalOptions="Center"/>
+                                   VerticalOptions="Center">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnSelectOnlineLabelTapped"/>
+                                </Label.GestureRecognizers>
+                            </Label>
                         </HorizontalStackLayout>
                         <HorizontalStackLayout Spacing="10">
                             <CheckBox x:Name="LocalCheckbox"
                                       CheckedChanged="OnLocalCheckboxChanged"/>
                             <Label Text="Local (this device only)"
                                    FontSize="14"
-                                   VerticalOptions="Center"/>
+                                   VerticalOptions="Center">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnSelectLocalLabelTapped"/>
+                                </Label.GestureRecognizers>
+                            </Label>
                         </HorizontalStackLayout>
 
                         <Label x:Name="ChangeTeamModeHint"
-                               Text="Select Shared or Local to see your teams."
+                               Text="Select Online or Local to see your teams."
                                FontSize="12"
                                TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
 
-                        <!-- Your teams (primary) -->
                         <StackLayout x:Name="SharedTeamSection" IsVisible="False" Spacing="8">
                             <Label x:Name="SharedTeamSwitcherLabel"
-                                   Text="Your teams"
+                                   Text="Your online teams"
                                    FontAttributes="Bold"
                                    FontSize="14"
                                    IsVisible="False"/>
@@ -239,7 +258,6 @@
                                 <CollectionView.ItemTemplate>
                                     <DataTemplate>
                                         <SwipeView>
-                                            <!-- Swipe right: Leave (any member/admin, including owner) -->
                                             <SwipeView.LeftItems>
                                                 <SwipeItems Mode="Execute">
                                                     <SwipeItem Text="Leave"
@@ -248,7 +266,6 @@
                                                                Invoked="OnLeaveSharedTeamSwipe"/>
                                                 </SwipeItems>
                                             </SwipeView.LeftItems>
-                                            <!-- Swipe left: Delete team (owner only — enforced in handler) -->
                                             <SwipeView.RightItems>
                                                 <SwipeItems Mode="Execute">
                                                     <SwipeItem Text="Delete"
@@ -296,7 +313,7 @@
 
                         <StackLayout x:Name="LocalTeamSection" IsVisible="False" Spacing="8">
                             <Label x:Name="LocalTeamSwitcherLabel"
-                                   Text="Your teams"
+                                   Text="Your local teams"
                                    FontAttributes="Bold"
                                    FontSize="14"
                                    IsVisible="False"/>
@@ -356,214 +373,334 @@
                                      Color="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
                                      IsVisible="False"/>
                         </StackLayout>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
 
-                        <!-- Need a different team? Join first (most parents), then Create (coaches) -->
-                        <VerticalStackLayout x:Name="AcquireTeamSection"
+            <!-- ========== 3. Join Team ========== -->
+            <Frame BorderColor="{AppThemeBinding Light=#BBDEFB, Dark=#1565C0}"
+                   Padding="14"
+                   CornerRadius="8">
+                <VerticalStackLayout Spacing="8">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnJoinTeamHeaderTapped"/>
+                        </Grid.GestureRecognizers>
+                        <Label Text="Join Team"
+                               FontAttributes="Bold"
+                               FontSize="16"
+                               TextColor="#1565C0"
+                               VerticalOptions="Center"/>
+                        <Label x:Name="JoinTeamToggleIcon"
+                               Grid.Column="1"
+                               Text="▼"
+                               FontSize="16"
+                               VerticalOptions="Center"
+                               TextColor="#1565C0"/>
+                    </Grid>
+                    <Label x:Name="JoinTeamHint"
+                           Text="Tap to expand — join an online team or import a local roster"
+                           FontSize="11"
+                           TextColor="{AppThemeBinding Light=#888, Dark=#999}">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnJoinTeamHeaderTapped"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <VerticalStackLayout x:Name="JoinTeamContent"
+                                         IsVisible="False"
+                                         Spacing="12">
+                        <HorizontalStackLayout Spacing="10">
+                            <CheckBox x:Name="JoinOnlineModeCheckbox"
+                                      IsChecked="True"
+                                      CheckedChanged="OnJoinOnlineModeChanged"/>
+                            <Label Text="Online"
+                                   FontSize="14"
+                                   VerticalOptions="Center">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnJoinOnlineLabelTapped"/>
+                                </Label.GestureRecognizers>
+                            </Label>
+                            <CheckBox x:Name="JoinLocalModeCheckbox"
+                                      CheckedChanged="OnJoinLocalModeChanged"/>
+                            <Label Text="Local"
+                                   FontSize="14"
+                                   VerticalOptions="Center">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnJoinLocalLabelTapped"/>
+                                </Label.GestureRecognizers>
+                            </Label>
+                        </HorizontalStackLayout>
+
+                        <VerticalStackLayout x:Name="JoinSharedSection" Spacing="8">
+                            <Label Text="Online team"
+                                   FontAttributes="Bold"
+                                   FontSize="14"
+                                   TextColor="#1565C0"/>
+                            <Button x:Name="ImportTeamButton"
+                                    Text="Import / Scan Invite (QR)"
+                                    Clicked="OnImportTeamClicked"
+                                    BackgroundColor="#4CAF50"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
+                            <Label Text="Or enter the invite code from your coach or admin."
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                            <Entry x:Name="InviteCodeEntry"
+                                   Placeholder="Invite code (e.g. ABCD-EFGH)"
+                                   MaxLength="20"/>
+                            <Label Text="Your display name (shown in Chat)"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                            <Entry x:Name="JoinDisplayNameEntry"
+                                   Placeholder="e.g. Alex or Coach Sam"
+                                   MaxLength="40"/>
+                            <Button Text="Join as Member"
+                                    Clicked="OnJoinTeamClicked"
+                                    BackgroundColor="#2196F3"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
+                        </VerticalStackLayout>
+
+                        <VerticalStackLayout x:Name="LocalImportSubsection"
                                              IsVisible="False"
                                              Spacing="8">
-                            <Label Text="Need a different team?"
+                            <Label Text="Local team (this device)"
                                    FontAttributes="Bold"
-                                   FontSize="13"
-                                   TextColor="{AppThemeBinding Light=#555, Dark=#BBB}"
-                                   Margin="0,4,0,0"/>
-
-                            <!-- JOIN (Shared only) — above Create: ~16 joiners per 1 creator -->
-                            <VerticalStackLayout x:Name="JoinSubsection"
-                                                 IsVisible="False"
-                                                 Spacing="6">
-                                <Grid ColumnDefinitions="*, Auto">
-                                    <Grid.GestureRecognizers>
-                                        <TapGestureRecognizer Tapped="OnJoinTeamHeaderTapped"/>
-                                    </Grid.GestureRecognizers>
-                                    <Label Text="Join with invite code"
-                                           FontSize="15"
-                                           FontAttributes="Bold"
-                                           TextColor="#1565C0"
-                                           VerticalOptions="Center"/>
-                                    <Label x:Name="JoinTeamToggleIcon"
-                                           Grid.Column="1"
-                                           Text="▼"
-                                           FontSize="14"
-                                           VerticalOptions="Center"
-                                           TextColor="#1565C0"/>
-                                </Grid>
-                                <Label x:Name="JoinTeamHint"
-                                       Text="Most parents join here — type a code or scan a QR"
-                                       FontSize="11"
-                                       TextColor="{AppThemeBinding Light=#888, Dark=#999}">
-                                    <Label.GestureRecognizers>
-                                        <TapGestureRecognizer Tapped="OnJoinTeamHeaderTapped"/>
-                                    </Label.GestureRecognizers>
-                                </Label>
-                                <VerticalStackLayout x:Name="JoinTeamContent"
-                                                     IsVisible="False"
-                                                     Spacing="8"
-                                                     Padding="0,4,0,0">
-                                    <Button x:Name="ImportTeamButton"
-                                            Text="Import Team (QR)"
-                                            Clicked="OnImportTeamClicked"
-                                            BackgroundColor="#4CAF50"
-                                            TextColor="White"
-                                            HeightRequest="44"
-                                            FontSize="14"/>
-                                    <Label Text="Or enter the invite code from your coach or admin."
-                                           FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"
-                                           Margin="0,4,0,0"/>
-                                    <Entry x:Name="InviteCodeEntry"
-                                           Placeholder="Invite code (e.g. ABCD-EFGH)"
-                                           MaxLength="20"/>
-                                    <Label Text="Your display name (shown in Chat)"
-                                           FontSize="12"
-                                           TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                                    <Entry x:Name="JoinDisplayNameEntry"
-                                           Placeholder="e.g. Alex or Coach Sam"
-                                           MaxLength="40"/>
-                                    <Button Text="Join as Member"
-                                            Clicked="OnJoinTeamClicked"
-                                            BackgroundColor="#2196F3"
-                                            TextColor="White"
-                                            HeightRequest="44"
-                                            FontSize="14"/>
-                                </VerticalStackLayout>
-                            </VerticalStackLayout>
-
-                            <!-- LOCAL: import roster QR (device-to-device, offline) -->
-                            <VerticalStackLayout x:Name="LocalImportSubsection"
-                                                 IsVisible="False"
-                                                 Spacing="6">
-                                <Label Text="Import local team (QR)"
-                                       FontSize="15"
-                                       FontAttributes="Bold"
-                                       TextColor="#2E7D32"/>
-                                <Label Text="Scan a local roster QR shared from another device"
-                                       FontSize="11"
-                                       TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
-                                <Button x:Name="LocalImportTeamButton"
-                                        Text="Import Team (QR)"
-                                        Clicked="OnImportTeamClicked"
-                                        BackgroundColor="#4CAF50"
-                                        TextColor="White"
-                                        HeightRequest="44"
-                                        FontSize="14"/>
-                            </VerticalStackLayout>
-
-                            <!-- CREATE (below Join / Local import) -->
-                            <VerticalStackLayout x:Name="CreateSubsection"
-                                                 Spacing="6">
-                                <Grid ColumnDefinitions="*, Auto">
-                                    <Grid.GestureRecognizers>
-                                        <TapGestureRecognizer Tapped="OnCreateTeamHeaderTapped"/>
-                                    </Grid.GestureRecognizers>
-                                    <Label x:Name="CreateSubsectionTitle"
-                                           Text="Create new team"
-                                           FontSize="15"
-                                           FontAttributes="Bold"
-                                           TextColor="#2E7D32"
-                                           VerticalOptions="Center"/>
-                                    <Label x:Name="CreateTeamToggleIcon"
-                                           Grid.Column="1"
-                                           Text="▼"
-                                           FontSize="14"
-                                           VerticalOptions="Center"
-                                           TextColor="#2E7D32"/>
-                                </Grid>
-                                <Label x:Name="CreateTeamHint"
-                                       Text="For coaches / admins setting up a new team"
-                                       FontSize="11"
-                                       TextColor="{AppThemeBinding Light=#888, Dark=#999}">
-                                    <Label.GestureRecognizers>
-                                        <TapGestureRecognizer Tapped="OnCreateTeamHeaderTapped"/>
-                                    </Label.GestureRecognizers>
-                                </Label>
-                                <StackLayout x:Name="CreateTeamContent" IsVisible="False" Spacing="10" Padding="0,4,0,0">
-                                    <StackLayout x:Name="CreateSharedSection" IsVisible="False" Spacing="10">
-                                        <Label Text="☁️ New Shared Team" FontAttributes="Bold" FontSize="14"/>
-                                        <Label Text="Create a new club + team (you become Club Owner), add a team under a club you already manage, or use a nickname for a standalone team."
-                                               FontSize="11"
-                                               TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
-
-                                        <Label Text="New club + team" FontSize="12" FontAttributes="Bold"
-                                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                                        <Entry x:Name="TeamEntry"
-                                               Placeholder="Team name (e.g., U17 Boys)"
-                                               TextChanged="OnClubTeamChanged"/>
-                                        <Entry x:Name="ClubEntry"
-                                               Placeholder="Club name (e.g., Manchester United FC)"
-                                               TextChanged="OnClubTeamChanged"/>
-
-                                        <Label Text="OR add team to a club you manage" HorizontalOptions="Center"
-                                               FontAttributes="Bold" Margin="0,6,0,0" FontSize="12"/>
-                                        <Picker x:Name="ManagedClubPicker"
-                                                Title="Select managed club"
-                                                SelectedIndexChanged="OnManagedClubPickerChanged"/>
-                                        <Entry x:Name="UnderClubTeamEntry"
-                                               Placeholder="New team name under selected club"
-                                               TextChanged="OnUnderClubTeamChanged"/>
-
-                                        <Label Text="OR nickname (standalone — no club)" HorizontalOptions="Center"
-                                               FontAttributes="Bold" Margin="0,6,0,0" FontSize="12"/>
-                                        <Entry x:Name="NicknameEntry"
-                                               Placeholder="Team nickname (e.g., Socceroos)"
-                                               TextChanged="OnNicknameChanged"/>
-
-                                        <Label Text="Your display name (shown in Chat)"
-                                               FontSize="12"
-                                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                                        <Entry x:Name="CreateDisplayNameEntry"
-                                               Placeholder="e.g. Alex or Coach Sam"
-                                               MaxLength="40"/>
-                                        <Label Text="Your Email Address" FontSize="12" TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                                        <Label Text="Used to send the Owner Recovery Code as a backup."
-                                               FontSize="11"
-                                               TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
-                                        <Entry x:Name="CreatorEmailEntry"
-                                               Placeholder="your@email.com"
-                                               Keyboard="Email"
-                                               MaxLength="200"/>
-                                        <Button x:Name="CreateSharedTeamButton"
-                                                Text="Create Team &amp; Become Admin"
-                                                Clicked="OnCreateTeamClicked"
-                                                BackgroundColor="#4CAF50"
-                                                TextColor="White"
-                                                HeightRequest="44"
-                                                FontSize="14"/>
-                                        <HorizontalStackLayout x:Name="CreateTeamLoadingSection"
-                                                               IsVisible="False"
-                                                               HorizontalOptions="Center"
-                                                               Spacing="10">
-                                            <ActivityIndicator x:Name="CreateTeamSpinner"
-                                                               IsRunning="False"
-                                                               Color="#4CAF50"
-                                                               WidthRequest="22"
-                                                               HeightRequest="22"/>
-                                            <Label Text="Setting up team in the cloud..."
-                                                   FontSize="13"
-                                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"
-                                                   VerticalOptions="Center"/>
-                                        </HorizontalStackLayout>
-                                    </StackLayout>
-                                    <StackLayout x:Name="CreateLocalSection" IsVisible="False" Spacing="10">
-                                        <Label Text="📱 New Local Team" FontAttributes="Bold" FontSize="14"/>
-                                        <Entry x:Name="LocalTeamNameEntry"
-                                               Placeholder="Team name (stored on this device only)"/>
-                                        <Button Text="Create Local Team"
-                                                Clicked="OnSetLocalTeamClicked"
-                                                BackgroundColor="#FF9800"
-                                                TextColor="White"
-                                                HeightRequest="44"
-                                                FontSize="14"/>
-                                    </StackLayout>
-                                </StackLayout>
-                            </VerticalStackLayout>
+                                   FontSize="14"
+                                   TextColor="#2E7D32"/>
+                            <Label Text="Scan a local roster QR shared from another device (offline copy)."
+                                   FontSize="11"
+                                   TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
+                            <Button x:Name="LocalImportTeamButton"
+                                    Text="Import Local Team (QR)"
+                                    Clicked="OnImportTeamClicked"
+                                    BackgroundColor="#4CAF50"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
                         </VerticalStackLayout>
                     </VerticalStackLayout>
                 </VerticalStackLayout>
             </Frame>
 
-            <!-- ========== 3. Recover Admin (rare / advanced; Shared) ========== -->
+            <!-- ========== 4. Create Team (nickname / under club / local) ========== -->
+            <Frame BorderColor="{AppThemeBinding Light=#C8E6C9, Dark=#2E7D32}"
+                   Padding="14"
+                   CornerRadius="8">
+                <VerticalStackLayout Spacing="8">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnCreateTeamHeaderTapped"/>
+                        </Grid.GestureRecognizers>
+                        <Label x:Name="CreateSubsectionTitle"
+                               Text="Create Team"
+                               FontAttributes="Bold"
+                               FontSize="16"
+                               TextColor="#2E7D32"
+                               VerticalOptions="Center"/>
+                        <Label x:Name="CreateTeamToggleIcon"
+                               Grid.Column="1"
+                               Text="▼"
+                               FontSize="16"
+                               VerticalOptions="Center"
+                               TextColor="#2E7D32"/>
+                    </Grid>
+                    <Label x:Name="CreateTeamHint"
+                           Text="Tap to expand — online nickname / under a club you manage, or local"
+                           FontSize="11"
+                           TextColor="{AppThemeBinding Light=#888, Dark=#999}">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnCreateTeamHeaderTapped"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <StackLayout x:Name="CreateTeamContent" IsVisible="False" Spacing="12" Padding="0,4,0,0">
+                        <HorizontalStackLayout Spacing="10">
+                            <CheckBox x:Name="CreateSharedModeCheckbox"
+                                      IsChecked="True"
+                                      CheckedChanged="OnCreateSharedModeChanged"/>
+                            <Label Text="Online"
+                                   FontSize="14"
+                                   VerticalOptions="Center">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnCreateOnlineLabelTapped"/>
+                                </Label.GestureRecognizers>
+                            </Label>
+                            <CheckBox x:Name="CreateLocalModeCheckbox"
+                                      CheckedChanged="OnCreateLocalModeChanged"/>
+                            <Label Text="Local"
+                                   FontSize="14"
+                                   VerticalOptions="Center">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnCreateLocalLabelTapped"/>
+                                </Label.GestureRecognizers>
+                            </Label>
+                        </HorizontalStackLayout>
+
+                        <StackLayout x:Name="CreateSharedSection" IsVisible="True" Spacing="10">
+                            <Label Text="Add team under a club you manage"
+                                   FontSize="12"
+                                   FontAttributes="Bold"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                            <Picker x:Name="ManagedClubPicker"
+                                    Title="Select managed club"
+                                    SelectedIndexChanged="OnManagedClubPickerChanged"/>
+                            <Entry x:Name="UnderClubTeamEntry"
+                                   Placeholder="New team name under selected club"
+                                   TextChanged="OnUnderClubTeamChanged"/>
+
+                            <Label Text="OR nickname (standalone — no club)"
+                                   HorizontalOptions="Center"
+                                   FontAttributes="Bold"
+                                   Margin="0,6,0,0"
+                                   FontSize="12"/>
+                            <Entry x:Name="NicknameEntry"
+                                   Placeholder="Team nickname (e.g., Socceroos)"
+                                   TextChanged="OnNicknameChanged"/>
+
+                            <Label Text="Your display name (shown in Chat)"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                            <Entry x:Name="CreateDisplayNameEntry"
+                                   Placeholder="e.g. Alex or Coach Sam"
+                                   MaxLength="40"/>
+                            <Label Text="Your Email Address"
+                                   FontSize="12"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                            <Label Text="Used to send the Team Owner Recovery Code as a backup."
+                                   FontSize="11"
+                                   TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
+                            <Entry x:Name="CreatorEmailEntry"
+                                   Placeholder="your@email.com"
+                                   Keyboard="Email"
+                                   MaxLength="200"/>
+                            <Button x:Name="CreateSharedTeamButton"
+                                    Text="Create Online Team"
+                                    Clicked="OnCreateTeamClicked"
+                                    BackgroundColor="#4CAF50"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
+                            <HorizontalStackLayout x:Name="CreateTeamLoadingSection"
+                                                   IsVisible="False"
+                                                   HorizontalOptions="Center"
+                                                   Spacing="10">
+                                <ActivityIndicator x:Name="CreateTeamSpinner"
+                                                   IsRunning="False"
+                                                   Color="#4CAF50"
+                                                   WidthRequest="22"
+                                                   HeightRequest="22"/>
+                                <Label Text="Setting up team in the cloud..."
+                                       FontSize="13"
+                                       TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"
+                                       VerticalOptions="Center"/>
+                            </HorizontalStackLayout>
+                        </StackLayout>
+
+                        <StackLayout x:Name="CreateLocalSection" IsVisible="False" Spacing="10">
+                            <Label Text="📱 New Local Team"
+                                   FontAttributes="Bold"
+                                   FontSize="14"/>
+                            <Entry x:Name="LocalTeamNameEntry"
+                                   Placeholder="Team name (stored on this device only)"/>
+                            <Button Text="Create Local Team"
+                                    Clicked="OnSetLocalTeamClicked"
+                                    BackgroundColor="#FF9800"
+                                    TextColor="White"
+                                    HeightRequest="44"
+                                    FontSize="14"/>
+                        </StackLayout>
+                    </StackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- ========== 5. Create Club (always available) ========== -->
+            <Frame BorderColor="{AppThemeBinding Light=#FFE0B2, Dark=#EF6C00}"
+                   Padding="14"
+                   CornerRadius="8">
+                <VerticalStackLayout Spacing="8">
+                    <Grid ColumnDefinitions="*, Auto">
+                        <Grid.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnCreateClubHeaderTapped"/>
+                        </Grid.GestureRecognizers>
+                        <Label Text="Create Club (online)"
+                               FontAttributes="Bold"
+                               FontSize="16"
+                               TextColor="#EF6C00"
+                               VerticalOptions="Center"/>
+                        <Label x:Name="CreateClubToggleIcon"
+                               Grid.Column="1"
+                               Text="▼"
+                               FontSize="16"
+                               VerticalOptions="Center"
+                               TextColor="#EF6C00"/>
+                    </Grid>
+                    <Label x:Name="CreateClubHint"
+                           Text="Tap to expand — start a new online club and its first team (always available)"
+                           FontSize="11"
+                           TextColor="{AppThemeBinding Light=#888, Dark=#999}">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnCreateClubHeaderTapped"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <VerticalStackLayout x:Name="CreateClubContent"
+                                         IsVisible="False"
+                                         Spacing="10"
+                                         Padding="0,4,0,0">
+                        <Label Text="You become Club Owner. Save both the Club and Team Owner Recovery Codes when shown."
+                               FontSize="12"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                        <Entry x:Name="ClubEntry"
+                               Placeholder="Club name (e.g., Manchester United FC)"/>
+                        <Entry x:Name="TeamEntry"
+                               Placeholder="First team name (e.g., U17 Boys)"/>
+                        <Label Text="Your display name (shown in Chat)"
+                               FontSize="12"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                        <Entry x:Name="ClubCreateDisplayNameEntry"
+                               Placeholder="e.g. Alex or Coach Sam"
+                               MaxLength="40"/>
+                        <Label Text="Your Email Address"
+                               FontSize="12"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                        <Label Text="Used to send recovery reminders as a backup."
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
+                        <Entry x:Name="ClubCreatorEmailEntry"
+                               Placeholder="your@email.com"
+                               Keyboard="Email"
+                               MaxLength="200"/>
+                        <Button x:Name="CreateClubButton"
+                                Text="Create Club &amp; First Team"
+                                Clicked="OnCreateClubClicked"
+                                BackgroundColor="#EF6C00"
+                                TextColor="White"
+                                HeightRequest="44"
+                                FontSize="14"/>
+                        <HorizontalStackLayout x:Name="CreateClubLoadingSection"
+                                               IsVisible="False"
+                                               HorizontalOptions="Center"
+                                               Spacing="10">
+                            <ActivityIndicator x:Name="CreateClubSpinner"
+                                               IsRunning="False"
+                                               Color="#EF6C00"
+                                               WidthRequest="22"
+                                               HeightRequest="22"/>
+                            <Label Text="Setting up club in the cloud..."
+                                   FontSize="13"
+                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"
+                                   VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- ========== 6. Recover Owner Access ========== -->
             <Frame x:Name="RejoinAdminSection"
-                   IsVisible="False"
                    BorderColor="#FF9800"
                    Padding="14"
                    CornerRadius="8">

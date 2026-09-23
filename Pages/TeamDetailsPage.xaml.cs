@@ -145,6 +145,8 @@ public partial class TeamDetailsPage : ContentPage
 				JoinDisplayNameEntry.Text = savedDisplayName;
 			if (string.IsNullOrWhiteSpace(CreateDisplayNameEntry.Text))
 				CreateDisplayNameEntry.Text = savedDisplayName;
+			if (string.IsNullOrWhiteSpace(ClubCreateDisplayNameEntry.Text))
+				ClubCreateDisplayNameEntry.Text = savedDisplayName;
 			if (string.IsNullOrWhiteSpace(AdminRejoinDisplayNameEntry.Text))
 				AdminRejoinDisplayNameEntry.Text = savedDisplayName;
 		}
@@ -166,7 +168,7 @@ public partial class TeamDetailsPage : ContentPage
 		else
 		{
 			CurrentTeamLabel.Text = string.IsNullOrEmpty(teamName) ? "(unnamed team)" : teamName;
-			TeamModeLabel.Text = $"Mode: {(isShared ? "Shared (Cloud)" : "Local (Device only)")}";
+			TeamModeLabel.Text = $"Mode: {(isShared ? "Online (Cloud)" : "Local (Device only)")}";
 			ShareTeamButton.IsVisible = true;
 
 			DisplayNameSection.IsVisible = isShared;
@@ -178,7 +180,7 @@ public partial class TeamDetailsPage : ContentPage
 			if (isAdmin)
 				LoadInviteCode(refreshFromCloud: refreshInviteFromCloud);
 
-			// Owner (club manager) can transfer ownership to another admin
+			// Team Owner can transfer ownership to another admin
 			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 			var isOwner = isShared && Preferences.Get($"{teamId}_isOwner", false);
 			TransferOwnershipButton.IsVisible = isOwner;
@@ -203,7 +205,7 @@ public partial class TeamDetailsPage : ContentPage
 		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 		if (teamMode != "shared" || string.IsNullOrEmpty(teamId))
 		{
-			await DisplayAlert("No Shared Team", "Select a shared team first.", "OK");
+			await DisplayAlert("No Online Team", "Select an online team first.", "OK");
 			return;
 		}
 
@@ -239,22 +241,59 @@ public partial class TeamDetailsPage : ContentPage
 	private bool _changeTeamExpanded;
 	private bool _joinTeamExpanded;
 	private bool _createTeamExpanded;
+	private bool _createClubExpanded;
 	private bool _recoverAdminExpanded;
+
+	private void CollapseOtherMainSections(string keep)
+	{
+		if (keep != "admin") SetTeamAdminExpanded(false);
+		if (keep != "change") SetChangeTeamExpanded(false);
+		if (keep != "join") SetJoinTeamExpanded(false);
+		if (keep != "createTeam") SetCreateTeamExpanded(false);
+		if (keep != "createClub") SetCreateClubExpanded(false);
+		if (keep != "recover") SetRecoverAdminExpanded(false);
+	}
 
 	private void OnTeamAdminHeaderTapped(object sender, EventArgs e)
 	{
-		SetTeamAdminExpanded(!_teamAdminExpanded);
-		// Mutual exclusive with Change Team
-		if (_teamAdminExpanded)
-			SetChangeTeamExpanded(false);
+		var open = !_teamAdminExpanded;
+		if (open) CollapseOtherMainSections("admin");
+		SetTeamAdminExpanded(open);
 	}
 
 	private void OnChangeTeamHeaderTapped(object sender, EventArgs e)
 	{
-		SetChangeTeamExpanded(!_changeTeamExpanded);
-		// Mutual exclusive with Team Admin Panel
-		if (_changeTeamExpanded)
-			SetTeamAdminExpanded(false);
+		var open = !_changeTeamExpanded;
+		if (open) CollapseOtherMainSections("change");
+		SetChangeTeamExpanded(open);
+	}
+
+	private void OnJoinTeamHeaderTapped(object sender, EventArgs e)
+	{
+		var open = !_joinTeamExpanded;
+		if (open) CollapseOtherMainSections("join");
+		SetJoinTeamExpanded(open);
+	}
+
+	private void OnCreateTeamHeaderTapped(object sender, EventArgs e)
+	{
+		var open = !_createTeamExpanded;
+		if (open) CollapseOtherMainSections("createTeam");
+		SetCreateTeamExpanded(open);
+	}
+
+	private void OnCreateClubHeaderTapped(object sender, EventArgs e)
+	{
+		var open = !_createClubExpanded;
+		if (open) CollapseOtherMainSections("createClub");
+		SetCreateClubExpanded(open);
+	}
+
+	private void OnRecoverAdminHeaderTapped(object sender, EventArgs e)
+	{
+		var open = !_recoverAdminExpanded;
+		if (open) CollapseOtherMainSections("recover");
+		SetRecoverAdminExpanded(open);
 	}
 
 	private void SetTeamAdminExpanded(bool expanded)
@@ -272,101 +311,8 @@ public partial class TeamDetailsPage : ContentPage
 		ChangeTeamToggleIcon.Text = expanded ? "▲" : "▼";
 		ChangeTeamHint.IsVisible = !expanded;
 
-		// Owner/role cloud fan-out is deferred until the user opens Change Team.
 		if (expanded && SharedCheckbox.IsChecked)
 			_ = RefreshSharedTeamCloudMetadataAsync();
-	}
-
-	/// <summary>Join expands above Create; opening Join closes Create (and vice versa).</summary>
-	private void OnJoinTeamHeaderTapped(object sender, EventArgs e)
-	{
-		SetJoinTeamExpanded(!_joinTeamExpanded);
-		if (_joinTeamExpanded)
-			SetCreateTeamExpanded(false);
-	}
-
-	private void OnCreateTeamHeaderTapped(object sender, EventArgs e)
-	{
-		SetCreateTeamExpanded(!_createTeamExpanded);
-		if (_createTeamExpanded)
-			SetJoinTeamExpanded(false);
-		if (_createTeamExpanded)
-			UpdateCreateTeamSubSections();
-	}
-
-	private void OnSharedCheckboxChanged(object sender, CheckedChangedEventArgs e)
-	{
-		if (e.Value)
-		{
-			LocalCheckbox.IsChecked = false;
-			SharedTeamSection.IsVisible = true;
-			LocalTeamSection.IsVisible = false;
-			RejoinAdminSection.IsVisible = true;
-			ChangeTeamModeHint.IsVisible = false;
-			AcquireTeamSection.IsVisible = true;
-			JoinSubsection.IsVisible = true;
-			LocalImportSubsection.IsVisible = false;
-			CreateSubsectionTitle.Text = "Create new shared team";
-			SetJoinTeamExpanded(false);
-			SetCreateTeamExpanded(false);
-			SetRecoverAdminExpanded(false);
-			_ = LoadSharedTeamsAsync();
-		}
-		else if (!LocalCheckbox.IsChecked)
-		{
-			SharedTeamSection.IsVisible = false;
-			RejoinAdminSection.IsVisible = false;
-			ChangeTeamModeHint.IsVisible = true;
-			AcquireTeamSection.IsVisible = false;
-			LocalImportSubsection.IsVisible = false;
-		}
-		else
-		{
-			SharedTeamSection.IsVisible = false;
-			RejoinAdminSection.IsVisible = false;
-		}
-		UpdateCreateTeamSubSections();
-	}
-
-	private void OnLocalCheckboxChanged(object sender, CheckedChangedEventArgs e)
-	{
-		if (e.Value)
-		{
-			SharedCheckbox.IsChecked = false;
-			LocalTeamSection.IsVisible = true;
-			SharedTeamSection.IsVisible = false;
-			RejoinAdminSection.IsVisible = false;
-			ChangeTeamModeHint.IsVisible = false;
-			AcquireTeamSection.IsVisible = true;
-			JoinSubsection.IsVisible = false; // invite join is shared-only
-			LocalImportSubsection.IsVisible = true; // offline roster QR
-			CreateSubsectionTitle.Text = "Create new local team";
-			SetJoinTeamExpanded(false);
-			SetCreateTeamExpanded(false);
-			_ = LoadLocalTeamsAsync();
-		}
-		else if (!SharedCheckbox.IsChecked)
-		{
-			LocalTeamSection.IsVisible = false;
-			LocalTeamsCollection.IsVisible = false;
-			LocalTeamSwitcherLabel.IsVisible = false;
-			ChangeTeamModeHint.IsVisible = true;
-			AcquireTeamSection.IsVisible = false;
-			LocalImportSubsection.IsVisible = false;
-		}
-		else
-		{
-			LocalTeamSection.IsVisible = false;
-			LocalTeamsCollection.IsVisible = false;
-			LocalTeamSwitcherLabel.IsVisible = false;
-			LocalImportSubsection.IsVisible = false;
-		}
-		UpdateCreateTeamSubSections();
-	}
-
-	private void OnRecoverAdminHeaderTapped(object sender, EventArgs e)
-	{
-		SetRecoverAdminExpanded(!_recoverAdminExpanded);
 	}
 
 	private void SetJoinTeamExpanded(bool expanded)
@@ -375,6 +321,8 @@ public partial class TeamDetailsPage : ContentPage
 		JoinTeamContent.IsVisible = expanded;
 		JoinTeamToggleIcon.Text = expanded ? "▲" : "▼";
 		JoinTeamHint.IsVisible = !expanded;
+		if (expanded)
+			UpdateJoinTeamSubSections();
 	}
 
 	private void SetCreateTeamExpanded(bool expanded)
@@ -387,6 +335,14 @@ public partial class TeamDetailsPage : ContentPage
 			UpdateCreateTeamSubSections();
 	}
 
+	private void SetCreateClubExpanded(bool expanded)
+	{
+		_createClubExpanded = expanded;
+		CreateClubContent.IsVisible = expanded;
+		CreateClubToggleIcon.Text = expanded ? "▲" : "▼";
+		CreateClubHint.IsVisible = !expanded;
+	}
+
 	private void SetRecoverAdminExpanded(bool expanded)
 	{
 		_recoverAdminExpanded = expanded;
@@ -395,13 +351,126 @@ public partial class TeamDetailsPage : ContentPage
 		RecoverAdminHint.IsVisible = !expanded;
 	}
 
+	/// <summary>Select Team — Online list only.</summary>
+	private void OnSharedCheckboxChanged(object sender, CheckedChangedEventArgs e)
+	{
+		if (e.Value)
+		{
+			LocalCheckbox.IsChecked = false;
+			SharedTeamSection.IsVisible = true;
+			LocalTeamSection.IsVisible = false;
+			ChangeTeamModeHint.IsVisible = false;
+			_ = LoadSharedTeamsAsync();
+		}
+		else if (!LocalCheckbox.IsChecked)
+		{
+			SharedTeamSection.IsVisible = false;
+			ChangeTeamModeHint.IsVisible = true;
+		}
+		else
+		{
+			SharedTeamSection.IsVisible = false;
+		}
+	}
+
+	/// <summary>Select Team — Local list only.</summary>
+	private void OnLocalCheckboxChanged(object sender, CheckedChangedEventArgs e)
+	{
+		if (e.Value)
+		{
+			SharedCheckbox.IsChecked = false;
+			LocalTeamSection.IsVisible = true;
+			SharedTeamSection.IsVisible = false;
+			ChangeTeamModeHint.IsVisible = false;
+			_ = LoadLocalTeamsAsync();
+		}
+		else if (!SharedCheckbox.IsChecked)
+		{
+			LocalTeamSection.IsVisible = false;
+			LocalTeamsCollection.IsVisible = false;
+			LocalTeamSwitcherLabel.IsVisible = false;
+			ChangeTeamModeHint.IsVisible = true;
+		}
+		else
+		{
+			LocalTeamSection.IsVisible = false;
+			LocalTeamsCollection.IsVisible = false;
+			LocalTeamSwitcherLabel.IsVisible = false;
+		}
+	}
+
+	private void OnSelectOnlineLabelTapped(object sender, EventArgs e)
+		=> SharedCheckbox.IsChecked = true;
+
+	private void OnSelectLocalLabelTapped(object sender, EventArgs e)
+		=> LocalCheckbox.IsChecked = true;
+
+	private void OnJoinOnlineModeChanged(object sender, CheckedChangedEventArgs e)
+	{
+		if (e.Value)
+			JoinLocalModeCheckbox.IsChecked = false;
+		UpdateJoinTeamSubSections();
+	}
+
+	private void OnJoinLocalModeChanged(object sender, CheckedChangedEventArgs e)
+	{
+		if (e.Value)
+			JoinOnlineModeCheckbox.IsChecked = false;
+		UpdateJoinTeamSubSections();
+	}
+
+	private void OnJoinOnlineLabelTapped(object sender, EventArgs e)
+		=> JoinOnlineModeCheckbox.IsChecked = true;
+
+	private void OnJoinLocalLabelTapped(object sender, EventArgs e)
+		=> JoinLocalModeCheckbox.IsChecked = true;
+
+	private void OnCreateSharedModeChanged(object sender, CheckedChangedEventArgs e)
+	{
+		if (e.Value)
+			CreateLocalModeCheckbox.IsChecked = false;
+		UpdateCreateTeamSubSections();
+	}
+
+	private void OnCreateLocalModeChanged(object sender, CheckedChangedEventArgs e)
+	{
+		if (e.Value)
+			CreateSharedModeCheckbox.IsChecked = false;
+		UpdateCreateTeamSubSections();
+	}
+
+	private void OnCreateOnlineLabelTapped(object sender, EventArgs e)
+		=> CreateSharedModeCheckbox.IsChecked = true;
+
+	private void OnCreateLocalLabelTapped(object sender, EventArgs e)
+		=> CreateLocalModeCheckbox.IsChecked = true;
+
+	private void UpdateJoinTeamSubSections()
+	{
+		if (!_joinTeamExpanded) return;
+		var isOnline = JoinOnlineModeCheckbox.IsChecked;
+		var isLocal = JoinLocalModeCheckbox.IsChecked;
+		if (!isOnline && !isLocal)
+		{
+			JoinOnlineModeCheckbox.IsChecked = true;
+			isOnline = true;
+		}
+		JoinSharedSection.IsVisible = isOnline;
+		LocalImportSubsection.IsVisible = isLocal;
+	}
+
 	private void UpdateCreateTeamSubSections()
 	{
 		if (!_createTeamExpanded) return;
-		bool isShared = SharedCheckbox.IsChecked;
-		bool isLocal  = LocalCheckbox.IsChecked;
+		var isShared = CreateSharedModeCheckbox.IsChecked;
+		var isLocal = CreateLocalModeCheckbox.IsChecked;
+		if (!isShared && !isLocal)
+		{
+			CreateSharedModeCheckbox.IsChecked = true;
+			isShared = true;
+		}
 		CreateSharedSection.IsVisible = isShared;
-		CreateLocalSection.IsVisible  = isLocal;
+		CreateLocalSection.IsVisible = isLocal;
 		if (isShared)
 			RefreshManagedClubPicker();
 	}
@@ -413,7 +482,7 @@ public partial class TeamDetailsPage : ContentPage
 		var teamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
 		if (teamMode != "shared" || string.IsNullOrEmpty(teamId))
 		{
-			await DisplayAlert("No Shared Team", "Select a shared team first.", "OK");
+			await DisplayAlert("No Online Team", "Select an online team first.", "OK");
 			return;
 		}
 
@@ -430,7 +499,7 @@ public partial class TeamDetailsPage : ContentPage
 			"Leave Team?",
 			$"Are you sure you want to leave '{teamName}'?\n\n" +
 			"This removes the team from this device. You will need an invite code (or admin recovery) to rejoin.\n\n" +
-			"(You can also swipe left on the team under Change Team.)",
+			"(You can also swipe on the team under Select Team.)",
 			"Leave",
 			"Cancel");
 		if (!confirm)
@@ -466,7 +535,7 @@ public partial class TeamDetailsPage : ContentPage
 			"  • Game logs\n" +
 			"  • All associated settings\n\n" +
 			"This action cannot be undone.\n\n" +
-			"(You can also swipe left on the team under Change Team.)",
+			"(You can also swipe on the team under Select Team.)",
 			"Delete",
 			"Cancel");
 		if (!confirm)
@@ -574,7 +643,7 @@ public partial class TeamDetailsPage : ContentPage
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Found {_sharedTeams.Count} shared teams");
 
 			var hasTeams = _sharedTeams.Count > 0;
-			SharedTeamSwitcherLabel.Text = hasTeams ? $"Your Shared Teams ({_sharedTeams.Count})" : string.Empty;
+			SharedTeamSwitcherLabel.Text = hasTeams ? $"Your Online Teams ({_sharedTeams.Count})" : string.Empty;
 			SharedTeamsCollection.IsVisible = hasTeams;
 			SharedTeamSwitcherLabel.IsVisible = hasTeams;
 			SharedTeamSeparator.IsVisible = hasTeams;
@@ -1105,7 +1174,6 @@ public partial class TeamDetailsPage : ContentPage
 	private enum SharedCreateMode
 	{
 		None,
-		NewClubAndTeam,
 		UnderManagedClub,
 		Nickname
 	}
@@ -1200,35 +1268,14 @@ public partial class TeamDetailsPage : ContentPage
 	private SharedCreateMode DetectSharedCreateMode()
 	{
 		var hasNickname = !string.IsNullOrWhiteSpace(NicknameEntry.Text);
-		var hasNewClub = !string.IsNullOrWhiteSpace(ClubEntry.Text) && !string.IsNullOrWhiteSpace(TeamEntry.Text);
 		var hasUnderClub = ManagedClubPicker.SelectedIndex >= 0
 		                   && !string.IsNullOrWhiteSpace(UnderClubTeamEntry.Text);
 
-		var count = (hasNickname ? 1 : 0) + (hasNewClub ? 1 : 0) + (hasUnderClub ? 1 : 0);
-		if (count != 1)
+		if (hasNickname && hasUnderClub)
 			return SharedCreateMode.None;
 		if (hasNickname) return SharedCreateMode.Nickname;
 		if (hasUnderClub) return SharedCreateMode.UnderManagedClub;
-		return SharedCreateMode.NewClubAndTeam;
-	}
-
-	private void OnClubTeamChanged(object sender, TextChangedEventArgs e)
-	{
-		if (!string.IsNullOrWhiteSpace(ClubEntry.Text) || !string.IsNullOrWhiteSpace(TeamEntry.Text))
-		{
-			NicknameEntry.IsEnabled = false;
-			NicknameEntry.Text = string.Empty;
-			UnderClubTeamEntry.IsEnabled = false;
-			UnderClubTeamEntry.Text = string.Empty;
-			ManagedClubPicker.SelectedIndex = -1;
-			ManagedClubPicker.IsEnabled = false;
-		}
-		else
-		{
-			NicknameEntry.IsEnabled = true;
-			UnderClubTeamEntry.IsEnabled = true;
-			ManagedClubPicker.IsEnabled = _managedClubChoices.Count > 0;
-		}
+		return SharedCreateMode.None;
 	}
 
 	private void OnUnderClubTeamChanged(object sender, TextChangedEventArgs e)
@@ -1237,15 +1284,9 @@ public partial class TeamDetailsPage : ContentPage
 		{
 			NicknameEntry.IsEnabled = false;
 			NicknameEntry.Text = string.Empty;
-			ClubEntry.IsEnabled = false;
-			TeamEntry.IsEnabled = false;
-			ClubEntry.Text = string.Empty;
-			TeamEntry.Text = string.Empty;
 		}
-		else if (string.IsNullOrWhiteSpace(NicknameEntry.Text))
+		else
 		{
-			ClubEntry.IsEnabled = true;
-			TeamEntry.IsEnabled = true;
 			NicknameEntry.IsEnabled = true;
 		}
 	}
@@ -1257,10 +1298,6 @@ public partial class TeamDetailsPage : ContentPage
 	{
 		if (!string.IsNullOrWhiteSpace(NicknameEntry.Text))
 		{
-			ClubEntry.IsEnabled = false;
-			TeamEntry.IsEnabled = false;
-			ClubEntry.Text = string.Empty;
-			TeamEntry.Text = string.Empty;
 			UnderClubTeamEntry.IsEnabled = false;
 			UnderClubTeamEntry.Text = string.Empty;
 			ManagedClubPicker.SelectedIndex = -1;
@@ -1268,8 +1305,6 @@ public partial class TeamDetailsPage : ContentPage
 		}
 		else
 		{
-			ClubEntry.IsEnabled = true;
-			TeamEntry.IsEnabled = true;
 			UnderClubTeamEntry.IsEnabled = true;
 			ManagedClubPicker.IsEnabled = _managedClubChoices.Count > 0;
 		}
@@ -1277,12 +1312,22 @@ public partial class TeamDetailsPage : ContentPage
 
 	private async void OnCreateTeamClicked(object sender, EventArgs e)
 	{
+		if (CreateLocalModeCheckbox.IsChecked)
+		{
+			await DisplayAlert(
+				"Local team",
+				"Use the Create Local Team button in the Local section below.",
+				"OK");
+			return;
+		}
+
 		var mode = DetectSharedCreateMode();
 		if (mode == SharedCreateMode.None)
 		{
 			await DisplayAlert(
 				"Invalid Input",
-				"Choose one path:\n• Club name + Team name (new club)\n• Managed club + new team name\n• Nickname (standalone)",
+				"Choose one path:\n• Managed club + new team name\n• Nickname (standalone)\n\n" +
+				"To start a new club, use Create Club.",
 				"OK");
 			return;
 		}
@@ -1316,55 +1361,27 @@ public partial class TeamDetailsPage : ContentPage
 			string clubName = "";
 			string result;
 
-			switch (mode)
+			if (mode == SharedCreateMode.Nickname)
 			{
-				case SharedCreateMode.Nickname:
-					teamName = NicknameEntry.Text!.Trim();
-					teamId = GenerateTeamId(teamName);
-					result = await cloud.CreateNicknameTeamAsync(
-						teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
-					break;
-
-				case SharedCreateMode.UnderManagedClub:
+				teamName = NicknameEntry.Text!.Trim();
+				teamId = GenerateTeamId(teamName);
+				result = await cloud.CreateNicknameTeamAsync(
+					teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
+			}
+			else
+			{
+				var idx = ManagedClubPicker.SelectedIndex;
+				if (idx < 0 || idx >= _managedClubChoices.Count)
 				{
-					var idx = ManagedClubPicker.SelectedIndex;
-					if (idx < 0 || idx >= _managedClubChoices.Count)
-					{
-						await DisplayAlert("Invalid Input", "Select a managed club.", "OK");
-						return;
-					}
-					clubId = _managedClubChoices[idx].ClubId;
-					clubName = _managedClubChoices[idx].ClubName;
-					teamName = UnderClubTeamEntry.Text!.Trim();
-					teamId = GenerateTeamId(teamName, clubName);
-					result = await cloud.CreateTeamUnderClubAsync(
-						clubId, teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
-					break;
+					await DisplayAlert("Invalid Input", "Select a managed club.", "OK");
+					return;
 				}
-
-				default: // NewClubAndTeam
-				{
-					clubName = ClubEntry.Text!.Trim();
-					teamName = TeamEntry.Text!.Trim();
-					clubId = GenerateTeamId("club", clubName);
-					teamId = GenerateTeamId(teamName, clubName);
-					var clubRecovery = GenerateAdminCode();
-					var clubRecoveryHash = HashAdminCode(clubRecovery);
-					result = await cloud.CreateClubWithTeamAsync(
-						clubId, clubName, teamId, teamName, inviteCode, adminCodeHash,
-						clubRecoveryHash, creatorEmail, displayName);
-
-					if (result == "success")
-					{
-						// Show club recovery in the success alert via local capture below
-						Preferences.Set($"{clubId}_owner_recovery_shown", true);
-						await FinishSharedTeamCreateAsync(
-							teamId, teamName, inviteCode, adminCode, displayName, creatorEmail,
-							clubId, clubName, clubOwnerRecoveryCode: clubRecovery);
-						return;
-					}
-					break;
-				}
+				clubId = _managedClubChoices[idx].ClubId;
+				clubName = _managedClubChoices[idx].ClubName;
+				teamName = UnderClubTeamEntry.Text!.Trim();
+				teamId = GenerateTeamId(teamName, clubName);
+				result = await cloud.CreateTeamUnderClubAsync(
+					clubId, teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
 			}
 
 			if (result == "success")
@@ -1387,6 +1404,75 @@ public partial class TeamDetailsPage : ContentPage
 			CreateTeamSpinner.IsRunning = false;
 			CreateTeamLoadingSection.IsVisible = false;
 			CreateSharedTeamButton.IsEnabled = true;
+		}
+	}
+
+	private async void OnCreateClubClicked(object sender, EventArgs e)
+	{
+		var clubName = ClubEntry.Text?.Trim() ?? "";
+		var teamName = TeamEntry.Text?.Trim() ?? "";
+		if (string.IsNullOrWhiteSpace(clubName) || string.IsNullOrWhiteSpace(teamName))
+		{
+			await DisplayAlert("Invalid Input", "Enter both a Club name and a first Team name.", "OK");
+			return;
+		}
+
+		if (!UserDisplayName.TryValidate(ClubCreateDisplayNameEntry.Text, out var displayName, out var nameError))
+		{
+			await DisplayAlert("Display Name Required", nameError, "OK");
+			return;
+		}
+
+		CreateClubButton.IsEnabled = false;
+		CreateClubLoadingSection.IsVisible = true;
+		CreateClubSpinner.IsRunning = true;
+
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null)
+			{
+				await DisplayAlert("Error", "Cloud team service not available", "OK");
+				return;
+			}
+
+			var inviteCode = GenerateInviteCode();
+			var adminCode = GenerateAdminCode();
+			var adminCodeHash = HashAdminCode(adminCode);
+			var clubRecovery = GenerateAdminCode();
+			var clubRecoveryHash = HashAdminCode(clubRecovery);
+			var creatorEmail = ClubCreatorEmailEntry.Text?.Trim() ?? string.Empty;
+			var clubId = GenerateTeamId("club", clubName);
+			var teamId = GenerateTeamId(teamName, clubName);
+
+			var result = await cloud.CreateClubWithTeamAsync(
+				clubId, clubName, teamId, teamName, inviteCode, adminCodeHash,
+				clubRecoveryHash, creatorEmail, displayName);
+
+			if (result == "success")
+			{
+				Preferences.Set($"{clubId}_owner_recovery_shown", true);
+				await FinishSharedTeamCreateAsync(
+					teamId, teamName, inviteCode, adminCode, displayName, creatorEmail,
+					clubId, clubName, clubOwnerRecoveryCode: clubRecovery);
+				ClubEntry.Text = string.Empty;
+				TeamEntry.Text = string.Empty;
+				ClubCreatorEmailEntry.Text = string.Empty;
+			}
+			else
+			{
+				await DisplayAlert("Error", $"Failed to create club: {result}", "OK");
+			}
+		}
+		catch (Exception ex)
+		{
+			await DisplayAlert("Error", $"Failed to create club: {ex.Message}", "OK");
+		}
+		finally
+		{
+			CreateClubSpinner.IsRunning = false;
+			CreateClubLoadingSection.IsVisible = false;
+			CreateClubButton.IsEnabled = true;
 		}
 	}
 
@@ -2150,7 +2236,7 @@ private void RegisterTeamId(string teamId)
 			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 			if (string.IsNullOrEmpty(teamId))
 			{
-				await DisplayAlert("No Team", "Select a shared team first.", "OK");
+				await DisplayAlert("No Team", "Select an online team first.", "OK");
 				return;
 			}
 
@@ -2200,7 +2286,7 @@ private void RegisterTeamId(string teamId)
 			var mode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
 			if (string.IsNullOrEmpty(teamId) || mode != "shared")
 			{
-				await DisplayAlert("Shared Team", "Select a shared team first.", "OK");
+				await DisplayAlert("Online Team", "Select an online team first.", "OK");
 				return;
 			}
 
@@ -2291,7 +2377,7 @@ private void RegisterTeamId(string teamId)
 			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 			if (string.IsNullOrEmpty(teamId))
 			{
-				await DisplayAlert("No Team", "Select a shared team first.", "OK");
+				await DisplayAlert("No Team", "Select an online team first.", "OK");
 				return;
 			}
 
@@ -2426,7 +2512,7 @@ private void RegisterTeamId(string teamId)
 			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 			if (string.IsNullOrEmpty(teamId))
 			{
-				await DisplayAlert("No Team", "Select a shared team first.", "OK");
+				await DisplayAlert("No Team", "Select an online team first.", "OK");
 				return;
 			}
 
@@ -2553,7 +2639,7 @@ private void RegisterTeamId(string teamId)
 			var teamName = Preferences.Get(TEAM_NAME_KEY, "this team");
 			if (string.IsNullOrEmpty(teamId))
 			{
-				await DisplayAlert("No Team", "Select a shared team first.", "OK");
+				await DisplayAlert("No Team", "Select an online team first.", "OK");
 				return;
 			}
 
@@ -3074,7 +3160,7 @@ private void RegisterTeamId(string teamId)
 					await DisplayAlert(
 						"Left Team",
 						$"You have left '{team.TeamName}'.\n\n" +
-						"No team is selected. Join or select another shared team to continue.",
+						"No team is selected. Join or select another online team to continue.",
 						"OK");
 				}
 			}
