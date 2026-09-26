@@ -53,16 +53,19 @@ public partial class ChatPage : ContentPage
 		ResolveServices();
 		ApplyThemeToInputBar();
 		SubscribeKeyboardAvoidance();
+		ChatBadgeHelper.Changed -= OnChatBadgeChanged;
+		ChatBadgeHelper.Changed += OnChatBadgeChanged;
 
-		_teamId = Preferences.Get("team_id", string.Empty);
-		var mode = Preferences.Get("team_mode", string.Empty);
+		var onlineIds = GetOnlineTeamIds();
+		_teamId = ResolveChatTeamId(onlineIds);
+		RebuildTeamChatStrip(onlineIds);
 		_isAdmin = IsCurrentUserAdmin(_teamId);
 		UnpinButton.IsVisible = _isAdmin;
 
-		// Clear tab + app-icon unread as soon as Chat is open.
+		// Clear unread for the conversation being viewed only (not other teams).
 		ChatBadgeHelper.SetChatVisible(true, _teamId);
 
-		if (mode != "shared" || string.IsNullOrEmpty(_teamId) || _teamId.StartsWith("local_"))
+		if (string.IsNullOrEmpty(_teamId) || _teamId.StartsWith("local_"))
 		{
 			_messages.Clear();
 			ReplaceListItems(
@@ -70,25 +73,32 @@ public partial class ChatPage : ContentPage
 				new ChatDayHeader { Label = "Info" },
 				new ChatMessage
 				{
-					Text = "Chat is available for shared (cloud) teams only.",
+					Text = "Chat is available for online (cloud) teams. Join or create an online team to start chatting.",
 					SenderName = "Turf Time",
 					IsMine = false,
 					Timestamp = DateTimeOffset.Now
 				}
 			]);
+			InputBar.IsVisible = false;
+			TeamChatStripScroll.IsVisible = onlineIds.Count > 0;
 			return;
 		}
+
+		InputBar.IsVisible = true;
+		if (!string.IsNullOrEmpty(_teamId))
+			Preferences.Set(ChatBadgeHelper.ChatSelectedTeamIdKey, _teamId);
 
 		await EnsureDisplayNameForSharedTeamAsync();
 		await StartChatAsync();
 		_ = RegisterFcmTokenAsync();
+		RefreshTeamChatStripSelection();
 	}
 
 	protected override void OnDisappearing()
 	{
 		base.OnDisappearing();
-		ChatBadgeHelper.SetChatVisible(false, _teamId);
-		// Still mark read at leave so badge doesn't reappear for already-seen messages.
+		ChatBadgeHelper.Changed -= OnChatBadgeChanged;
+		ChatBadgeHelper.SetChatVisible(false, null);
 		if (!string.IsNullOrEmpty(_teamId))
 			ChatBadgeHelper.MarkRead(_teamId);
 
@@ -98,14 +108,137 @@ public partial class ChatPage : ContentPage
 		_subscription = null;
 	}
 
+	private void OnChatBadgeChanged()
+		=> MainThread.BeginInvokeOnMainThread(RefreshTeamChatStripSelection);
+
+	private static List<string> GetOnlineTeamIds()
+	{
+		try
+		{
+			var json = Preferences.Get("team_id_list", "[]");
+			var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? [];
+			return list
+				.Where(id => !string.IsNullOrWhiteSpace(id) && !id.StartsWith("local_", StringComparison.Ordinal))
+				.Distinct(StringComparer.Ordinal)
+				.ToList();
+		}
+		catch
+		{
+			return [];
+		}
+	}
+
+	/// <summary>
+	/// Last chat team if still a member; else app-wide online team; else first in list.
+	/// Does not change Game/Details selection.
+	/// </summary>
+	private static string ResolveChatTeamId(IReadOnlyList<string> onlineIds)
+	{
+		if (onlineIds.Count == 0)
+			return string.Empty;
+
+		var lastChat = Preferences.Get(ChatBadgeHelper.ChatSelectedTeamIdKey, string.Empty);
+		if (!string.IsNullOrEmpty(lastChat)
+		    && onlineIds.Contains(lastChat, StringComparer.Ordinal))
+			return lastChat;
+
+		var current = Preferences.Get("team_id", string.Empty);
+		var mode = Preferences.Get("team_mode", string.Empty);
+		if (string.Equals(mode, "shared", StringComparison.OrdinalIgnoreCase)
+		    && !string.IsNullOrEmpty(current)
+		    && !current.StartsWith("local_", StringComparison.Ordinal)
+		    && onlineIds.Contains(current, StringComparer.Ordinal))
+			return current;
+
+		return onlineIds[0];
+	}
+
 	private static bool IsCurrentUserAdmin(string teamId)
 	{
-		var role = Preferences.Get("user_role", string.Empty);
-		if (string.IsNullOrEmpty(role) && !string.IsNullOrEmpty(teamId))
+		if (string.IsNullOrEmpty(teamId)) return false;
+		var role = Preferences.Get($"{teamId}_role", string.Empty);
+		if (string.IsNullOrEmpty(role))
 			role = Preferences.Get($"user_role_{teamId}", string.Empty);
-		if (string.IsNullOrEmpty(role) && !string.IsNullOrEmpty(teamId))
-			role = Preferences.Get($"{teamId}_role", string.Empty);
+		// Fall back to app-wide role only when chatting the Game-selected team.
+		if (string.IsNullOrEmpty(role)
+		    && string.Equals(teamId, Preferences.Get("team_id", string.Empty), StringComparison.Ordinal))
+			role = Preferences.Get("user_role", string.Empty);
 		return string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private void RebuildTeamChatStrip(IReadOnlyList<string> onlineIds)
+	{
+		TeamChatStrip.Children.Clear();
+		if (onlineIds.Count == 0)
+		{
+			TeamChatStripScroll.IsVisible = false;
+			return;
+		}
+
+		TeamChatStripScroll.IsVisible = true;
+		for (var i = 0; i < onlineIds.Count; i++)
+		{
+			var id = onlineIds[i];
+			var name = Preferences.Get($"{id}_name", id);
+			if (string.IsNullOrWhiteSpace(name)) name = id;
+			var shortName = name.Length <= 5 ? name : name[..5];
+			var label = $"{i + 1}.{shortName}";
+			var hasUnread = ChatBadgeHelper.HasUnread(id);
+			var selected = string.Equals(id, _teamId, StringComparison.Ordinal);
+
+			var chip = new Border
+			{
+				StrokeThickness = selected ? 2 : 1,
+				Stroke = selected ? Color.FromArgb("#2E7D32") : Color.FromArgb("#81C784"),
+				BackgroundColor = selected ? Color.FromArgb("#2E7D32") : Colors.White,
+				Padding = new Thickness(10, 6),
+				MinimumWidthRequest = 56
+			};
+			chip.StrokeShape = new RoundRectangle { CornerRadius = 14 };
+
+			var text = hasUnread ? $"{label} ●" : label;
+			var lbl = new Label
+			{
+				Text = text,
+				FontSize = 13,
+				FontAttributes = selected ? FontAttributes.Bold : FontAttributes.None,
+				TextColor = selected ? Colors.White : Color.FromArgb("#1B5E20"),
+				VerticalOptions = LayoutOptions.Center,
+				HorizontalOptions = LayoutOptions.Center
+			};
+			if (hasUnread && !selected)
+				lbl.TextColor = Color.FromArgb("#C62828");
+
+			chip.Content = lbl;
+			var capturedId = id;
+			var tap = new TapGestureRecognizer();
+			tap.Tapped += async (_, _) => await OnTeamChatIdentifierTappedAsync(capturedId);
+			chip.GestureRecognizers.Add(tap);
+			TeamChatStrip.Children.Add(chip);
+		}
+	}
+
+	private void RefreshTeamChatStripSelection()
+		=> RebuildTeamChatStrip(GetOnlineTeamIds());
+
+	private async Task OnTeamChatIdentifierTappedAsync(string teamId)
+	{
+		if (string.IsNullOrEmpty(teamId)
+		    || string.Equals(teamId, _teamId, StringComparison.Ordinal))
+			return;
+
+		_subscription?.Dispose();
+		_subscription = null;
+		_teamId = teamId;
+		Preferences.Set(ChatBadgeHelper.ChatSelectedTeamIdKey, teamId);
+		_isAdmin = IsCurrentUserAdmin(_teamId);
+		UnpinButton.IsVisible = _isAdmin;
+		ChatBadgeHelper.SetChatVisible(true, _teamId);
+		RefreshTeamChatStripSelection();
+		_messages.Clear();
+		ReplaceListItems([]);
+		InputBar.IsVisible = true;
+		await StartChatAsync();
 	}
 
 	private void ResolveServices()
@@ -752,7 +885,7 @@ public partial class ChatPage : ContentPage
 			return;
 		try
 		{
-			await FcmService.Instance.EnsureRegisteredForCurrentTeamAsync();
+			await FcmService.Instance.EnsureRegisteredForAllOnlineTeamsAsync();
 			var token = await FcmService.Instance.GetTokenAsync();
 			System.Diagnostics.Debug.WriteLine(
 				string.IsNullOrEmpty(token)

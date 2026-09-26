@@ -106,6 +106,8 @@ namespace TurfTime2
             if (intent?.GetBooleanExtra("open_chat", false) != true)
                 return;
 
+            var chatTeamId = intent.GetStringExtra("chat_team_id");
+
             // Shell may not be ready on cold start — retry briefly.
             _ = Task.Run(async () =>
             {
@@ -115,11 +117,11 @@ namespace TurfTime2
                     if (Microsoft.Maui.Controls.Application.Current?.Windows?.FirstOrDefault()?.Page is not null
                         || Shell.Current is not null)
                     {
-                        ChatNavigation.OpenChat();
+                        ChatNavigation.OpenChat(chatTeamId);
                         return;
                     }
                 }
-                ChatNavigation.OpenChat();
+                ChatNavigation.OpenChat(chatTeamId);
             });
         }
     }

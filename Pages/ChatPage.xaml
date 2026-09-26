@@ -5,7 +5,7 @@
              Title="Chat"
              HideSoftInputOnTapped="False">
     <!-- RootGrid bottom padding is raised on iOS when the keyboard is open so InputBar stays visible. -->
-    <Grid x:Name="RootGrid" RowDefinitions="Auto, *, Auto, Auto">
+    <Grid x:Name="RootGrid" RowDefinitions="Auto, *, Auto, Auto, Auto">
         <!-- Pinned message (admin/coach) -->
         <Border x:Name="PinnedBar"
                 Grid.Row="0"
@@ -112,5 +112,17 @@
                     BackgroundColor="#FF6B35"
                     TextColor="White" />
         </Grid>
+
+        <!-- Team Chat Identifiers — all online teams; does not change Game/Details team -->
+        <ScrollView x:Name="TeamChatStripScroll"
+                    Grid.Row="4"
+                    Orientation="Horizontal"
+                    HorizontalScrollBarVisibility="Never"
+                    IsVisible="False"
+                    Padding="8,6"
+                    BackgroundColor="{AppThemeBinding Light=#E8F5E9, Dark=#1B3D1E}">
+            <HorizontalStackLayout x:Name="TeamChatStrip"
+                                  Spacing="8" />
+        </ScrollView>
     </Grid>
 </ContentPage>

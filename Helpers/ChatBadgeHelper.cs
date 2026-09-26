@@ -1,16 +1,23 @@
+using System.Text.Json;
+
 namespace TurfTime2.Helpers;
 
 /// <summary>
-/// Tracks unread team chat for the Chat tab title and the app-icon badge.
-/// Cleared when the Chat page is opened / visible.
+/// Tracks unread team chat for the Chat tab title, per-team strip flags, and the app-icon badge.
+/// Per-team flags are cleared only when that team's conversation is viewed.
 /// </summary>
 public static class ChatBadgeHelper
 {
 	private const string UnreadCountKey = "chat_unread_count";
+	private const string UnreadTeamsKey = "chat_unread_team_ids";
 	private const string LastReadPrefix = "chat_last_read_utc_";
+	public const string ChatSelectedTeamIdKey = "chat_selected_team_id";
 
 	/// <summary>True while ChatPage is on screen (appearing and not disappeared).</summary>
 	public static bool IsChatVisible { get; private set; }
+
+	/// <summary>Team id whose conversation is open on Chat (may differ from Game team).</summary>
+	public static string? VisibleChatTeamId { get; private set; }
 
 	public static event Action? Changed;
 
@@ -19,28 +26,32 @@ public static class ChatBadgeHelper
 	public static void SetChatVisible(bool visible, string? teamId = null)
 	{
 		IsChatVisible = visible;
-		if (visible)
-			MarkRead(teamId ?? Preferences.Get("team_id", string.Empty));
+		VisibleChatTeamId = visible ? teamId : null;
+		if (visible && !string.IsNullOrWhiteSpace(teamId))
+			MarkRead(teamId);
 	}
 
+	/// <summary>Mark one team's chat as read and recompute the global badge sum.</summary>
 	public static void MarkRead(string teamId)
 	{
 		if (!string.IsNullOrWhiteSpace(teamId))
+		{
 			Preferences.Set(LastReadPrefix + teamId, DateTimeOffset.UtcNow.ToString("o"));
+			ClearTeamUnreadFlag(teamId);
+		}
 
-		SetCount(0);
+		RecomputeGlobalCountFromFlags();
 	}
 
 	/// <summary>
-	/// Recompute unread from the latest snapshot when chat is not visible.
-	/// Counts others' non-deleted messages after last-read watermark.
+	/// Recompute unread for a team from the latest snapshot when that conversation is not visible.
 	/// </summary>
 	public static void UpdateFromMessages(string teamId, IReadOnlyList<Services.ChatMessage> messages)
 	{
 		if (string.IsNullOrWhiteSpace(teamId))
 			return;
 
-		if (IsChatVisible)
+		if (IsChatVisible && string.Equals(VisibleChatTeamId, teamId, StringComparison.Ordinal))
 		{
 			MarkRead(teamId);
 			return;
@@ -56,15 +67,54 @@ public static class ChatBadgeHelper
 				unread++;
 		}
 
-		SetCount(unread);
+		if (unread > 0)
+			SetTeamUnreadFlag(teamId, true);
+		else
+			ClearTeamUnreadFlag(teamId);
+
+		RecomputeGlobalCountFromFlags();
 	}
 
-	/// <summary>Called when an FCM chat push arrives while the user is not on Chat.</summary>
-	public static void IncrementFromPush()
+	/// <summary>Called when an FCM chat push arrives while the user is not viewing that team chat.</summary>
+	public static void IncrementFromPush(string? teamId = null)
 	{
+		// Already looking at this team's conversation — Firestore snapshot handles it.
+		if (IsChatVisible
+		    && !string.IsNullOrWhiteSpace(teamId)
+		    && string.Equals(VisibleChatTeamId, teamId, StringComparison.Ordinal))
+			return;
+
+		if (!string.IsNullOrWhiteSpace(teamId))
+		{
+			SetTeamUnreadFlag(teamId, true);
+			RecomputeGlobalCountFromFlags();
+			return;
+		}
+
+		// No teamId in payload: still bump the tab badge, but cannot light a strip chip.
 		if (IsChatVisible)
 			return;
+
 		SetCount(UnreadCount + 1);
+	}
+
+	public static bool HasUnread(string teamId)
+	{
+		if (string.IsNullOrWhiteSpace(teamId)) return false;
+		return GetUnreadTeamIds().Contains(teamId);
+	}
+
+	public static IReadOnlyList<string> GetUnreadTeamIds()
+	{
+		try
+		{
+			var json = Preferences.Get(UnreadTeamsKey, "[]");
+			return JsonSerializer.Deserialize<List<string>>(json) ?? [];
+		}
+		catch
+		{
+			return [];
+		}
 	}
 
 	public static DateTimeOffset GetLastRead(string teamId)
@@ -76,13 +126,46 @@ public static class ChatBadgeHelper
 		return DateTimeOffset.MinValue;
 	}
 
+	private static void SetTeamUnreadFlag(string teamId, bool unread)
+	{
+		var set = GetUnreadTeamIds().ToHashSet(StringComparer.Ordinal);
+		if (unread)
+		{
+			if (!set.Add(teamId))
+			{
+				try { Changed?.Invoke(); } catch { /* ignore */ }
+				return;
+			}
+		}
+		else
+		{
+			if (!set.Remove(teamId))
+			{
+				try { Changed?.Invoke(); } catch { /* ignore */ }
+				return;
+			}
+		}
+
+		Preferences.Set(UnreadTeamsKey, JsonSerializer.Serialize(set.ToList()));
+		try { Changed?.Invoke(); }
+		catch { /* ignore */ }
+	}
+
+	private static void ClearTeamUnreadFlag(string teamId)
+		=> SetTeamUnreadFlag(teamId, false);
+
+	private static void RecomputeGlobalCountFromFlags()
+	{
+		var n = GetUnreadTeamIds().Count;
+		SetCount(Math.Max(n, 0));
+	}
+
 	private static void SetCount(int count)
 	{
 		count = Math.Max(0, count);
 		var prev = Preferences.Get(UnreadCountKey, 0);
 		if (prev == count)
 		{
-			// Still apply badge on cold start so icon matches prefs.
 			ApplyIconBadge(count);
 			return;
 		}
@@ -105,8 +188,6 @@ public static class ChatBadgeHelper
 #if IOS
 					UIKit.UIApplication.SharedApplication.ApplicationIconBadgeNumber = count;
 #elif ANDROID
-					// Android launcher badges are OEM-specific; clearing posted chat
-					// notifications when count hits 0 is the portable approach.
 					if (count <= 0)
 					{
 						var context = Android.App.Application.Context;
@@ -114,7 +195,6 @@ public static class ChatBadgeHelper
 						mgr.CancelAll();
 					}
 #endif
-					// Always notify shell tab title listeners
 				}
 				catch (Exception ex)
 				{
@@ -136,8 +216,11 @@ public static class ChatBadgeHelper
 /// <summary>Central navigation into the Chat tab (notifications, deep links).</summary>
 public static class ChatNavigation
 {
-	public static void OpenChat()
+	public static void OpenChat(string? teamId = null)
 	{
+		if (!string.IsNullOrWhiteSpace(teamId))
+			Preferences.Set(ChatBadgeHelper.ChatSelectedTeamIdKey, teamId.Trim());
+
 		_ = MainThread.InvokeOnMainThreadAsync(async () =>
 		{
 			try

@@ -70,6 +70,25 @@ namespace TurfTime2
             _ = App.EnsureMatchScheduleSyncAsync();
         }
 
+        private static bool HasOnlineTeamMembership()
+        {
+            try
+            {
+                var json = Preferences.Get("team_id_list", "[]");
+                var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? [];
+                if (list.Any(id => !string.IsNullOrWhiteSpace(id)
+                                   && !id.StartsWith("local_", StringComparison.Ordinal)))
+                    return true;
+            }
+            catch { /* ignore */ }
+
+            var mode = Preferences.Get(TEAM_MODE_KEY, "local");
+            var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+            return string.Equals(mode, "shared", StringComparison.OrdinalIgnoreCase)
+                   && !string.IsNullOrEmpty(teamId)
+                   && !teamId.StartsWith("local_", StringComparison.Ordinal);
+        }
+
         private void UpdateMenuItemAvailability()
         {
             var teamMode = Preferences.Get(TEAM_MODE_KEY, "local");
@@ -85,8 +104,11 @@ namespace TurfTime2
             System.Diagnostics.Debug.WriteLine($"[AppShell] Is Local: {isLocal}");
             System.Diagnostics.Debug.WriteLine($"[AppShell] Items.Count: {Items.Count}");
 
-            // Chat and Details (Location / Kit / Duties / Nominations) require a shared (cloud) team.
-            ChatTab.IsVisible = !isLocal;
+            // Details still require the Game-selected team to be online.
+            // Chat is available whenever the user has any online team membership
+            // (multi-team Chat strip), even if Game is currently on a local team.
+            var hasOnlineMembership = HasOnlineTeamMembership();
+            ChatTab.IsVisible = hasOnlineMembership;
             DetailsTab.IsVisible = !isLocal;
 
             GameTab.IsEnabled = hasTeam;

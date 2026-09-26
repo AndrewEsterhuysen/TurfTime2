@@ -179,7 +179,12 @@ exports.sendChatNotification = onDocumentCreated('teams/{teamId}/messages/{messa
                         badge: 1,
                         // iOS 15+: normal banner interruption (not passive/quiet)
                         'interruption-level': 'active'
-                    }
+                    },
+                    // Custom keys alongside aps so iOS UserInfo always includes teamId
+                    // (needed for Multi-Chat Team Chat Identifier unread flags).
+                    teamId: String(teamId),
+                    messageId: String(messageId),
+                    type: 'chat_message'
                 }
             }
         });

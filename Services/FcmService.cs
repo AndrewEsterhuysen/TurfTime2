@@ -183,11 +183,13 @@ public class FcmService
         }
         catch { /* best-effort */ }
 
-        System.Diagnostics.Debug.WriteLine($"[FCM] 📩 Notification received: {title} — {body}");
-        Helpers.ChatBadgeHelper.IncrementFromPush();
+        var pushTeamId = TryExtractTeamIdFromNotification(e);
+        System.Diagnostics.Debug.WriteLine(
+            $"[FCM] 📩 Notification received: {title} — {body} team={pushTeamId ?? "(none)"}");
+        Helpers.ChatBadgeHelper.IncrementFromPush(pushTeamId);
 #if ANDROID
         // Always post our own notification so LargeIcon (app art) is applied.
-        try { ShowLocalNotification(title, body); }
+        try { ShowLocalNotification(title, body, pushTeamId); }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[FCM] Local notify failed: {ex.Message}");
@@ -195,7 +197,7 @@ public class FcmService
 #else
         // iOS: system APNs already presents with the app icon; only post local if
         // we got a data-only payload while foregrounded (WillPresent handles banners).
-        try { ShowLocalNotification(title, body); }
+        try { ShowLocalNotification(title, body, pushTeamId); }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[FCM] Local notify failed: {ex.Message}");
@@ -205,17 +207,136 @@ public class FcmService
 
     private void OnNotificationTapped(object? sender, object e)
     {
-        System.Diagnostics.Debug.WriteLine("[FCM] 👆 Notification tapped → Chat");
-        Helpers.ChatNavigation.OpenChat();
+        var pushTeamId = TryExtractTeamIdFromNotification(e);
+        System.Diagnostics.Debug.WriteLine($"[FCM] 👆 Notification tapped → Chat team={pushTeamId ?? "(none)"}");
+        Helpers.ChatNavigation.OpenChat(pushTeamId);
     }
 
-    private void ShowLocalNotification(string title, string body)
+    private static string? TryExtractTeamIdFromNotification(object e)
+    {
+        try
+        {
+            dynamic dyn = e;
+            // Plugin.Firebase / platform bags vary: Data, Notification.Data, UserInfo (iOS).
+            object?[] bags =
+            [
+                TryDyn(() => dyn.Data),
+                TryDyn(() => dyn.Notification?.Data),
+                TryDyn(() => dyn.Notification?.UserInfo),
+                TryDyn(() => dyn.UserInfo)
+            ];
+
+            foreach (var bag in bags)
+            {
+                var tid = ReadStringFromBag(bag, "teamId")
+                          ?? ReadStringFromBag(bag, "team_id");
+                if (!string.IsNullOrWhiteSpace(tid))
+                    return tid.Trim();
+            }
+
+            // Fallback: Cloud Function titles are "💬 {teamName}" — match prefs names.
+            string? title = null;
+            try { title = dyn.Notification?.Title as string; } catch { /* ignore */ }
+            if (string.IsNullOrWhiteSpace(title))
+                title = ReadStringFromBag(bags[0], "title") ?? ReadStringFromBag(bags[1], "title");
+            var fromTitle = TryMatchTeamIdFromChatTitle(title);
+            if (!string.IsNullOrWhiteSpace(fromTitle))
+                return fromTitle;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[FCM] TryExtractTeamId: {ex.Message}");
+        }
+        return null;
+    }
+
+    private static object? TryDyn(Func<object?> getter)
+    {
+        try { return getter(); }
+        catch { return null; }
+    }
+
+    private static string? ReadStringFromBag(object? bag, string key)
+    {
+        if (bag is null) return null;
+        try
+        {
+            if (bag is System.Collections.IDictionary dict)
+            {
+                foreach (System.Collections.DictionaryEntry entry in dict)
+                {
+                    if (!string.Equals(entry.Key?.ToString(), key, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var s = CoerceToString(entry.Value);
+                    if (!string.IsNullOrWhiteSpace(s)) return s;
+                }
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            dynamic d = bag;
+            var v = d[key];
+            var s = CoerceToString(v);
+            if (!string.IsNullOrWhiteSpace(s)) return s;
+        }
+        catch { /* ignore */ }
+
+        return null;
+    }
+
+    private static string? CoerceToString(object? v)
+    {
+        if (v is null) return null;
+        if (v is string s) return s;
+        return v.ToString();
+    }
+
+    /// <summary>
+    /// Match push title "💬 {teamName}" to a local online team id via {id}_name prefs.
+    /// </summary>
+    private static string? TryMatchTeamIdFromChatTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return null;
+        var name = title.Trim();
+        if (name.StartsWith("💬", StringComparison.Ordinal))
+            name = name["💬".Length..].Trim();
+        if (string.IsNullOrWhiteSpace(name)) return null;
+
+        try
+        {
+            var json = Preferences.Get("team_id_list", "[]");
+            var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? [];
+            string? exact = null;
+            string? prefix = null;
+            foreach (var id in list)
+            {
+                if (string.IsNullOrWhiteSpace(id) || id.StartsWith("local_", StringComparison.Ordinal))
+                    continue;
+                var localName = Preferences.Get($"{id}_name", string.Empty).Trim();
+                if (string.IsNullOrEmpty(localName)) continue;
+                if (string.Equals(localName, name, StringComparison.OrdinalIgnoreCase))
+                    exact = id;
+                else if (localName.StartsWith(name, StringComparison.OrdinalIgnoreCase)
+                         || name.StartsWith(localName, StringComparison.OrdinalIgnoreCase))
+                    prefix ??= id;
+            }
+            return exact ?? prefix;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void ShowLocalNotification(string title, string body, string? teamId = null)
     {
 #if ANDROID
         // NotificationManager / channels must be touched on the main thread on some OEMs.
         if (!MainThread.IsMainThread)
         {
-            MainThread.BeginInvokeOnMainThread(() => ShowLocalNotification(title, body));
+            MainThread.BeginInvokeOnMainThread(() => ShowLocalNotification(title, body, teamId));
             return;
         }
 
@@ -227,6 +348,8 @@ public class FcmService
         if (launchIntent != null)
         {
             launchIntent.PutExtra("open_chat", true);
+            if (!string.IsNullOrWhiteSpace(teamId))
+                launchIntent.PutExtra("chat_team_id", teamId);
             launchIntent.SetFlags(ActivityFlags.SingleTop | ActivityFlags.ClearTop);
             var flags = PendingIntentFlags.UpdateCurrent;
             if (OperatingSystem.IsAndroidVersionAtLeast(23))
@@ -499,8 +622,16 @@ public class FcmService
                 options |= UNNotificationPresentationOptions.Alert;
             }
 
+            var title = notification.Request?.Content?.Title;
+            var teamId = ExtractTeamIdFromUserInfo(notification.Request?.Content?.UserInfo)
+                         ?? TryMatchTeamIdFromChatTitle(title);
             System.Diagnostics.Debug.WriteLine(
-                $"[FCM] WillPresent foreground banner: {notification.Request.Content.Title}");
+                $"[FCM] WillPresent foreground banner: {title} team={teamId ?? "(none)"}");
+
+            // Plugin.Firebase NotificationReceived often does not fire for APNs alerts on iOS
+            // when our UNUserNotificationCenter.Delegate handles WillPresent — set strip flags here.
+            Helpers.ChatBadgeHelper.IncrementFromPush(teamId);
+
             completionHandler(options);
         }
 
@@ -509,9 +640,40 @@ public class FcmService
             UNNotificationResponse response,
             Action completionHandler)
         {
-            System.Diagnostics.Debug.WriteLine("[FCM] iOS notification response → Chat");
-            Helpers.ChatNavigation.OpenChat();
+            var title = response.Notification?.Request?.Content?.Title;
+            var teamId = ExtractTeamIdFromUserInfo(response.Notification?.Request?.Content?.UserInfo)
+                         ?? TryMatchTeamIdFromChatTitle(title);
+            System.Diagnostics.Debug.WriteLine(
+                $"[FCM] iOS notification response → Chat team={teamId ?? "(none)"}");
+            Helpers.ChatNavigation.OpenChat(teamId);
             completionHandler();
+        }
+
+        private static string? ExtractTeamIdFromUserInfo(Foundation.NSDictionary? userInfo)
+        {
+            if (userInfo is null) return null;
+            try
+            {
+                foreach (var key in new[] { "teamId", "team_id" })
+                {
+                    if (userInfo[key] is Foundation.NSString ns && !string.IsNullOrWhiteSpace(ns.ToString()))
+                        return ns.ToString().Trim();
+                    // Some payloads nest custom data under "data"
+                    if (userInfo["data"] is Foundation.NSDictionary nested
+                        && nested[key] is Foundation.NSString nestedNs
+                        && !string.IsNullOrWhiteSpace(nestedNs.ToString()))
+                        return nestedNs.ToString().Trim();
+                }
+
+                // Dump keys once for diagnosis when teamId missing
+                var keys = string.Join(",", userInfo.Keys.Select(k => k?.ToString() ?? "?"));
+                System.Diagnostics.Debug.WriteLine($"[FCM] UserInfo keys: {keys}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FCM] ExtractTeamIdFromUserInfo: {ex.Message}");
+            }
+            return null;
         }
     }
 #endif
@@ -549,8 +711,8 @@ public class FcmService
     }
 
     /// <summary>
-    /// Persist the current (or provided) FCM token on the active shared team's member doc.
-    /// Call after create/join team, Chat open, and app resume.
+    /// Persist the FCM token on every online team in <c>team_id_list</c> (and current team if shared).
+    /// Enables chat pushes for all memberships without switching Game team.
     /// </summary>
     public async Task UpdateTokenInFirestoreAsync(string? token = null)
     {
@@ -573,17 +735,6 @@ public class FcmService
                 return;
             }
 
-            var teamId = Preferences.Get("team_id", "");
-            var teamMode = Preferences.Get("team_mode", "");
-            if (string.IsNullOrEmpty(teamId)
-                || teamId.StartsWith("local_", StringComparison.Ordinal)
-                || string.Equals(teamMode, "local", StringComparison.Ordinal))
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[FCM] Skip token save (team_id='{teamId}', mode='{teamMode}') — need shared team");
-                return;
-            }
-
             var chat = GetService<IChatService>();
             if (chat is null)
             {
@@ -591,11 +742,14 @@ public class FcmService
                 return;
             }
 
-            var ok = await chat.RegisterFcmTokenAsync(teamId, token);
-            System.Diagnostics.Debug.WriteLine(
-                ok
-                    ? $"[FCM] ✅ Token saved for team={teamId}"
-                    : $"[FCM] ❌ Token save failed for team={teamId}");
+            foreach (var teamId in GetOnlineTeamIdsForFcm())
+            {
+                var ok = await chat.RegisterFcmTokenAsync(teamId, token);
+                System.Diagnostics.Debug.WriteLine(
+                    ok
+                        ? $"[FCM] ✅ Token saved for team={teamId}"
+                        : $"[FCM] ❌ Token save failed for team={teamId}");
+            }
         }
         finally
         {
@@ -603,8 +757,37 @@ public class FcmService
         }
     }
 
+    private static IEnumerable<string> GetOnlineTeamIdsForFcm()
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            var json = Preferences.Get("team_id_list", "[]");
+            var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? [];
+            foreach (var id in list)
+            {
+                if (!string.IsNullOrWhiteSpace(id) && !id.StartsWith("local_", StringComparison.Ordinal))
+                    ids.Add(id);
+            }
+        }
+        catch { /* ignore */ }
+
+        var current = Preferences.Get("team_id", "");
+        var mode = Preferences.Get("team_mode", "");
+        if (!string.IsNullOrEmpty(current)
+            && !current.StartsWith("local_", StringComparison.Ordinal)
+            && string.Equals(mode, "shared", StringComparison.OrdinalIgnoreCase))
+            ids.Add(current);
+
+        return ids;
+    }
+
     /// <summary>Convenience: ensure init + re-save token (join team / resume).</summary>
     public async Task EnsureRegisteredForCurrentTeamAsync()
+        => await EnsureRegisteredForAllOnlineTeamsAsync();
+
+    /// <summary>Register FCM token on all online teams the user belongs to.</summary>
+    public async Task EnsureRegisteredForAllOnlineTeamsAsync()
     {
         if (!_isInitialized || string.IsNullOrEmpty(_currentToken))
             await InitializeAsync();

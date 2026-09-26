@@ -28,9 +28,9 @@
 		<!-- Versions -->
 		<!-- ApplicationDisplayVersion = marketing version (CFBundleShortVersionString / versionName).
 		     ApplicationVersion = integer build (CFBundleVersion / versionCode). Store rejects reuse. -->
-		<ApplicationDisplayVersion>3.3.1</ApplicationDisplayVersion>
-		<!-- Build 36: App Store / Play Store upload for 3.3.1 (Team Selection tidy, Online naming, Help accordion). -->
-		<ApplicationVersion>36</ApplicationVersion>
+		<ApplicationDisplayVersion>3.4.0</ApplicationDisplayVersion>
+		<!-- Build 37: App Store / Play Store upload for 3.4.0 (multi-team Chat strip + unread flags). -->
+		<ApplicationVersion>37</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
