@@ -37,17 +37,47 @@ public sealed class Player : INotifyPropertyChanged
     /// </summary>
     public static string DefaultName(int slotId) => $"#{slotId:D2} Player";
 
-    /// <summary>First up to 3 letters of <see cref="Name"/> for Field View tokens (uppercase).</summary>
-    public string ShortName
+    /// <summary>
+    /// Compact Field View token label (uppercase, ~3 chars).
+    /// Two+ word names → initials (<c>Andrew Esterhuysen</c> → <c>A.E</c>);
+    /// single word → first up to 3 characters; names starting with <c>#</c> (defaults) keep first 3.
+    /// </summary>
+    public string ShortName => FormatShortName(_name);
+
+    /// <summary>Formats a roster name for Field View tokens. See <see cref="ShortName"/>.</summary>
+    public static string FormatShortName(string? name)
     {
-        get
+        var n = (name ?? string.Empty).Trim();
+        if (n.Length == 0) return "?";
+
+        // Defaults like "#01 Player" stay "#01" so slots remain unique.
+        if (n.StartsWith('#'))
+            return FirstUpToThree(n);
+
+        var parts = n.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2)
         {
-            var n = (_name ?? string.Empty).Trim();
-            if (n.Length == 0) return "?";
-            return n.Length <= 3
-                ? n.ToUpperInvariant()
-                : n[..3].ToUpperInvariant();
+            var first = FirstLetter(parts[0]);
+            var last = FirstLetter(parts[^1]);
+            if (first is not null && last is not null)
+                return string.Concat(char.ToUpperInvariant(first.Value), '.', char.ToUpperInvariant(last.Value));
         }
+
+        return FirstUpToThree(n);
+    }
+
+    private static string FirstUpToThree(string n)
+        => n.Length <= 3 ? n.ToUpperInvariant() : n[..3].ToUpperInvariant();
+
+    private static char? FirstLetter(string part)
+    {
+        foreach (var c in part)
+        {
+            if (char.IsLetter(c))
+                return c;
+        }
+
+        return null;
     }
 
     public PlayerPosition Position

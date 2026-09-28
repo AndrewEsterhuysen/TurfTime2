@@ -82,6 +82,21 @@
                                 HeightRequest="44"
                                 FontSize="14"/>
 
+                        <!-- All online-team members: see who is Owner / Admin / Member. -->
+                        <Button x:Name="ViewTeamMembersButton"
+                                Text="View Team Members"
+                                IsVisible="False"
+                                Clicked="OnViewMembersClicked"
+                                BackgroundColor="#9C27B0"
+                                TextColor="White"
+                                HeightRequest="44"
+                                FontSize="14"/>
+                        <Label x:Name="ViewTeamMembersHint"
+                               Text="See who is Owner or Admin if you need help with team settings."
+                               IsVisible="False"
+                               FontSize="11"
+                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+
                         <!-- Admin-only tools (online teams). Visible when role is Admin / Owner. -->
                         <Frame x:Name="SharedAdminTools"
                                IsVisible="False"
@@ -94,7 +109,7 @@
                                        FontAttributes="Bold"
                                        FontSize="15"
                                        TextColor="#2E7D32"/>
-                                <Label Text="Invite codes, members, and match control — Admin only."
+                                <Label Text="Invite codes, promote/remove, and match control — Admin only."
                                        FontSize="11"
                                        TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
                                 <Frame BackgroundColor="{AppThemeBinding Light=#FFF3CD, Dark=#4A3C1E}"
@@ -118,12 +133,6 @@
                                 <Button Text="Regenerate Invite Code"
                                         Clicked="OnRegenerateCodeClicked"
                                         BackgroundColor="#E65100"
-                                        TextColor="White"
-                                        HeightRequest="44"
-                                        FontSize="14"/>
-                                <Button Text="View Team Members"
-                                        Clicked="OnViewMembersClicked"
-                                        BackgroundColor="#9C27B0"
                                         TextColor="White"
                                         HeightRequest="44"
                                         FontSize="14"/>

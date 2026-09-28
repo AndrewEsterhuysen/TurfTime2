@@ -161,6 +161,8 @@ public partial class TeamDetailsPage : ContentPage
 			TeamModeLabel.Text = "Mode: Not configured";
 			DisplayNameSection.IsVisible = false;
 			SharedAdminTools.IsVisible = false;
+			ViewTeamMembersButton.IsVisible = false;
+			ViewTeamMembersHint.IsVisible = false;
 			LeaveTeamButton.IsVisible = false;
 			DeleteLocalTeamButton.IsVisible = false;
 			ShareTeamButton.IsVisible = false;
@@ -174,6 +176,10 @@ public partial class TeamDetailsPage : ContentPage
 			DisplayNameSection.IsVisible = isShared;
 			if (isShared)
 				CurrentDisplayNameEntry.Text = savedDisplayName;
+
+			// All online members can see who is Owner / Admin (contact for admin matters).
+			ViewTeamMembersButton.IsVisible = isShared;
+			ViewTeamMembersHint.IsVisible = isShared;
 
 			var isAdmin = isShared && userRole == "admin";
 			SharedAdminTools.IsVisible = isAdmin;

@@ -49,6 +49,17 @@ One key works for both Development and Production builds (unlike certificates).
 5. Send a chat from the other device
 6. Expect a notification; Cloud Function log should show `Success=1, Failure=0`
 
+### iOS Simulator caveat (unread / Multi-Chat chips)
+
+**Do not use the iOS Simulator as the authority for chat push or unread chips.**
+
+- Unread Team Chat Identifiers and the Chat tab badge update from **FCM / APNs** (`IncrementFromPush` / `WillPresent`), not from a standing Firestore chat listener (keeps billed reads low).
+- Opening Chat still loads messages over Firestore, so the Simulator can show new text **without** ever having received a push.
+- Cloud Function may report `Success≥1` for the Simulator’s FCM token while the Simulator never presents a banner — APNs delivery to Simulator is intermittent (seen working during Multi-Chat debugging, then missing after Android/iOS cross-tests and Simulator restart).
+- **QA push + unread on a physical iPhone** (and Android). Simulator remains fine for UI and in-Chat sync.
+
+See `DevNotes/2026-09-27-ios-simulator-chat-push.md`.
+
 ## Related client paths
 
 | Step | Where |

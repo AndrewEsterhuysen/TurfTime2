@@ -208,9 +208,9 @@ public partial class HelpPage : ContentPage
                 <li><strong>Bench</strong> (right): new players start here. Drag or tap onto pitch, Goalie, or Absent. Stays visible during the match.</li>
                 <li><strong>Goalie</strong> (over the goal): assign the keeper. A <strong>+</strong> appears on valid drop targets while dragging.</li>
                 <li><strong>Absent</strong> (behind goalie): unavailable players. Move-only; stays visible after Start for late arrivals.</li>
-                <li><strong>Setup:</strong> tap a token to arm it, then tap a destination. Double-tap to rename.</li>
+                <li><strong>Setup:</strong> tap a token to arm it, then tap a destination. Double-tap to rename — prefer <em>first + surname</em> (e.g. Andrew Esterhuysen).</li>
                 <li><strong>Live:</strong> Field→Bench = sub out; Bench→Field seeds/queues next-up (depends on Rotation Basis); Bench→Absent = injury; Absent→Bench = late arrival. Live Field→Absent is blocked.</li>
-                <li>Tokens show short name + discreet <strong>MM:SS</strong> (Field / Goalie / Bench). Outlines mark next-up / pairs.</li>
+                <li>Tokens show a short label + discreet <strong>MM:SS</strong> (Field / Goalie / Bench). Full names become initials like <strong>A.E</strong>; single words use the first three letters; defaults stay <strong>#01</strong>. Outlines mark next-up / pairs.</li>
                 <li>Optional yellow tip: hide under <strong>Settings → Options → Information text</strong>.</li>
             </ul>
         </div>
@@ -269,7 +269,7 @@ public partial class HelpPage : ContentPage
                     <span class='badge badge-goalie'>Goalie</span>
                     <span class='badge badge-inactive'>Absent</span>
                 </li>
-                <li>Setup: tap name to rename. Live: same Field↔Bench / Bench↔Absent rules as Field View.</li>
+                <li>Setup: tap name to rename (prefer first + surname so Field tokens show A.E-style initials). Live: same Field↔Bench / Bench↔Absent rules as Field View.</li>
                 <li>Swipe to cycle positions; long-press drag on ☰ to reorder (Sequential).</li>
             </ul>
         </div>
@@ -322,7 +322,7 @@ public partial class HelpPage : ContentPage
                 <li><strong>Team Owner</strong> — <code>createdBy</code> on that team. Can transfer team ownership, hard-delete the team, remove other Admins. Restored with the <em>Team</em> Owner Recovery Code.</li>
                 <li><strong>Team Admin</strong> — run games, edit Location / Kit / Duties, promote Members, manage invite codes (cannot delete the whole team).</li>
                 <li><strong>Member</strong> — view-only on Game; Chat and follow roster / timers / scores.</li>
-                <li>See <strong>Team Admin Panel → View Team Members</strong> for Owner / Admin / Member on the current team.</li>
+                <li>See <strong>Team Admin Panel → View Team Members</strong> (all members) for Owner / Admin / Member on the current team.</li>
             </ul>
         </div>
     </details>
@@ -350,8 +350,8 @@ public partial class HelpPage : ContentPage
         </summary>
         <div class='topic-body'>
             <ul>
-                <li><strong>Invite Code</strong> — share so others can join this team.</li>
-                <li><strong>View Team Members</strong> — (Owner) / (Admin) / (Member).</li>
+                <li><strong>View Team Members</strong> — available to <em>all</em> online team members. Shows (Owner) / (Admin) / (Member) so everyone knows who to ask about admin matters.</li>
+                <li><strong>Invite Code</strong> — Admin only; share so others can join this team.</li>
                 <li><strong>Promote to Admin</strong> — elevate a Member to Team Admin. If you are Club Owner, you may also make them a <em>Club Admin</em> so they can create teams under the club.</li>
                 <li><strong>Remove Member</strong> — Owner can remove Admins; Admins can remove Members. Use Leave Team to remove yourself.</li>
                 <li><strong>Relinquish Match Control</strong> — free the live controller seat.</li>

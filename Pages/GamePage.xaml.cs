@@ -1083,13 +1083,14 @@ public partial class GamePage : ContentPage
 
         if (_vm.Phase == GamePhase.Setup)
         {
-            // Pre-game: rename the player.
+            // Pre-game: rename the player. Encourage first + surname for A.E-style Field tokens.
+            var isDefault = player.Name.TrimStart().StartsWith('#');
             var result = await DisplayPromptAsync(
                 title: "Rename Player",
-                message: string.Empty,
+                message: "Enter first and surname (e.g. Andrew Esterhuysen). Field tokens show initials like A.E.",
                 accept: "Save",
                 cancel: "Cancel",
-                placeholder: player.Name,
+                placeholder: isDefault ? "First Last" : player.Name,
                 initialValue: player.Name,
                 keyboard: Keyboard.Default);
 
@@ -2451,12 +2452,13 @@ public partial class GamePage : ContentPage
         if (_vm.Phase is not GamePhase.Setup and not GamePhase.Finished)
             return;
 
+        var isDefault = player.Name.TrimStart().StartsWith('#');
         var result = await DisplayPromptAsync(
             title: "Rename Player",
-            message: string.Empty,
+            message: "Enter first and surname (e.g. Andrew Esterhuysen). Field tokens show initials like A.E.",
             accept: "Save",
             cancel: "Cancel",
-            placeholder: player.Name,
+            placeholder: isDefault ? "First Last" : player.Name,
             initialValue: player.Name,
             keyboard: Keyboard.Default);
         if (result is null) return;
