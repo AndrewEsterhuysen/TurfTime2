@@ -347,7 +347,8 @@ public static class BuildInfo
 	</Target>
 
 	<!-- A1: Firebase/gRPC xcframeworks ship ~40MB of Headers/PrivateHeaders into the .app.
-	     Runtime does not need them — delete before codesign so IPA / install size shrink. -->
+	     Runtime does not need them — delete before codesign so IPA / install size shrink.
+	     External script avoids MSBuild evaluating $(...) inside an inline shell command. -->
 	<Target Name="StripNativeFrameworkHeaders"
 	        BeforeTargets="_CodesignAppBundle"
 	        Condition="'$(TargetFramework)' == 'net10.0-ios' Or '$(TargetFramework)' == 'net10.0-maccatalyst'">
@@ -355,20 +356,14 @@ public static class BuildInfo
 			<_StripAppBundle Condition="Exists('$(AppBundleDir)')">$(AppBundleDir)</_StripAppBundle>
 			<_StripAppBundle Condition="'$(_StripAppBundle)' == '' And Exists('$(AppBundlePath)')">$(AppBundlePath)</_StripAppBundle>
 			<_StripAppBundle Condition="'$(_StripAppBundle)' == '' And Exists('$(OutputPath)$(AssemblyName).app')">$(OutputPath)$(AssemblyName).app</_StripAppBundle>
-			<_StripFrameworksDir>$(_StripAppBundle)/Frameworks</_StripFrameworksDir>
+			<_StripFrameworksDir>$(_StripAppBundle)Frameworks</_StripFrameworksDir>
+			<_StripFrameworksDir Condition="!Exists('$(_StripFrameworksDir)')">$(_StripAppBundle)/Frameworks</_StripFrameworksDir>
+			<_StripHeadersScript>$(MSBuildProjectDirectory)/scripts/build/strip-ios-framework-headers.sh</_StripHeadersScript>
 		</PropertyGroup>
-		<ItemGroup Condition="Exists('$(_StripFrameworksDir)')">
-			<_FwHeaderDirs Include="$(_StripFrameworksDir)/*/Headers" />
-			<_FwHeaderDirs Include="$(_StripFrameworksDir)/*/PrivateHeaders" />
-			<_FwHeaderDirs Include="$(_StripFrameworksDir)/*/Versions/*/Headers" />
-			<_FwHeaderDirs Include="$(_StripFrameworksDir)/*/Versions/*/PrivateHeaders" />
-		</ItemGroup>
-		<RemoveDir Directories="@(_FwHeaderDirs)" Condition="'@(_FwHeaderDirs)' != ''" />
-		<Message Condition="Exists('$(_StripFrameworksDir)')"
-		         Text="[iOS size] Stripped Headers/PrivateHeaders under $(_StripFrameworksDir)"
-		         Importance="high" />
-		<Message Condition="!Exists('$(_StripFrameworksDir)')"
-		         Text="[iOS size] Skip header strip — Frameworks dir not found (AppBundleDir='$(_StripAppBundle)')"
+		<Exec Condition="Exists('$(_StripHeadersScript)')"
+		      Command="bash &quot;$(_StripHeadersScript)&quot; &quot;$(_StripFrameworksDir)&quot;" />
+		<Message Condition="!Exists('$(_StripHeadersScript)')"
+		         Text="[iOS size] Missing strip script: $(_StripHeadersScript)"
 		         Importance="high" />
 	</Target>
 

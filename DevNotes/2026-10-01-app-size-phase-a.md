@@ -33,23 +33,21 @@ Manual delete of `Headers` / `PrivateHeaders` under `Frameworks/`:
 
 ImageSharp / QuestPDF are **not** in the current NuGet graph (stale IPA leftovers). Clean Release rebuild should drop them + `dotnet_bot`.
 
-## After Release rebuild (blocked pending Xcode license)
+## After Release rebuild (2026-10-02, strip script fixed)
 
-`dotnet publish` Release failed: `actool exited with code 69` — **Xcode license not agreed**. Re-run after:
+First MSBuild `RemoveDir` wildcards did **not** expand on macOS (IPA still had headers). Fixed via `scripts/build/strip-ios-framework-headers.sh` called before `_CodesignAppBundle`.
 
-```bash
-sudo xcodebuild -license
-SKIP_VERSION_BUMP=1 ./scripts/build/MAC-build-release-ios.sh
-./scripts/build/measure-ipa-size.sh bin/Release/net10.0-ios/ios-arm64/publish/TurfTime2.ipa
-```
+| Metric | Before (b38) | After (3.4.1 b39 Phase A) |
+|--------|--------------|---------------------------|
+| IPA zip | ~46 MB | **29 MB** |
+| Unpacked `.app` | ~144 MB | **81 MB** |
+| `Frameworks/` | ~72 MB | **19 MB** (74028→21304 KB at strip) |
+| Header dirs | 36 | **0** |
+| ImageSharp / QuestPDF / `dotnet_bot` | present (stale) | **gone** |
 
-| Metric | Size |
-|--------|------|
-| IPA zip | _(pending)_ |
-| Unpacked `.app` | _(pending)_ |
-| `Frameworks/` | _(pending)_ |
-| Header dirs remaining | _(pending)_ |
-| ImageSharp / QuestPDF | _(pending)_ |
+App Store listing size should drop similarly (~170 MB → ~90–100 MB install estimate).
+
+Desktop copy: `~/Desktop/TurfTime2-3.4.1-b39-TestFlight.ipa`
 
 ## Deferred
 
