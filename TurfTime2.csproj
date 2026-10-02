@@ -82,6 +82,14 @@
 		<EnableSGenConc>true</EnableSGenConc>
 		<!-- Push: aps-environment=production -->
 		<CodesignEntitlements>Platforms/iOS/Entitlements.Release.plist</CodesignEntitlements>
+		<!-- A4: do not emit PDBs into the Release tree -->
+		<DebugType>none</DebugType>
+		<DebugSymbols>false</DebugSymbols>
+	</PropertyGroup>
+
+	<!-- A3: drop MAUI satellite locale assemblies (keep English only) -->
+	<PropertyGroup>
+		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 	</PropertyGroup>
 
 	<!-- Android Debug Configuration -->
@@ -101,6 +109,9 @@
     <AndroidLinkTool>r8</AndroidLinkTool>
 		<RunAOTCompilation>true</RunAOTCompilation>
 		<PublishTrimmed>true</PublishTrimmed>
+		<!-- A4: do not emit PDBs into the Release tree -->
+		<DebugType>none</DebugType>
+		<DebugSymbols>false</DebugSymbols>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -112,10 +123,13 @@
 
 		<!-- Images -->
 		<MauiImage Include="Resources\Images\*" />
-		<!-- Cap welcome/logo asset density packing -->
-		<MauiImage Update="Resources\Images\turftimer_splash_512_512.png" Resize="True" BaseSize="256,256" />
+		<!-- Welcome watermark only (8% opacity) — keep density packs tiny -->
+		<MauiImage Update="Resources\Images\turftimer_splash_512_512.png" Resize="True" BaseSize="128,128" />
 		<!-- Field View backdrop: portrait pitch + bench; preserve aspect for 2/3–1/3 split -->
 		<MauiImage Update="Resources\Images\field_view_bg.png" Resize="True" BaseSize="360,640" />
+		<!-- Template leftovers (if present) must not ship -->
+		<MauiImage Remove="Resources\Images\dotnet_bot.png" />
+		<MauiImage Remove="Resources\Images\dotnet_bot.svg" />
 
 		<!-- Custom Fonts -->
 		<MauiFont Include="Resources\Fonts\*" />
@@ -123,6 +137,9 @@
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 		<!-- wwwroot (legacy JS Firebase) is not packaged — cloud uses native Plugin.Firebase; Help/Reports use inline HTML. -->
+		<Content Remove="wwwroot\**" />
+		<None Remove="wwwroot\**" />
+		<EmbeddedResource Remove="wwwroot\**" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -326,6 +343,32 @@ public static class BuildInfo
 		      IgnoreExitCode="false" />
 		<Message Condition="'$(_AppInfoPlist)' != ''"
 		         Text="[iOS] Ensured UIRequiresFullScreen + all orientations in $(_AppInfoPlist)"
+		         Importance="high" />
+	</Target>
+
+	<!-- A1: Firebase/gRPC xcframeworks ship ~40MB of Headers/PrivateHeaders into the .app.
+	     Runtime does not need them — delete before codesign so IPA / install size shrink. -->
+	<Target Name="StripNativeFrameworkHeaders"
+	        BeforeTargets="_CodesignAppBundle"
+	        Condition="'$(TargetFramework)' == 'net10.0-ios' Or '$(TargetFramework)' == 'net10.0-maccatalyst'">
+		<PropertyGroup>
+			<_StripAppBundle Condition="Exists('$(AppBundleDir)')">$(AppBundleDir)</_StripAppBundle>
+			<_StripAppBundle Condition="'$(_StripAppBundle)' == '' And Exists('$(AppBundlePath)')">$(AppBundlePath)</_StripAppBundle>
+			<_StripAppBundle Condition="'$(_StripAppBundle)' == '' And Exists('$(OutputPath)$(AssemblyName).app')">$(OutputPath)$(AssemblyName).app</_StripAppBundle>
+			<_StripFrameworksDir>$(_StripAppBundle)/Frameworks</_StripFrameworksDir>
+		</PropertyGroup>
+		<ItemGroup Condition="Exists('$(_StripFrameworksDir)')">
+			<_FwHeaderDirs Include="$(_StripFrameworksDir)/*/Headers" />
+			<_FwHeaderDirs Include="$(_StripFrameworksDir)/*/PrivateHeaders" />
+			<_FwHeaderDirs Include="$(_StripFrameworksDir)/*/Versions/*/Headers" />
+			<_FwHeaderDirs Include="$(_StripFrameworksDir)/*/Versions/*/PrivateHeaders" />
+		</ItemGroup>
+		<RemoveDir Directories="@(_FwHeaderDirs)" Condition="'@(_FwHeaderDirs)' != ''" />
+		<Message Condition="Exists('$(_StripFrameworksDir)')"
+		         Text="[iOS size] Stripped Headers/PrivateHeaders under $(_StripFrameworksDir)"
+		         Importance="high" />
+		<Message Condition="!Exists('$(_StripFrameworksDir)')"
+		         Text="[iOS size] Skip header strip — Frameworks dir not found (AppBundleDir='$(_StripAppBundle)')"
 		         Importance="high" />
 	</Target>
 
