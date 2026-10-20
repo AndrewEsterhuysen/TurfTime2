@@ -12,6 +12,14 @@ public partial class SetupPage : ContentPage
 	private bool _isAdmin = true;
 	private IMatchScheduleService? _scheduleService;
 	private MatchSchedule? _currentSchedule;
+	// True once the initial load has populated the UI; blocks spurious saves of blank defaults
+	// (TimePicker PropertyChanged fires for IsEnabled/layout changes before data is loaded).
+	private bool _hasLoaded;
+	// True when an Admin has edited a field since the last successful load/save-on-leave.
+	private bool _isDirty;
+	// Leave-screen cloud save still in flight; the next visit waits for it so a stale cloud
+	// read can't overwrite the edits that were just made.
+	private static Task? s_pendingLeaveSave;
 
 	private string GetTeamId() => Preferences.Get("team_id", string.Empty);
 
@@ -43,9 +51,9 @@ public partial class SetupPage : ContentPage
 		base.OnAppearing();
 		DetailsPage.ApplyPageTeamTitle(this, "Location");
 		ApplyEditPermissions();
-		CheckForPickedLocation();
 
 		ResolveServices();
+		await AwaitPendingLeaveSaveAsync();
 		MatchScheduleSyncHost.ScheduleChanged += OnScheduleChangedFromSync;
 
 		// App-level host keeps shared teams in sync even when this page is closed.
@@ -55,14 +63,59 @@ public partial class SetupPage : ContentPage
 
 		await LoadMatchDataAsync();
 		ApplyEditPermissions();
+		// After load, so a cloud read can't overwrite coordinates just picked on the map.
+		CheckForPickedLocation();
 	}
 
 	protected override void OnDisappearing()
 	{
 		base.OnDisappearing();
 		MatchScheduleSyncHost.ScheduleChanged -= OnScheduleChangedFromSync;
-		if (_isAdmin)
+		if (!_isAdmin || !_hasLoaded)
+			return;
+
+		if (IsSharedTeam())
+		{
+			// Cloud team: auto-save on leaving the screen, but only when the Admin changed something.
+			if (_isDirty)
+				s_pendingLeaveSave = SaveOnLeaveAsync();
+		}
+		else
+		{
 			_ = SaveMatchDataAsync(forceCloud: true);
+		}
+	}
+
+	private async Task SaveOnLeaveAsync()
+	{
+		try
+		{
+			await SaveMatchDataAsync(forceCloud: true).ConfigureAwait(false);
+			_isDirty = false;
+			System.Diagnostics.Debug.WriteLine("[SetupPage] Cloud schedule saved on leave");
+		}
+		catch (Exception ex)
+		{
+			// Never let a failed save break navigation; local copy is already written.
+			System.Diagnostics.Debug.WriteLine($"[SetupPage] Save on leave failed: {ex.Message}");
+		}
+	}
+
+	private static async Task AwaitPendingLeaveSaveAsync()
+	{
+		var pending = s_pendingLeaveSave;
+		if (pending is null) return;
+		try
+		{
+			// Bounded wait so a slow network can't hang the page.
+			await Task.WhenAny(pending, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(true);
+		}
+		catch { /* best-effort */ }
+		finally
+		{
+			if (pending.IsCompleted && ReferenceEquals(s_pendingLeaveSave, pending))
+				s_pendingLeaveSave = null;
+		}
 	}
 
 	private void ResolveServices()
@@ -120,8 +173,13 @@ public partial class SetupPage : ContentPage
 
 	private void OnFieldChanged(object sender, EventArgs e)
 	{
-		if (_isLoadingData || !_isAdmin)
+		// TimePicker is wired via PropertyChanged; only a Time change is a user edit.
+		if (e is System.ComponentModel.PropertyChangedEventArgs pc
+		    && pc.PropertyName != TimePicker.TimeProperty.PropertyName)
 			return;
+		if (_isLoadingData || !_isAdmin || !_hasLoaded)
+			return;
+		_isDirty = true;
 		_ = SaveMatchDataAsync(forceCloud: false);
 	}
 
@@ -146,6 +204,7 @@ public partial class SetupPage : ContentPage
 			var schedule = await _scheduleService.LoadAsync(teamId, preferCloud).ConfigureAwait(true);
 			schedule ??= _scheduleService.LoadLocal(teamId);
 			ApplyScheduleToUi(schedule);
+			_isDirty = false;
 		}
 		catch (Exception ex)
 		{
@@ -154,6 +213,7 @@ public partial class SetupPage : ContentPage
 		finally
 		{
 			_isLoadingData = false;
+			_hasLoaded = true;
 		}
 	}
 
@@ -251,6 +311,8 @@ public partial class SetupPage : ContentPage
 	{
 		if (!_isAdmin)
 			return;
+		if (!forceCloud)
+			_isDirty = true;
 
 		try
 		{
