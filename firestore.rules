@@ -196,12 +196,13 @@ service cloud.firestore {
     }
 
     // Select Team discovery: collection-group query members where uid == me.
-    // Rule is evaluated per result doc and is provable from the query filter.
+    // Must reference ONLY fields the query filters on: Firestore can't prove a
+    // path-variable check (userId == auth.uid) from a where('uid') filter, so the
+    // whole query was rejected with PERMISSION_DENIED. uid is guarded on write
+    // (self writes must set uid == doc id; Cloud Function stamps it otherwise).
     // Applies to teams/*/members and clubs/*/members; the client keeps only teams/*.
     match /{path=**}/members/{userId} {
-      allow read: if signedIn()
-        && resource.data.uid == request.auth.uid
-        && userId == request.auth.uid;
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
     // Roster

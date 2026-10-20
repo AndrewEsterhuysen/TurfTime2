@@ -1,4 +1,4 @@
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { initializeApp } = require('firebase-admin/app');
@@ -656,3 +656,17 @@ exports.cleanupDormantTeams = onSchedule(
         return null;
     }
 );
+
+
+/**
+ * Keep teams/{teamId}/members/{uid}.uid equal to the doc id (the member's auth uid) so the
+ * Select Team collection-group query (members where uid == me) finds every membership,
+ * including docs written by older app builds or by Admins (promote) that never set uid.
+ */
+exports.stampMemberUid = onDocumentWritten('teams/{teamId}/members/{memberUid}', async (event) => {
+    const after = event.data && event.data.after;
+    if (!after || !after.exists) return;
+    const { memberUid } = event.params;
+    if ((after.get('uid') || '') === memberUid) return;
+    await after.ref.set({ uid: memberUid }, { merge: true });
+});
