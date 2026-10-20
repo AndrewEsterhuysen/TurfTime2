@@ -185,11 +185,21 @@ service cloud.firestore {
           signedIn()
           && request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['displayName', 'fcmTokens', 'tokenUpdatedAt', 'joinedAt', 'rejoinedAt'])
+              .hasOnly(['displayName', 'fcmTokens', 'tokenUpdatedAt', 'joinedAt', 'rejoinedAt', 'uid'])
+          && (!('uid' in request.resource.data) || request.resource.data.uid == userId)
         );
 
       allow delete: if isTeamAdmin(teamId)
         || (signedIn() && request.auth.uid == userId);
+    }
+
+    // Select Team discovery: collection-group query members where uid == me.
+    // Rule is evaluated per result doc and is provable from the query filter.
+    // Applies to teams/*/members and clubs/*/members; the client keeps only teams/*.
+    match /{path=**}/members/{userId} {
+      allow read: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && userId == request.auth.uid;
     }
 
     // Roster

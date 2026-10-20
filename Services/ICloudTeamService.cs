@@ -127,6 +127,15 @@ public interface ICloudTeamService
     Task<string?> GetMyRoleAsync(string teamId);
 
     /// <summary>
+    /// Every team this user is a member of, from Firestore (collection-group query on
+    /// <c>teams/*/members</c> where <c>uid</c> == me). Empty on error / before index+rules deploy.
+    /// </summary>
+    Task<IReadOnlyList<CloudMembership>> ListMyTeamMembershipsAsync();
+
+    /// <summary>Backfill <c>uid</c> on my existing member doc so it is discoverable by the query above.</summary>
+    Task StampMyMemberUidAsync(string teamId);
+
+    /// <summary>
     /// Invite code from <c>teams/{id}/metadata/info</c> (for Admins who joined as members and never stored it locally).
     /// Returns null if missing / unreachable.
     /// </summary>
@@ -143,6 +152,16 @@ public interface ICloudTeamService
 
     /// <summary>True when signed-in user is club Owner (<c>metadata.createdBy</c>).</summary>
     Task<bool> IsClubOwnerAsync(string clubId);
+}
+
+public sealed class CloudMembership
+{
+    public string TeamId { get; init; } = "";
+    public string TeamName { get; init; } = "";
+    public string Role { get; init; } = "member";
+    public string ClubId { get; init; } = "";
+    public string ClubName { get; init; } = "";
+    public bool IsOwner { get; init; }
 }
 
 public sealed class CloudTeamLookup
