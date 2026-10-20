@@ -10,6 +10,8 @@ rules_version = '2';
 //   teams/{teamId}/members/{uid}
 //   teams/{teamId}/roster/data
 //   teams/{teamId}/details/location  (match schedule / venue — admin write, member read)
+//   teams/{teamId}/details/kit       (Details → Kit — admin write, member read)
+//   teams/{teamId}/details/duties    (Details → Duties — admin write, member read)
 //   teams/{teamId}/messages/{messageId}
 //   teams/{teamId}/sessions/{sessionId}
 //   teams/{teamId}/public/invite     (join reverse-lookup under team tree)
@@ -211,9 +213,16 @@ service cloud.firestore {
     // Match schedule / Location (Details → Location)
     // Members read; admins write. Keep in sync with IMatchScheduleService.
     match /teams/{teamId}/details/location {
-      allow read: if isTeamMember(teamId) || signedIn();
+      allow read: if isTeamMember(teamId);
       allow create, update: if isTeamAdmin(teamId);
       allow delete: if isTeamAdmin(teamId);
+    }
+
+    // Details → Kit and Details → Duties (string fields + lastModifiedUtc/updatedByUid).
+    // Same access as Location: members read; admins write. Keep in sync with ITeamDetailsDocService.
+    match /teams/{teamId}/details/{docId} {
+      allow read: if docId in ['kit', 'duties'] && isTeamMember(teamId);
+      allow create, update, delete: if docId in ['kit', 'duties'] && isTeamAdmin(teamId);
     }
 
     // Chat messages
