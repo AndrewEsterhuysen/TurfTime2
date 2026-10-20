@@ -50,6 +50,13 @@ public partial class TeamDetailsPage : ContentPage
 				SharedCheckbox.IsChecked = true;
 		}
 
+		// Checkbox already ticked from a previous visit => CheckedChanged won't fire, so the
+		// list would stay stale (e.g. a team joined via deep link / QR since last visit).
+		if (SharedCheckbox.IsChecked)
+			_ = LoadSharedTeamsAsync();
+		if (LocalCheckbox.IsChecked)
+			_ = LoadLocalTeamsAsync();
+
 		if (teamMode == "shared" && !string.IsNullOrEmpty(teamId))
 			_ = RefreshRoleAndAdminToolsInBackgroundAsync(teamId);
 	}
@@ -617,8 +624,14 @@ public partial class TeamDetailsPage : ContentPage
 				var result = new List<SharedTeamItem>();
 				foreach (var teamId in teamIds)
 				{
+					// Don't drop memberships whose display name was never cached (older join paths
+					// only registered the id) — fall back so the team is still listed and selectable.
 					var teamName = Preferences.Get($"{teamId}_name", string.Empty);
-					if (!string.IsNullOrEmpty(teamName))
+					if (string.IsNullOrWhiteSpace(teamName))
+						teamName = Preferences.Get($"{teamId}_team_name", string.Empty);
+					if (string.IsNullOrWhiteSpace(teamName))
+						teamName = teamId;
+					if (!string.IsNullOrWhiteSpace(teamId))
 					{
 						var isActive = currentTeamMode == "shared" && currentTeamId == teamId;
 						var role = Preferences.Get($"{teamId}_role", "member");
@@ -1731,6 +1744,7 @@ private void RegisterTeamId(string teamId)
 					Preferences.Set(TEAM_NAME_KEY, foundTeam.TeamName);
 					Preferences.Set(USER_ROLE_KEY, "member");
 					Preferences.Set($"{foundTeam.TeamId}_role", "member");
+					Preferences.Set($"{foundTeam.TeamId}_name", foundTeam.TeamName);
 
 					// ALSO store per-team keys for GamePage polling
 					Preferences.Set($"team_mode_{foundTeam.TeamId}", "shared");
@@ -3035,7 +3049,61 @@ private void RegisterTeamId(string teamId)
 	}
 
 	private Task RefreshSharedTeamCloudMetadataAsync()
-		=> Task.WhenAll(RefreshSharedTeamOwnerFlagsAsync(), RefreshSharedTeamRolesFromCloudAsync());
+		=> Task.WhenAll(RefreshSharedTeamOwnerFlagsAsync(), RefreshSharedTeamRolesFromCloudAsync(),
+			SyncCloudMembershipsAsync());
+
+	private int _membershipSyncRunning;
+
+	/// <summary>
+	/// The Select Team list used to come only from this device's Preferences (team_id_list), so
+	/// teams joined on another device, before a reinstall, or added server-side never appeared.
+	/// Merge in every team Firestore says I'm a member of, and backfill <c>uid</c> on my member
+	/// docs so they are discoverable by the collection-group query.
+	/// </summary>
+	private async Task SyncCloudMembershipsAsync()
+	{
+		if (Interlocked.Exchange(ref _membershipSyncRunning, 1) == 1) return;
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null) return;
+
+			var known = GetSharedTeamIds();
+			foreach (var id in known)
+				_ = cloud.StampMyMemberUidAsync(id);
+
+			var memberships = await cloud.ListMyTeamMembershipsAsync().ConfigureAwait(false);
+			var added = false;
+			foreach (var m in memberships)
+			{
+				if (string.IsNullOrWhiteSpace(m.TeamId) || known.Contains(m.TeamId)) continue;
+				var display = ClubTeamNames.ComposeDisplayName(m.TeamName, m.ClubName);
+				if (string.IsNullOrWhiteSpace(display)) display = string.IsNullOrWhiteSpace(m.TeamName) ? m.TeamId : m.TeamName;
+				Preferences.Set($"{m.TeamId}_name", display);
+				Preferences.Set($"{m.TeamId}_team_name", m.TeamName ?? "");
+				Preferences.Set($"{m.TeamId}_club_id", m.ClubId ?? "");
+				Preferences.Set($"{m.TeamId}_club_name", m.ClubName ?? "");
+				Preferences.Set($"{m.TeamId}_isOwner", m.IsOwner);
+				Preferences.Set($"team_mode_{m.TeamId}", "shared");
+				// Per-team role cache only; never touch the *current* team's global keys here.
+				Preferences.Set($"{m.TeamId}_role", m.Role);
+				Preferences.Set($"user_role_{m.TeamId}", m.Role);
+				RegisterTeamId(m.TeamId);
+				added = true;
+			}
+
+			if (added)
+				await MainThread.InvokeOnMainThreadAsync(LoadSharedTeamsAsync);
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Sync cloud memberships: {ex.Message}");
+		}
+		finally
+		{
+			Interlocked.Exchange(ref _membershipSyncRunning, 0);
+		}
+	}
 
 	private async Task RefreshSharedTeamOwnerFlagsAsync()
 	{
