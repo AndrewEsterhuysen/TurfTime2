@@ -367,4 +367,18 @@ public static class BuildInfo
 		         Importance="high" />
 	</Target>
 
+	<!-- Crashlytics dSYM upload: the AdamE package target hardcodes $(MSBuildProjectDirectory)/GoogleService-Info.plist,
+	     but ours lives in Platforms/iOS. Disable the package target and run upload-symbols with the right plist. -->
+	<PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-ios'">
+		<_TtCrashlyticsUpload>$(FirebaseCrashlyticsUploadSymbolsEnabled)</_TtCrashlyticsUpload>
+		<FirebaseCrashlyticsUploadSymbolsEnabled>False</FirebaseCrashlyticsUploadSymbolsEnabled>
+	</PropertyGroup>
+	<Target Name="TtUploadCrashlyticsSymbols" AfterTargets="Build"
+	        Condition="'$(TargetFramework)' == 'net10.0-ios' AND '$(_TtCrashlyticsUpload)' == 'True' AND '$(OS)' == 'Unix' AND Exists('$(MSBuildProjectDirectory)/$(DeviceSpecificOutputPath)$(AssemblyName).app.dSYM')">
+		<PropertyGroup>
+			<_TtUploadScript>$(XamarinBuildDownloadDir)FCrshlytcs-10.24.0/upload-symbols.sh</_TtUploadScript>
+		</PropertyGroup>
+		<Exec Command="chmod +x '$(_TtUploadScript)'" ContinueOnError="true" />
+		<Exec Command="'$(_TtUploadScript)' -gsp '$(MSBuildProjectDirectory)/Platforms/iOS/GoogleService-Info.plist' -p ios '$(MSBuildProjectDirectory)/$(DeviceSpecificOutputPath)$(AssemblyName).app.dSYM'" ContinueOnError="true" />
+	</Target>
 </Project>
