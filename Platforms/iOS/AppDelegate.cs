@@ -43,7 +43,7 @@ namespace TurfTime2
             return base.ContinueUserActivity(application, userActivity, completionHandler);
         }
 
-        private static void TryHandOffDeepLink(string? absolute)
+        internal static void TryHandOffDeepLink(string? absolute)
         {
             if (string.IsNullOrWhiteSpace(absolute))
                 return;

@@ -2,20 +2,69 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.andrewestherhuysen.turftime</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>turf</string>
+			</array>
+		</dict>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Turf Time needs camera access to scan team QR codes for import.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Turf Time needs your location to automatically set match coordinates</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Turf Time needs your location to automatically set match coordinates</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>__MAUI_DEFAULT_SCENE_CONFIGURATION__</string>
+					<key>UISceneDelegateClassName</key>
+					<string>SceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UIDeviceFamily</key>
 	<array>
 		<integer>1</integer>
 		<integer>2</integer>
 	</array>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchScreenBackground</string>
+		<key>UIImageName</key>
+		<string>splash</string>
+	</dict>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>
 	</array>
-	<!-- App Store requires all 4 orientations for iPad multitasking unless full-screen opt-out
-	     survives the merge. We declare all 4 here; runtime stays portrait via AppDelegate.
-	     UIRequiresFullScreen is also injected post-manifest by the csproj (MAUI can drop it). -->
 	<key>UIRequiresFullScreen</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>
@@ -32,47 +81,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>XSAppIconAssets</key>
-	<string>Assets.xcassets/appicon.appiconset</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Turf Time needs your location to automatically set match coordinates</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Turf Time needs your location to automatically set match coordinates</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Turf Time needs camera access to scan team QR codes for import.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-	<key>UILaunchScreen</key>
-	<dict>
-		<key>UIImageName</key>
-		<string>splash</string>
-		<key>UIColorName</key>
-		<string>LaunchScreenBackground</string>
-	</dict>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>com.andrewestherhuysen.turftime</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>turf</string>
-			</array>
-		</dict>
-	</array>
-	<!-- Lets the app receive remote notifications (chat push) while backgrounded. -->
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
-	<!-- Export compliance: only exempt crypto (HTTPS/TLS + SHA-256 hashing). -->
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
+	<key>XSAppIconAssets</key>
+	<string>Assets.xcassets/appicon.appiconset</string>
 </dict>
 </plist>
-
