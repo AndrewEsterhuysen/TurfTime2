@@ -101,7 +101,8 @@
                     <VisualState x:Name="Normal" />
                     <VisualState x:Name="Disabled">
                         <VisualState.Setters>
-                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray600}}" />
+                            <!-- Read-only/disabled text must stay legible (WCAG AA): Gray600 on light, Gray200 on dark -->
+                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray600}, Dark={StaticResource Gray200}}" />
                         </VisualState.Setters>
                     </VisualState>
                 </VisualStateGroup>
@@ -123,7 +124,8 @@
                     <VisualState x:Name="Normal" />
                     <VisualState x:Name="Disabled">
                         <VisualState.Setters>
-                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray300}, Dark={StaticResource Gray600}}" />
+                            <!-- Read-only/disabled text must stay legible (WCAG AA): Gray600 on light, Gray200 on dark -->
+                            <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource Gray600}, Dark={StaticResource Gray200}}" />
                         </VisualState.Setters>
                     </VisualState>
                 </VisualStateGroup>
