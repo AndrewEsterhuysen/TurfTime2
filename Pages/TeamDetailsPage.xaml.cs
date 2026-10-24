@@ -873,13 +873,15 @@ public partial class TeamDetailsPage : ContentPage
 
 		var tcs = new TaskCompletionSource<bool>();
 
-		var dontShowCheckbox = new CheckBox { Color = Colors.DodgerBlue, VerticalOptions = LayoutOptions.Center };
+		var dontShowCheckbox = new CheckBox { VerticalOptions = LayoutOptions.Center };
+		dontShowCheckbox.SetPv(CheckBox.ColorProperty, PitchVolt.Primary);
 		var dontShowLabel    = new Label
 		{
 			Text              = "Don't show this again",
 			VerticalOptions   = LayoutOptions.Center,
-			TextColor         = Application.Current?.RequestedTheme == AppTheme.Dark ? Colors.White : Colors.Black,
-			FontSize          = 14
+			TextColor         = PitchVolt.Text.Current,
+			FontFamily        = "Inter",
+			FontSize          = 15
 		};
 		var dontShowRow = new HorizontalStackLayout
 		{
@@ -890,18 +892,24 @@ public partial class TeamDetailsPage : ContentPage
 		var continueBtn = new Button
 		{
 			Text            = "Continue",
-			BackgroundColor = Colors.DodgerBlue,
-			TextColor       = Colors.White,
-			CornerRadius    = 8,
-			HeightRequest   = 44
+			BackgroundColor = PitchVolt.Primary.Current,
+			TextColor       = PitchVolt.OnPrimary.Current,
+			FontFamily      = "InterSemiBold",
+			CornerRadius    = 24,
+			HeightRequest   = 48,
+			Margin          = new Thickness(4, 0)
 		};
 		var cancelBtn = new Button
 		{
 			Text            = "Cancel",
-			BackgroundColor = Colors.Gray,
-			TextColor       = Colors.White,
-			CornerRadius    = 8,
-			HeightRequest   = 44
+			BackgroundColor = Colors.Transparent,
+			TextColor       = PitchVolt.Text.Current,
+			BorderColor     = PitchVolt.Outline.Current,
+			BorderWidth     = 1,
+			FontFamily      = "InterSemiBold",
+			CornerRadius    = 24,
+			HeightRequest   = 48,
+			Margin          = new Thickness(4, 0)
 		};
 
 		continueBtn.Clicked += async (_, _) =>
@@ -920,12 +928,12 @@ public partial class TeamDetailsPage : ContentPage
 		var popup = new ContentPage
 		{
 			BackgroundColor = Colors.Transparent,
-			Content = new Frame
+			Content = new Border
 			{
-				BackgroundColor = Application.Current?.RequestedTheme == AppTheme.Dark
-					? Color.FromArgb("#2C2C2E")
-					: Colors.White,
-				CornerRadius    = 14,
+				BackgroundColor = PitchVolt.Surface.Current,
+				Stroke          = PitchVolt.Outline.Current,
+				StrokeThickness = 1,
+				StrokeShape     = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 16 },
 				Padding         = new Thickness(24),
 				VerticalOptions = LayoutOptions.Center,
 				Margin          = new Thickness(28, 0),
@@ -936,15 +944,18 @@ public partial class TeamDetailsPage : ContentPage
 					{
 						new Label
 						{
-							Text       = "⚠️ Switch Team?",
-							FontSize   = 18,
-							FontAttributes = FontAttributes.Bold,
+							Text       = "Switch Team?",
+							FontSize   = 22,
+							FontFamily = "InterBold",
+							TextColor  = PitchVolt.Text.Current,
 							HorizontalOptions = LayoutOptions.Center
 						},
 						new Label
 						{
 							Text       = "Switching teams will reset all current scores, timers, and counters.\n\nAny unsaved match data will be lost.",
-							FontSize   = 14,
+							FontSize   = 15,
+							FontFamily = "Inter",
+							TextColor  = PitchVolt.TextSecondary.Current,
 							HorizontalTextAlignment = TextAlignment.Center
 						},
 						dontShowRow,

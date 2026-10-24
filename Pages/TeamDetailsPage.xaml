@@ -5,36 +5,28 @@
              x:Class="TurfTime2.TeamDetailsPage"
              Title="Team">
     <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
+    <ContentPage.Resources>
         <local:BoolToCheckConverter x:Key="BoolToCheckConverter"/>
     </ContentPage.Resources>
     <ScrollView>
         <VerticalStackLayout Padding="16" Spacing="12">
 
             <!-- ========== 1. Team Admin Panel (current team tools) ========== -->
-            <Frame BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
-                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
-                   Padding="14"
-                   CornerRadius="8">
+            <Border Style="{StaticResource PvCard}" Padding="16">
                 <VerticalStackLayout Spacing="8">
                     <Grid ColumnDefinitions="*, Auto">
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnTeamAdminHeaderTapped"/>
                         </Grid.GestureRecognizers>
-                        <Label Text="Team Admin Panel"
-                               FontAttributes="Bold"
-                               FontSize="16"
-                               VerticalOptions="Center"/>
-                        <Label x:Name="TeamAdminToggleIcon"
-                               Grid.Column="1"
-                               Text="▼"
-                               FontSize="16"
-                               VerticalOptions="Center"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                        <Label Style="{StaticResource PvCardTitle}" Text="Team Admin Panel" VerticalOptions="Center"/>
+                        <Label Style="{StaticResource PvBody}" x:Name="TeamAdminToggleIcon" Grid.Column="1" Text="▼" VerticalOptions="Center"/>
                     </Grid>
-                    <Label x:Name="TeamAdminHint"
-                           Text="Tap to expand — current team tools"
-                           FontSize="11"
-                           TextColor="{AppThemeBinding Light=#999, Dark=#888}">
+                    <Label Style="{StaticResource PvCaption}" x:Name="TeamAdminHint" Text="Tap to expand — current team tools">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnTeamAdminHeaderTapped"/>
                         </Label.GestureRecognizers>
@@ -42,182 +34,67 @@
 
                     <VerticalStackLayout x:Name="TeamAdminContent"
                                          IsVisible="False"
-                                         Spacing="10">
-                        <Label x:Name="CurrentTeamLabel"
-                               Text="No team selected"
-                               FontSize="15"
-                               FontAttributes="Bold"/>
-                        <Label x:Name="TeamModeLabel"
-                               Text="Mode: Not configured"
-                               FontSize="12"
-                               TextColor="{AppThemeBinding Light=#999, Dark=#888}"/>
+                                         Spacing="8">
+                        <Label Style="{StaticResource PvBodyStrong}" x:Name="CurrentTeamLabel" Text="No team selected"/>
+                        <Label Style="{StaticResource PvCaption}" x:Name="TeamModeLabel" Text="Mode: Not configured"/>
 
                         <StackLayout x:Name="DisplayNameSection"
                                      IsVisible="False"
-                                     Spacing="6">
-                            <Label Text="Your chat display name"
-                                   FontAttributes="Bold"
-                                   FontSize="13"/>
-                            <Label Text="Teammates see this name in Chat and push notifications."
-                                   FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                            <Entry x:Name="CurrentDisplayNameEntry"
-                                   Placeholder="e.g. Alex or Coach Sam"
-                                   MaxLength="40"/>
-                            <Button x:Name="SaveDisplayNameButton"
-                                    Text="Save Display Name"
-                                    Clicked="OnSaveDisplayNameClicked"
-                                    BackgroundColor="#9C27B0"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
+                                     Spacing="8">
+                            <Label Style="{StaticResource PvBodyStrong}" Text="Your chat display name"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Teammates see this name in Chat and push notifications."/>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="CurrentDisplayNameEntry" Placeholder="e.g. Alex or Coach Sam" MaxLength="40"/>
+                            <Button Style="{StaticResource PvButtonSecondary}" x:Name="SaveDisplayNameButton" Text="Save Display Name" Clicked="OnSaveDisplayNameClicked"/>
                         </StackLayout>
 
                         <!-- Popular action: directly under display-name save (still visible for local teams). -->
-                        <Button x:Name="ShareTeamButton"
-                                Text="Share Team (QR)"
-                                Clicked="OnShareTeamClicked"
-                                BackgroundColor="#2196F3"
-                                TextColor="White"
-                                HeightRequest="44"
-                                FontSize="14"/>
+                        <Button Style="{StaticResource PvButtonSecondary}" x:Name="ShareTeamButton" Text="Share Team (QR)" Clicked="OnShareTeamClicked"/>
 
                         <!-- All online-team members: see who is Owner / Admin / Member. -->
-                        <Button x:Name="ViewTeamMembersButton"
-                                Text="View Team Members"
-                                IsVisible="False"
-                                Clicked="OnViewMembersClicked"
-                                BackgroundColor="#9C27B0"
-                                TextColor="White"
-                                HeightRequest="44"
-                                FontSize="14"/>
-                        <Label x:Name="ViewTeamMembersHint"
-                               Text="See who is Owner or Admin if you need help with team settings."
-                               IsVisible="False"
-                               FontSize="11"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                        <Button Style="{StaticResource PvButtonSecondary}" x:Name="ViewTeamMembersButton" Text="View Team Members" IsVisible="False" Clicked="OnViewMembersClicked"/>
+                        <Label Style="{StaticResource PvCaption}" x:Name="ViewTeamMembersHint" Text="See who is Owner or Admin if you need help with team settings." IsVisible="False"/>
 
                         <!-- Admin-only tools (online teams). Visible when role is Admin / Owner. -->
-                        <Frame x:Name="SharedAdminTools"
-                               IsVisible="False"
-                               BorderColor="{AppThemeBinding Light=#A5D6A7, Dark=#2E7D32}"
-                               BackgroundColor="{AppThemeBinding Light=#E8F5E9, Dark=#1B3D1E}"
-                               Padding="12"
-                               CornerRadius="8">
+                        <Border Style="{StaticResource PvCardTinted}" x:Name="SharedAdminTools" IsVisible="False" Padding="12">
                             <VerticalStackLayout Spacing="8">
-                                <Label Text="Admin"
-                                       FontAttributes="Bold"
-                                       FontSize="15"
-                                       TextColor="#2E7D32"/>
-                                <Label Text="Invite codes, promote/remove, and match control — Admin only."
-                                       FontSize="11"
-                                       TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                                <Frame BackgroundColor="{AppThemeBinding Light=#FFF3CD, Dark=#4A3C1E}"
-                                       Padding="10"
-                                       CornerRadius="5"
-                                       HasShadow="False">
+                                <Label Style="{StaticResource PvBodyStrong}" Text="Admin"/>
+                                <Label Style="{StaticResource PvCaption}" Text="Invite codes, promote/remove, and match control — Admin only."/>
+                                <Border Style="{StaticResource PvCardWarning}" Padding="12">
                                     <VerticalStackLayout Spacing="4">
-                                        <Label Text="Invite Code" FontAttributes="Bold" FontSize="12"/>
-                                        <Label x:Name="InviteCodeDisplay"
-                                               Text="Loading..."
-                                               FontSize="18"
-                                               FontAttributes="Bold"
-                                               HorizontalOptions="Center"
-                                               LineBreakMode="MiddleTruncation"/>
-                                        <Label Text="Share this code with team members"
-                                               FontSize="10"
-                                               HorizontalOptions="Center"
-                                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                                        <Label Style="{StaticResource PvBodyStrong}" Text="Invite Code"/>
+                                        <Label Style="{StaticResource PvCardTitle}" x:Name="InviteCodeDisplay" Text="Loading..." HorizontalOptions="Center" LineBreakMode="MiddleTruncation"/>
+                                        <Label Style="{StaticResource PvCaption}" Text="Share this code with team members" HorizontalOptions="Center"/>
                                     </VerticalStackLayout>
-                                </Frame>
-                                <Button Text="Regenerate Invite Code"
-                                        Clicked="OnRegenerateCodeClicked"
-                                        BackgroundColor="#E65100"
-                                        TextColor="White"
-                                        HeightRequest="44"
-                                        FontSize="14"/>
-                                <Button Text="Promote to Admin"
-                                        Clicked="OnPromoteToAdminClicked"
-                                        BackgroundColor="#2E7D32"
-                                        TextColor="White"
-                                        HeightRequest="44"
-                                        FontSize="14"/>
-                                <Button Text="Remove Member"
-                                        Clicked="OnRemoveMemberClicked"
-                                        BackgroundColor="#C62828"
-                                        TextColor="White"
-                                        HeightRequest="44"
-                                        FontSize="14"/>
-                                <Label Text="Removes someone from the cloud team. They must rejoin with the invite code. You cannot remove the Owner; only the Owner can remove other Admins."
-                                       FontSize="11"
-                                       TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                                <Button x:Name="RelinquishControlButton"
-                                        Text="Relinquish Match Control"
-                                        Clicked="OnRelinquishControlClicked"
-                                        BackgroundColor="#546E7A"
-                                        TextColor="White"
-                                        HeightRequest="44"
-                                        FontSize="14"/>
-                                <Label Text="Hand over live-match control so another Admin can run the game. If you go offline, the server auto-releases control after ~90s."
-                                       FontSize="11"
-                                       TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                                <Button x:Name="TransferOwnershipButton"
-                                        Text="Transfer Ownership"
-                                        IsVisible="False"
-                                        Clicked="OnTransferOwnershipClicked"
-                                        BackgroundColor="#1565C0"
-                                        TextColor="White"
-                                        HeightRequest="44"
-                                        FontSize="14"/>
+                                </Border>
+                                <Button Style="{StaticResource PvButtonWarning}" Text="Regenerate Invite Code" Clicked="OnRegenerateCodeClicked"/>
+                                <Button Style="{StaticResource PvButtonPrimary}" Text="Promote to Admin" Clicked="OnPromoteToAdminClicked"/>
+                                <Button Style="{StaticResource PvButtonDanger}" Text="Remove Member" Clicked="OnRemoveMemberClicked"/>
+                                <Label Style="{StaticResource PvCaption}" Text="Removes someone from the cloud team. They must rejoin with the invite code. You cannot remove the Owner; only the Owner can remove other Admins."/>
+                                <Button Style="{StaticResource PvButtonOutline}" x:Name="RelinquishControlButton" Text="Relinquish Match Control" Clicked="OnRelinquishControlClicked"/>
+                                <Label Style="{StaticResource PvCaption}" Text="Hand over live-match control so another Admin can run the game. If you go offline, the server auto-releases control after ~90s."/>
+                                <Button Style="{StaticResource PvButtonSecondary}" x:Name="TransferOwnershipButton" Text="Transfer Ownership" IsVisible="False" Clicked="OnTransferOwnershipClicked"/>
                             </VerticalStackLayout>
-                        </Frame>
+                        </Border>
 
                         <VerticalStackLayout Spacing="8" Margin="0,4,0,0">
-                            <Button x:Name="LeaveTeamButton"
-                                    Text="Leave Team"
-                                    IsVisible="False"
-                                    Clicked="OnLeaveTeamButtonClicked"
-                                    BackgroundColor="#F44336"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
-                            <Button x:Name="DeleteLocalTeamButton"
-                                    Text="Delete Team"
-                                    IsVisible="False"
-                                    Clicked="OnDeleteLocalTeamButtonClicked"
-                                    BackgroundColor="#F44336"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
+                            <Button Style="{StaticResource PvButtonDangerOutline}" x:Name="LeaveTeamButton" Text="Leave Team" IsVisible="False" Clicked="OnLeaveTeamButtonClicked"/>
+                            <Button Style="{StaticResource PvButtonDangerOutline}" x:Name="DeleteLocalTeamButton" Text="Delete Team" IsVisible="False" Clicked="OnDeleteLocalTeamButtonClicked"/>
                         </VerticalStackLayout>
                     </VerticalStackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
             <!-- ========== 2. Select Team (switch between existing teams) ========== -->
-            <Frame BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
-                   Padding="14"
-                   CornerRadius="8">
+            <Border Style="{StaticResource PvCard}" Padding="16">
                 <VerticalStackLayout Spacing="8">
                     <Grid ColumnDefinitions="*, Auto">
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnChangeTeamHeaderTapped"/>
                         </Grid.GestureRecognizers>
-                        <Label Text="Select Team"
-                               FontAttributes="Bold"
-                               FontSize="16"
-                               VerticalOptions="Center"/>
-                        <Label x:Name="ChangeTeamToggleIcon"
-                               Grid.Column="1"
-                               Text="▼"
-                               FontSize="16"
-                               VerticalOptions="Center"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                        <Label Style="{StaticResource PvCardTitle}" Text="Select Team" VerticalOptions="Center"/>
+                        <Label Style="{StaticResource PvBody}" x:Name="ChangeTeamToggleIcon" Grid.Column="1" Text="▼" VerticalOptions="Center"/>
                     </Grid>
-                    <Label x:Name="ChangeTeamHint"
-                           Text="Tap to expand — switch between teams you already have"
-                           FontSize="11"
-                           TextColor="{AppThemeBinding Light=#999, Dark=#888}">
+                    <Label Style="{StaticResource PvCaption}" x:Name="ChangeTeamHint" Text="Tap to expand — switch between teams you already have">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnChangeTeamHeaderTapped"/>
                         </Label.GestureRecognizers>
@@ -226,40 +103,52 @@
                     <VerticalStackLayout x:Name="ChangeTeamContent"
                                          IsVisible="False"
                                          Spacing="12">
-                        <HorizontalStackLayout Spacing="10">
-                            <CheckBox x:Name="SharedCheckbox"
-                                      CheckedChanged="OnSharedCheckboxChanged"/>
-                            <Label Text="Online (cloud with teammates)"
-                                   FontSize="14"
-                                   VerticalOptions="Center">
-                                <Label.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnSelectOnlineLabelTapped"/>
-                                </Label.GestureRecognizers>
-                            </Label>
-                        </HorizontalStackLayout>
-                        <HorizontalStackLayout Spacing="10">
-                            <CheckBox x:Name="LocalCheckbox"
-                                      CheckedChanged="OnLocalCheckboxChanged"/>
-                            <Label Text="Local (this device only)"
-                                   FontSize="14"
-                                   VerticalOptions="Center">
-                                <Label.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnSelectLocalLabelTapped"/>
-                                </Label.GestureRecognizers>
-                            </Label>
-                        </HorizontalStackLayout>
+                        <!-- Segmented control (Online / Local). The original CheckBoxes stay (hidden) so the code-behind and its CheckedChanged logic are unchanged; segments call the same tap handlers the labels used. -->
+                        <CheckBox x:Name="SharedCheckbox" CheckedChanged="OnSharedCheckboxChanged" IsVisible="False"/>
+                        <CheckBox x:Name="LocalCheckbox" CheckedChanged="OnLocalCheckboxChanged" IsVisible="False"/>
+                        <Border Style="{StaticResource PvSegmentTrack}">
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
+                                <Border Grid.Column="0" Style="{StaticResource PvSegment}" BackgroundColor="Transparent">
+                                    <Border.Triggers>
+                                        <DataTrigger TargetType="Border" Binding="{Binding Source={x:Reference SharedCheckbox}, Path=IsChecked}" Value="True">
+                                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}"/>
+                                        </DataTrigger>
+                                    </Border.Triggers>
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnSelectOnlineLabelTapped"/>
+                                    </Border.GestureRecognizers>
+                                    <Label Style="{StaticResource PvSegmentLabel}" Text="Online (cloud)" TextColor="{AppThemeBinding Light={StaticResource PvTextLight}, Dark={StaticResource PvTextDark}}">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding Source={x:Reference SharedCheckbox}, Path=IsChecked}" Value="True">
+                                                <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource PvOnPrimaryLight}, Dark={StaticResource PvOnPrimaryDark}}"/>
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                </Border>
+                                <Border Grid.Column="1" Style="{StaticResource PvSegment}" BackgroundColor="Transparent">
+                                    <Border.Triggers>
+                                        <DataTrigger TargetType="Border" Binding="{Binding Source={x:Reference LocalCheckbox}, Path=IsChecked}" Value="True">
+                                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}"/>
+                                        </DataTrigger>
+                                    </Border.Triggers>
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnSelectLocalLabelTapped"/>
+                                    </Border.GestureRecognizers>
+                                    <Label Style="{StaticResource PvSegmentLabel}" Text="Local (this device)" TextColor="{AppThemeBinding Light={StaticResource PvTextLight}, Dark={StaticResource PvTextDark}}">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding Source={x:Reference LocalCheckbox}, Path=IsChecked}" Value="True">
+                                                <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource PvOnPrimaryLight}, Dark={StaticResource PvOnPrimaryDark}}"/>
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                </Border>
+                            </Grid>
+                        </Border>
 
-                        <Label x:Name="ChangeTeamModeHint"
-                               Text="Select Online or Local to see your teams."
-                               FontSize="12"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                        <Label Style="{StaticResource PvCaption}" x:Name="ChangeTeamModeHint" Text="Select Online or Local to see your teams."/>
 
                         <StackLayout x:Name="SharedTeamSection" IsVisible="False" Spacing="8">
-                            <Label x:Name="SharedTeamSwitcherLabel"
-                                   Text="Your online teams"
-                                   FontAttributes="Bold"
-                                   FontSize="14"
-                                   IsVisible="False"/>
+                            <Label Style="{StaticResource PvBodyStrong}" x:Name="SharedTeamSwitcherLabel" Text="Your online teams" IsVisible="False"/>
                             <!-- BindableLayout, not CollectionView: a CollectionView that starts IsVisible=False inside a
                                  StackLayout in a ScrollView measured to zero height on iOS (label showed
                                  "Your Teams (2)" with no rows). Lists are small, so no virtualisation needed. -->
@@ -270,7 +159,7 @@
                                             <SwipeView.LeftItems>
                                                 <SwipeItems Mode="Execute">
                                                     <SwipeItem Text="Leave"
-                                                               BackgroundColor="#FF9800"
+                                                               BackgroundColor="{StaticResource PvWarningLight}"
                                                                CommandParameter="{Binding .}"
                                                                Invoked="OnLeaveSharedTeamSwipe"/>
                                                 </SwipeItems>
@@ -278,54 +167,36 @@
                                             <SwipeView.RightItems>
                                                 <SwipeItems Mode="Execute">
                                                     <SwipeItem Text="Delete"
-                                                               BackgroundColor="#F44336"
+                                                               BackgroundColor="{StaticResource PvDangerLight}"
                                                                CommandParameter="{Binding .}"
                                                                Invoked="OnDeleteSharedTeamSwipe"/>
                                                 </SwipeItems>
                                             </SwipeView.RightItems>
-                                            <Frame Padding="10"
-                                                   Margin="0,3"
-                                                   BackgroundColor="{AppThemeBinding Light=#F5F5F5, Dark=#3C3C3C}"
-                                                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#505050}"
-                                                   CornerRadius="5"
-                                                   HasShadow="False"
-                                                   InputTransparent="False">
-                                                <Frame.GestureRecognizers>
+                                            <Border Style="{StaticResource PvCard}" Margin="0,3" InputTransparent="False" Padding="12">
+                                                <Border.GestureRecognizers>
                                                     <TapGestureRecognizer Tapped="OnSharedTeamItemTapped"/>
-                                                </Frame.GestureRecognizers>
-                                                <HorizontalStackLayout Spacing="10">
-                                                    <Label Text="{Binding IsActive, Converter={StaticResource BoolToCheckConverter}}"
-                                                           FontSize="20"
-                                                           VerticalOptions="Center"/>
+                                                </Border.GestureRecognizers>
+                                                <HorizontalStackLayout Spacing="8">
+                                                    <Label Style="{StaticResource PvHeadline}" Text="{Binding IsActive, Converter={StaticResource BoolToCheckConverter}}" VerticalOptions="Center"/>
                                                     <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                                                        <Label Text="{Binding TeamName}"
-                                                               FontSize="16"
-                                                               FontAttributes="Bold"/>
-                                                        <Label Text="{Binding TeamId}"
-                                                               FontSize="10"
-                                                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                                                        <Label Text="{Binding RoleLabel}"
-                                                               FontSize="10"
-                                                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                                                        <Label Style="{StaticResource PvCardTitle}" Text="{Binding TeamName}"/>
+                                                        <Label Style="{StaticResource PvCaption}" Text="{Binding TeamId}"/>
+                                                        <Label Style="{StaticResource PvCaption}" Text="{Binding RoleLabel}"/>
                                                     </VerticalStackLayout>
                                                 </HorizontalStackLayout>
-                                            </Frame>
+                                            </Border>
                                         </SwipeView>
                                     </DataTemplate>
                                 </BindableLayout.ItemTemplate>
                             </VerticalStackLayout>
                             <BoxView x:Name="SharedTeamSeparator"
                                      HeightRequest="1"
-                                     Color="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                                     Color="{AppThemeBinding Light={StaticResource PvOutlineLight}, Dark={StaticResource PvOutlineDark}}"
                                      IsVisible="False"/>
                         </StackLayout>
 
                         <StackLayout x:Name="LocalTeamSection" IsVisible="False" Spacing="8">
-                            <Label x:Name="LocalTeamSwitcherLabel"
-                                   Text="Your local teams"
-                                   FontAttributes="Bold"
-                                   FontSize="14"
-                                   IsVisible="False"/>
+                            <Label Style="{StaticResource PvBodyStrong}" x:Name="LocalTeamSwitcherLabel" Text="Your local teams" IsVisible="False"/>
                             <!-- BindableLayout, not CollectionView: a CollectionView that starts IsVisible=False inside a
                                  StackLayout in a ScrollView measured to zero height on iOS (label showed
                                  "Your Teams (2)" with no rows). Lists are small, so no virtualisation needed. -->
@@ -336,7 +207,7 @@
                                             <SwipeView.LeftItems>
                                                 <SwipeItems Mode="Execute">
                                                     <SwipeItem Text="Rename"
-                                                               BackgroundColor="#2196F3"
+                                                               BackgroundColor="{StaticResource PvPrimaryLight}"
                                                                CommandParameter="{Binding .}"
                                                                Invoked="OnRenameTeamSwipe"/>
                                                 </SwipeItems>
@@ -344,73 +215,47 @@
                                             <SwipeView.RightItems>
                                                 <SwipeItems Mode="Execute">
                                                     <SwipeItem Text="Delete"
-                                                               BackgroundColor="Red"
+                                                               BackgroundColor="{StaticResource PvDangerLight}"
                                                                CommandParameter="{Binding .}"
                                                                Invoked="OnDeleteTeamSwipe"/>
                                                 </SwipeItems>
                                             </SwipeView.RightItems>
-                                            <Frame Padding="10"
-                                                   Margin="0,3"
-                                                   BackgroundColor="{AppThemeBinding Light=#F5F5F5, Dark=#3C3C3C}"
-                                                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#505050}"
-                                                   CornerRadius="5"
-                                                   HasShadow="False"
-                                                   InputTransparent="False">
-                                                <Frame.GestureRecognizers>
+                                            <Border Style="{StaticResource PvCard}" Margin="0,3" InputTransparent="False" Padding="12">
+                                                <Border.GestureRecognizers>
                                                     <TapGestureRecognizer Tapped="OnTeamItemTapped"/>
-                                                </Frame.GestureRecognizers>
-                                                <HorizontalStackLayout Spacing="10">
-                                                    <Label Text="{Binding IsActive, Converter={StaticResource BoolToCheckConverter}}"
-                                                           FontSize="20"
-                                                           VerticalOptions="Center"/>
+                                                </Border.GestureRecognizers>
+                                                <HorizontalStackLayout Spacing="8">
+                                                    <Label Style="{StaticResource PvHeadline}" Text="{Binding IsActive, Converter={StaticResource BoolToCheckConverter}}" VerticalOptions="Center"/>
                                                     <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                                                        <Label Text="{Binding TeamName}"
-                                                               FontSize="16"
-                                                               FontAttributes="Bold"/>
-                                                        <Label Text="{Binding TeamId}"
-                                                               FontSize="10"
-                                                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
+                                                        <Label Style="{StaticResource PvCardTitle}" Text="{Binding TeamName}"/>
+                                                        <Label Style="{StaticResource PvCaption}" Text="{Binding TeamId}"/>
                                                     </VerticalStackLayout>
                                                 </HorizontalStackLayout>
-                                            </Frame>
+                                            </Border>
                                         </SwipeView>
                                     </DataTemplate>
                                 </BindableLayout.ItemTemplate>
                             </VerticalStackLayout>
                             <BoxView x:Name="TeamSeparator"
                                      HeightRequest="1"
-                                     Color="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
+                                     Color="{AppThemeBinding Light={StaticResource PvOutlineLight}, Dark={StaticResource PvOutlineDark}}"
                                      IsVisible="False"/>
                         </StackLayout>
                     </VerticalStackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
             <!-- ========== 3. Join Team ========== -->
-            <Frame BorderColor="{AppThemeBinding Light=#BBDEFB, Dark=#1565C0}"
-                   Padding="14"
-                   CornerRadius="8">
+            <Border Style="{StaticResource PvCard}" Padding="16">
                 <VerticalStackLayout Spacing="8">
                     <Grid ColumnDefinitions="*, Auto">
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnJoinTeamHeaderTapped"/>
                         </Grid.GestureRecognizers>
-                        <Label Text="Join Team"
-                               FontAttributes="Bold"
-                               FontSize="16"
-                               TextColor="#1565C0"
-                               VerticalOptions="Center"/>
-                        <Label x:Name="JoinTeamToggleIcon"
-                               Grid.Column="1"
-                               Text="▼"
-                               FontSize="16"
-                               VerticalOptions="Center"
-                               TextColor="#1565C0"/>
+                        <Label Style="{StaticResource PvCardTitle}" Text="Join Team" VerticalOptions="Center"/>
+                        <Label Style="{StaticResource PvBody}" x:Name="JoinTeamToggleIcon" Grid.Column="1" Text="▼" VerticalOptions="Center"/>
                     </Grid>
-                    <Label x:Name="JoinTeamHint"
-                           Text="Tap to expand — join an online team or import a local roster"
-                           FontSize="11"
-                           TextColor="{AppThemeBinding Light=#888, Dark=#999}">
+                    <Label Style="{StaticResource PvCaption}" x:Name="JoinTeamHint" Text="Tap to expand — join an online team or import a local roster">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnJoinTeamHeaderTapped"/>
                         </Label.GestureRecognizers>
@@ -419,238 +264,178 @@
                     <VerticalStackLayout x:Name="JoinTeamContent"
                                          IsVisible="False"
                                          Spacing="12">
-                        <HorizontalStackLayout Spacing="10">
-                            <CheckBox x:Name="JoinOnlineModeCheckbox"
-                                      IsChecked="True"
-                                      CheckedChanged="OnJoinOnlineModeChanged"/>
-                            <Label Text="Online"
-                                   FontSize="14"
-                                   VerticalOptions="Center">
-                                <Label.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnJoinOnlineLabelTapped"/>
-                                </Label.GestureRecognizers>
-                            </Label>
-                            <CheckBox x:Name="JoinLocalModeCheckbox"
-                                      CheckedChanged="OnJoinLocalModeChanged"/>
-                            <Label Text="Local"
-                                   FontSize="14"
-                                   VerticalOptions="Center">
-                                <Label.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnJoinLocalLabelTapped"/>
-                                </Label.GestureRecognizers>
-                            </Label>
-                        </HorizontalStackLayout>
+                        <!-- Segmented control (Join: Online / Local). The original CheckBoxes stay (hidden) so the code-behind and its CheckedChanged logic are unchanged; segments call the same tap handlers the labels used. -->
+                        <CheckBox x:Name="JoinOnlineModeCheckbox" IsChecked="True" CheckedChanged="OnJoinOnlineModeChanged" IsVisible="False"/>
+                        <CheckBox x:Name="JoinLocalModeCheckbox" CheckedChanged="OnJoinLocalModeChanged" IsVisible="False"/>
+                        <Border Style="{StaticResource PvSegmentTrack}">
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
+                                <Border Grid.Column="0" Style="{StaticResource PvSegment}" BackgroundColor="Transparent">
+                                    <Border.Triggers>
+                                        <DataTrigger TargetType="Border" Binding="{Binding Source={x:Reference JoinOnlineModeCheckbox}, Path=IsChecked}" Value="True">
+                                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}"/>
+                                        </DataTrigger>
+                                    </Border.Triggers>
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnJoinOnlineLabelTapped"/>
+                                    </Border.GestureRecognizers>
+                                    <Label Style="{StaticResource PvSegmentLabel}" Text="Online" TextColor="{AppThemeBinding Light={StaticResource PvTextLight}, Dark={StaticResource PvTextDark}}">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding Source={x:Reference JoinOnlineModeCheckbox}, Path=IsChecked}" Value="True">
+                                                <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource PvOnPrimaryLight}, Dark={StaticResource PvOnPrimaryDark}}"/>
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                </Border>
+                                <Border Grid.Column="1" Style="{StaticResource PvSegment}" BackgroundColor="Transparent">
+                                    <Border.Triggers>
+                                        <DataTrigger TargetType="Border" Binding="{Binding Source={x:Reference JoinLocalModeCheckbox}, Path=IsChecked}" Value="True">
+                                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}"/>
+                                        </DataTrigger>
+                                    </Border.Triggers>
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnJoinLocalLabelTapped"/>
+                                    </Border.GestureRecognizers>
+                                    <Label Style="{StaticResource PvSegmentLabel}" Text="Local" TextColor="{AppThemeBinding Light={StaticResource PvTextLight}, Dark={StaticResource PvTextDark}}">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding Source={x:Reference JoinLocalModeCheckbox}, Path=IsChecked}" Value="True">
+                                                <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource PvOnPrimaryLight}, Dark={StaticResource PvOnPrimaryDark}}"/>
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                </Border>
+                            </Grid>
+                        </Border>
 
                         <VerticalStackLayout x:Name="JoinSharedSection" Spacing="8">
-                            <Label Text="Online team"
-                                   FontAttributes="Bold"
-                                   FontSize="14"
-                                   TextColor="#1565C0"/>
-                            <Button x:Name="ImportTeamButton"
-                                    Text="Import / Scan Invite (QR)"
-                                    Clicked="OnImportTeamClicked"
-                                    BackgroundColor="#4CAF50"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
-                            <Label Text="Or enter the invite code from your coach or admin."
-                                   FontSize="12"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                            <Entry x:Name="InviteCodeEntry"
-                                   Placeholder="Invite code (e.g. ABCD-EFGH)"
-                                   MaxLength="20"/>
-                            <Label Text="Your display name (shown in Chat)"
-                                   FontSize="12"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                            <Entry x:Name="JoinDisplayNameEntry"
-                                   Placeholder="e.g. Alex or Coach Sam"
-                                   MaxLength="40"/>
-                            <Button Text="Join as Member"
-                                    Clicked="OnJoinTeamClicked"
-                                    BackgroundColor="#2196F3"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
+                            <Label Style="{StaticResource PvLink}" Text="Online team"/>
+                            <Button Style="{StaticResource PvButtonPrimary}" x:Name="ImportTeamButton" Text="Import / Scan Invite (QR)" Clicked="OnImportTeamClicked"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Or enter the invite code from your coach or admin."/>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="InviteCodeEntry" Placeholder="Invite code (e.g. ABCD-EFGH)" MaxLength="20"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Your display name (shown in Chat)"/>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="JoinDisplayNameEntry" Placeholder="e.g. Alex or Coach Sam" MaxLength="40"/>
+                            <Button Style="{StaticResource PvButtonSecondary}" Text="Join as Member" Clicked="OnJoinTeamClicked"/>
                         </VerticalStackLayout>
 
                         <VerticalStackLayout x:Name="LocalImportSubsection"
                                              IsVisible="False"
                                              Spacing="8">
-                            <Label Text="Local team (this device)"
-                                   FontAttributes="Bold"
-                                   FontSize="14"
-                                   TextColor="#2E7D32"/>
-                            <Label Text="Scan a local roster QR shared from another device (offline copy)."
-                                   FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
-                            <Button x:Name="LocalImportTeamButton"
-                                    Text="Import Local Team (QR)"
-                                    Clicked="OnImportTeamClicked"
-                                    BackgroundColor="#4CAF50"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
+                            <Label Style="{StaticResource PvBodyStrong}" Text="Local team (this device)"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Scan a local roster QR shared from another device (offline copy)."/>
+                            <Button Style="{StaticResource PvButtonPrimary}" x:Name="LocalImportTeamButton" Text="Import Local Team (QR)" Clicked="OnImportTeamClicked"/>
                         </VerticalStackLayout>
                     </VerticalStackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
             <!-- ========== 4. Create Team (nickname / under club / local) ========== -->
-            <Frame BorderColor="{AppThemeBinding Light=#C8E6C9, Dark=#2E7D32}"
-                   Padding="14"
-                   CornerRadius="8">
+            <Border Style="{StaticResource PvCard}" Padding="16">
                 <VerticalStackLayout Spacing="8">
                     <Grid ColumnDefinitions="*, Auto">
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnCreateTeamHeaderTapped"/>
                         </Grid.GestureRecognizers>
-                        <Label x:Name="CreateSubsectionTitle"
-                               Text="Create Team"
-                               FontAttributes="Bold"
-                               FontSize="16"
-                               TextColor="#2E7D32"
-                               VerticalOptions="Center"/>
-                        <Label x:Name="CreateTeamToggleIcon"
-                               Grid.Column="1"
-                               Text="▼"
-                               FontSize="16"
-                               VerticalOptions="Center"
-                               TextColor="#2E7D32"/>
+                        <Label Style="{StaticResource PvCardTitle}" x:Name="CreateSubsectionTitle" Text="Create Team" VerticalOptions="Center"/>
+                        <Label Style="{StaticResource PvBody}" x:Name="CreateTeamToggleIcon" Grid.Column="1" Text="▼" VerticalOptions="Center"/>
                     </Grid>
-                    <Label x:Name="CreateTeamHint"
-                           Text="Tap to expand — online nickname / under a club you manage, or local"
-                           FontSize="11"
-                           TextColor="{AppThemeBinding Light=#888, Dark=#999}">
+                    <Label Style="{StaticResource PvCaption}" x:Name="CreateTeamHint" Text="Tap to expand — online nickname / under a club you manage, or local">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnCreateTeamHeaderTapped"/>
                         </Label.GestureRecognizers>
                     </Label>
 
                     <StackLayout x:Name="CreateTeamContent" IsVisible="False" Spacing="12" Padding="0,4,0,0">
-                        <HorizontalStackLayout Spacing="10">
-                            <CheckBox x:Name="CreateSharedModeCheckbox"
-                                      IsChecked="True"
-                                      CheckedChanged="OnCreateSharedModeChanged"/>
-                            <Label Text="Online"
-                                   FontSize="14"
-                                   VerticalOptions="Center">
-                                <Label.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnCreateOnlineLabelTapped"/>
-                                </Label.GestureRecognizers>
-                            </Label>
-                            <CheckBox x:Name="CreateLocalModeCheckbox"
-                                      CheckedChanged="OnCreateLocalModeChanged"/>
-                            <Label Text="Local"
-                                   FontSize="14"
-                                   VerticalOptions="Center">
-                                <Label.GestureRecognizers>
-                                    <TapGestureRecognizer Tapped="OnCreateLocalLabelTapped"/>
-                                </Label.GestureRecognizers>
-                            </Label>
-                        </HorizontalStackLayout>
+                        <!-- Segmented control (Create: Online / Local). The original CheckBoxes stay (hidden) so the code-behind and its CheckedChanged logic are unchanged; segments call the same tap handlers the labels used. -->
+                        <CheckBox x:Name="CreateSharedModeCheckbox" IsChecked="True" CheckedChanged="OnCreateSharedModeChanged" IsVisible="False"/>
+                        <CheckBox x:Name="CreateLocalModeCheckbox" CheckedChanged="OnCreateLocalModeChanged" IsVisible="False"/>
+                        <Border Style="{StaticResource PvSegmentTrack}">
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="4">
+                                <Border Grid.Column="0" Style="{StaticResource PvSegment}" BackgroundColor="Transparent">
+                                    <Border.Triggers>
+                                        <DataTrigger TargetType="Border" Binding="{Binding Source={x:Reference CreateSharedModeCheckbox}, Path=IsChecked}" Value="True">
+                                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}"/>
+                                        </DataTrigger>
+                                    </Border.Triggers>
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnCreateOnlineLabelTapped"/>
+                                    </Border.GestureRecognizers>
+                                    <Label Style="{StaticResource PvSegmentLabel}" Text="Online" TextColor="{AppThemeBinding Light={StaticResource PvTextLight}, Dark={StaticResource PvTextDark}}">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding Source={x:Reference CreateSharedModeCheckbox}, Path=IsChecked}" Value="True">
+                                                <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource PvOnPrimaryLight}, Dark={StaticResource PvOnPrimaryDark}}"/>
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                </Border>
+                                <Border Grid.Column="1" Style="{StaticResource PvSegment}" BackgroundColor="Transparent">
+                                    <Border.Triggers>
+                                        <DataTrigger TargetType="Border" Binding="{Binding Source={x:Reference CreateLocalModeCheckbox}, Path=IsChecked}" Value="True">
+                                            <Setter Property="BackgroundColor" Value="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}"/>
+                                        </DataTrigger>
+                                    </Border.Triggers>
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer Tapped="OnCreateLocalLabelTapped"/>
+                                    </Border.GestureRecognizers>
+                                    <Label Style="{StaticResource PvSegmentLabel}" Text="Local" TextColor="{AppThemeBinding Light={StaticResource PvTextLight}, Dark={StaticResource PvTextDark}}">
+                                        <Label.Triggers>
+                                            <DataTrigger TargetType="Label" Binding="{Binding Source={x:Reference CreateLocalModeCheckbox}, Path=IsChecked}" Value="True">
+                                                <Setter Property="TextColor" Value="{AppThemeBinding Light={StaticResource PvOnPrimaryLight}, Dark={StaticResource PvOnPrimaryDark}}"/>
+                                            </DataTrigger>
+                                        </Label.Triggers>
+                                    </Label>
+                                </Border>
+                            </Grid>
+                        </Border>
 
-                        <StackLayout x:Name="CreateSharedSection" IsVisible="True" Spacing="10">
-                            <Label Text="Add team under a club you manage"
-                                   FontSize="12"
-                                   FontAttributes="Bold"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                            <Picker x:Name="ManagedClubPicker"
-                                    Title="Select managed club"
-                                    SelectedIndexChanged="OnManagedClubPickerChanged"/>
-                            <Entry x:Name="UnderClubTeamEntry"
-                                   Placeholder="New team name under selected club"
-                                   TextChanged="OnUnderClubTeamChanged"/>
+                        <StackLayout x:Name="CreateSharedSection" IsVisible="True" Spacing="8">
+                            <Label Style="{StaticResource PvBodyStrong}" Text="Add team under a club you manage"/>
+                            <Picker Style="{StaticResource PvPicker}" x:Name="ManagedClubPicker" Title="Select managed club" SelectedIndexChanged="OnManagedClubPickerChanged"/>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="UnderClubTeamEntry" Placeholder="New team name under selected club" TextChanged="OnUnderClubTeamChanged"/>
 
-                            <Label Text="OR nickname (standalone — no club)"
-                                   HorizontalOptions="Center"
-                                   FontAttributes="Bold"
-                                   Margin="0,6,0,0"
-                                   FontSize="12"/>
-                            <Entry x:Name="NicknameEntry"
-                                   Placeholder="Team nickname (e.g., Socceroos)"
-                                   TextChanged="OnNicknameChanged"/>
+                            <Label Style="{StaticResource PvBodyStrong}" Text="OR nickname (standalone — no club)" HorizontalOptions="Center" Margin="0,6,0,0"/>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="NicknameEntry" Placeholder="Team nickname (e.g., Socceroos)" TextChanged="OnNicknameChanged"/>
 
-                            <Label Text="Your display name (shown in Chat)"
-                                   FontSize="12"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                            <Entry x:Name="CreateDisplayNameEntry"
-                                   Placeholder="e.g. Alex or Coach Sam"
-                                   MaxLength="40"/>
-                            <Label Text="Your Email Address"
-                                   FontSize="12"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                            <Label Text="Used to send the Team Owner Recovery Code as a backup."
-                                   FontSize="11"
-                                   TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
-                            <Entry x:Name="CreatorEmailEntry"
-                                   Placeholder="your@email.com"
-                                   Keyboard="Email"
-                                   MaxLength="200"/>
-                            <Button x:Name="CreateSharedTeamButton"
-                                    Text="Create Online Team"
-                                    Clicked="OnCreateTeamClicked"
-                                    BackgroundColor="#4CAF50"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Your display name (shown in Chat)"/>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="CreateDisplayNameEntry" Placeholder="e.g. Alex or Coach Sam" MaxLength="40"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Your Email Address"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Used to send the Team Owner Recovery Code as a backup."/>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="CreatorEmailEntry" Placeholder="your@email.com" Keyboard="Email" MaxLength="200"/>
+                            <Button Style="{StaticResource PvButtonPrimary}" x:Name="CreateSharedTeamButton" Text="Create Online Team" Clicked="OnCreateTeamClicked"/>
                             <HorizontalStackLayout x:Name="CreateTeamLoadingSection"
                                                    IsVisible="False"
                                                    HorizontalOptions="Center"
-                                                   Spacing="10">
+                                                   Spacing="8">
                                 <ActivityIndicator x:Name="CreateTeamSpinner"
                                                    IsRunning="False"
-                                                   Color="#4CAF50"
+                                                   Color="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}"
                                                    WidthRequest="22"
                                                    HeightRequest="22"/>
-                                <Label Text="Setting up team in the cloud..."
-                                       FontSize="13"
-                                       TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"
-                                       VerticalOptions="Center"/>
+                                <Label Style="{StaticResource PvCaption}" Text="Setting up team in the cloud..." VerticalOptions="Center"/>
                             </HorizontalStackLayout>
                         </StackLayout>
 
-                        <StackLayout x:Name="CreateLocalSection" IsVisible="False" Spacing="10">
-                            <Label Text="📱 New Local Team"
-                                   FontAttributes="Bold"
-                                   FontSize="14"/>
-                            <Entry x:Name="LocalTeamNameEntry"
-                                   Placeholder="Team name (stored on this device only)"/>
-                            <Button Text="Create Local Team"
-                                    Clicked="OnSetLocalTeamClicked"
-                                    BackgroundColor="#FF9800"
-                                    TextColor="White"
-                                    HeightRequest="44"
-                                    FontSize="14"/>
+                        <StackLayout x:Name="CreateLocalSection" IsVisible="False" Spacing="8">
+                            <HorizontalStackLayout Spacing="8">
+                                <Label Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconPhone}" FontSize="20" VerticalOptions="Center"/>
+                                <Label Style="{StaticResource PvBodyStrong}" Text="New Local Team" VerticalOptions="Center"/>
+                            </HorizontalStackLayout>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="LocalTeamNameEntry" Placeholder="Team name (stored on this device only)"/>
+                            <Button Style="{StaticResource PvButtonSecondary}" Text="Create Local Team" Clicked="OnSetLocalTeamClicked"/>
                         </StackLayout>
                     </StackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
             <!-- ========== 5. Create Club (always available) ========== -->
-            <Frame BorderColor="{AppThemeBinding Light=#FFE0B2, Dark=#EF6C00}"
-                   Padding="14"
-                   CornerRadius="8">
+            <Border Style="{StaticResource PvCardWarning}" Padding="16">
                 <VerticalStackLayout Spacing="8">
                     <Grid ColumnDefinitions="*, Auto">
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnCreateClubHeaderTapped"/>
                         </Grid.GestureRecognizers>
-                        <Label Text="Create Club (online)"
-                               FontAttributes="Bold"
-                               FontSize="16"
-                               TextColor="#EF6C00"
-                               VerticalOptions="Center"/>
-                        <Label x:Name="CreateClubToggleIcon"
-                               Grid.Column="1"
-                               Text="▼"
-                               FontSize="16"
-                               VerticalOptions="Center"
-                               TextColor="#EF6C00"/>
+                        <Label Style="{StaticResource PvWarningText}" Text="Create Club (online)" VerticalOptions="Center"/>
+                        <Label Style="{StaticResource PvWarningText}" x:Name="CreateClubToggleIcon" Grid.Column="1" Text="▼" VerticalOptions="Center"/>
                     </Grid>
-                    <Label x:Name="CreateClubHint"
-                           Text="Tap to expand — start a new online club and its first team (always available)"
-                           FontSize="11"
-                           TextColor="{AppThemeBinding Light=#888, Dark=#999}">
+                    <Label Style="{StaticResource PvCaption}" x:Name="CreateClubHint" Text="Tap to expand — start a new online club and its first team (always available)">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnCreateClubHeaderTapped"/>
                         </Label.GestureRecognizers>
@@ -658,128 +443,68 @@
 
                     <VerticalStackLayout x:Name="CreateClubContent"
                                          IsVisible="False"
-                                         Spacing="10"
+                                         Spacing="8"
                                          Padding="0,4,0,0">
-                        <Label Text="You become Club Owner. Save both the Club and Team Owner Recovery Codes when shown."
-                               FontSize="12"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                        <Entry x:Name="ClubEntry"
-                               Placeholder="Club name (e.g., Manchester United FC)"/>
-                        <Entry x:Name="TeamEntry"
-                               Placeholder="First team name (e.g., U17 Boys)"/>
-                        <Label Text="Your display name (shown in Chat)"
-                               FontSize="12"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                        <Entry x:Name="ClubCreateDisplayNameEntry"
-                               Placeholder="e.g. Alex or Coach Sam"
-                               MaxLength="40"/>
-                        <Label Text="Your Email Address"
-                               FontSize="12"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                        <Label Text="Used to send recovery reminders as a backup."
-                               FontSize="11"
-                               TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
-                        <Entry x:Name="ClubCreatorEmailEntry"
-                               Placeholder="your@email.com"
-                               Keyboard="Email"
-                               MaxLength="200"/>
-                        <Button x:Name="CreateClubButton"
-                                Text="Create Club &amp; First Team"
-                                Clicked="OnCreateClubClicked"
-                                BackgroundColor="#EF6C00"
-                                TextColor="White"
-                                HeightRequest="44"
-                                FontSize="14"/>
+                        <Label Style="{StaticResource PvCaption}" Text="You become Club Owner. Save both the Club and Team Owner Recovery Codes when shown."/>
+                        <Entry Style="{StaticResource PvEntry}" x:Name="ClubEntry" Placeholder="Club name (e.g., Manchester United FC)"/>
+                        <Entry Style="{StaticResource PvEntry}" x:Name="TeamEntry" Placeholder="First team name (e.g., U17 Boys)"/>
+                        <Label Style="{StaticResource PvCaption}" Text="Your display name (shown in Chat)"/>
+                        <Entry Style="{StaticResource PvEntry}" x:Name="ClubCreateDisplayNameEntry" Placeholder="e.g. Alex or Coach Sam" MaxLength="40"/>
+                        <Label Style="{StaticResource PvCaption}" Text="Your Email Address"/>
+                        <Label Style="{StaticResource PvCaption}" Text="Used to send recovery reminders as a backup."/>
+                        <Entry Style="{StaticResource PvEntry}" x:Name="ClubCreatorEmailEntry" Placeholder="your@email.com" Keyboard="Email" MaxLength="200"/>
+                        <Button Style="{StaticResource PvButtonWarning}" x:Name="CreateClubButton" Text="Create Club &amp; First Team" Clicked="OnCreateClubClicked"/>
                         <HorizontalStackLayout x:Name="CreateClubLoadingSection"
                                                IsVisible="False"
                                                HorizontalOptions="Center"
-                                               Spacing="10">
+                                               Spacing="8">
                             <ActivityIndicator x:Name="CreateClubSpinner"
                                                IsRunning="False"
-                                               Color="#EF6C00"
+                                               Color="{AppThemeBinding Light={StaticResource PvWarningTextLight}, Dark={StaticResource PvWarningDark}}"
                                                WidthRequest="22"
                                                HeightRequest="22"/>
-                            <Label Text="Setting up club in the cloud..."
-                                   FontSize="13"
-                                   TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"
-                                   VerticalOptions="Center"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Setting up club in the cloud..." VerticalOptions="Center"/>
                         </HorizontalStackLayout>
                     </VerticalStackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
             <!-- ========== 6. Recover Owner Access ========== -->
-            <Frame x:Name="RejoinAdminSection"
-                   BorderColor="#FF9800"
-                   Padding="14"
-                   CornerRadius="8">
+            <Border Style="{StaticResource PvCard}" x:Name="RejoinAdminSection" Padding="16">
                 <VerticalStackLayout Spacing="8">
                     <Grid ColumnDefinitions="*, Auto">
                         <Grid.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnRecoverAdminHeaderTapped"/>
                         </Grid.GestureRecognizers>
-                        <Label Text="🔑 Recover Owner Access"
-                               FontAttributes="Bold"
-                               FontSize="16"
-                               TextColor="#E65100"
-                               VerticalOptions="Center"/>
-                        <Label x:Name="RecoverAdminToggleIcon"
-                               Grid.Column="1"
-                               Text="▼"
-                               FontSize="16"
-                               VerticalOptions="Center"
-                               TextColor="#E65100"/>
+                        <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
+                            <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconKey}" FontSize="20" TextColor="{AppThemeBinding Light={StaticResource PvWarningTextLight}, Dark={StaticResource PvWarningDark}}" VerticalOptions="Center"/>
+                            <Label Style="{StaticResource PvWarningText}" Text="Recover Owner Access" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+                        <Label Style="{StaticResource PvWarningText}" x:Name="RecoverAdminToggleIcon" Grid.Column="1" Text="▼" VerticalOptions="Center"/>
                     </Grid>
-                    <Label x:Name="RecoverAdminHint"
-                           Text="Tap to expand — new devices / lost Owner phone"
-                           FontSize="11"
-                           TextColor="{AppThemeBinding Light=#999, Dark=#888}">
+                    <Label Style="{StaticResource PvCaption}" x:Name="RecoverAdminHint" Text="Tap to expand — new devices / lost Owner phone">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnRecoverAdminHeaderTapped"/>
                         </Label.GestureRecognizers>
                     </Label>
-                    <StackLayout x:Name="RecoverAdminContent" IsVisible="False" Spacing="10">
-                        <Label Text="Enter any Team ID under your club plus a recovery code. A Team Owner Recovery Code restores that team; a Club Owner Recovery Code restores the club (Team ID is only used to find the club)."
-                               FontSize="12"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}"/>
-                        <Entry x:Name="AdminRejoinTeamIdEntry"
-                               Placeholder="Team ID (e.g. u17-boys-a1b2c3)"
-                               MaxLength="60"/>
-                        <Entry x:Name="AdminRejoinCodeEntry"
-                               Placeholder="Team or Club Owner Recovery Code"
-                               MaxLength="24"/>
-                        <Entry x:Name="AdminRejoinDisplayNameEntry"
-                               Placeholder="Your display name (shown in Chat)"
-                               MaxLength="40"/>
-                        <Button x:Name="RejoinAsAdminButton"
-                                Text="Restore Owner Access"
-                                Clicked="OnRejoinAsAdminClicked"
-                                BackgroundColor="#E65100"
-                                TextColor="White"
-                                HeightRequest="44"
-                                FontSize="14"/>
+                    <StackLayout x:Name="RecoverAdminContent" IsVisible="False" Spacing="8">
+                        <Label Style="{StaticResource PvCaption}" Text="Enter any Team ID under your club plus a recovery code. A Team Owner Recovery Code restores that team; a Club Owner Recovery Code restores the club (Team ID is only used to find the club)."/>
+                        <Entry Style="{StaticResource PvEntry}" x:Name="AdminRejoinTeamIdEntry" Placeholder="Team ID (e.g. u17-boys-a1b2c3)" MaxLength="60"/>
+                        <Entry Style="{StaticResource PvEntry}" x:Name="AdminRejoinCodeEntry" Placeholder="Team or Club Owner Recovery Code" MaxLength="24"/>
+                        <Entry Style="{StaticResource PvEntry}" x:Name="AdminRejoinDisplayNameEntry" Placeholder="Your display name (shown in Chat)" MaxLength="40"/>
+                        <Button Style="{StaticResource PvButtonWarning}" x:Name="RejoinAsAdminButton" Text="Restore Owner Access" Clicked="OnRejoinAsAdminClicked"/>
                         <BoxView HeightRequest="1"
-                                 Color="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"/>
-                        <Label Text="📧 Forgot your Team Owner Recovery Code?"
-                               FontAttributes="Bold"
-                               FontSize="13"
-                               TextColor="#E65100"/>
-                        <Label Text="Enter Team ID — team recovery reminder goes to the email registered at create. (Club recovery codes are not emailed yet.)"
-                               FontSize="11"
-                               TextColor="{AppThemeBinding Light=#888, Dark=#999}"/>
-                        <Entry x:Name="EmailReminderTeamIdEntry"
-                               Placeholder="Team ID"
-                               MaxLength="60"/>
-                        <Button x:Name="RequestAdminCodeEmailButton"
-                                Text="Send Recovery Reminder Email"
-                                Clicked="OnRequestAdminCodeEmailClicked"
-                                BackgroundColor="#FF9800"
-                                TextColor="White"
-                                HeightRequest="44"
-                                FontSize="14"/>
+                                 Color="{AppThemeBinding Light={StaticResource PvOutlineLight}, Dark={StaticResource PvOutlineDark}}"/>
+                        <HorizontalStackLayout Spacing="8">
+                            <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconMail}" FontSize="20" TextColor="{AppThemeBinding Light={StaticResource PvWarningTextLight}, Dark={StaticResource PvWarningDark}}" VerticalOptions="Center"/>
+                            <Label Style="{StaticResource PvWarningText}" Text="Forgot your Team Owner Recovery Code?" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+                        <Label Style="{StaticResource PvCaption}" Text="Enter Team ID — team recovery reminder goes to the email registered at create. (Club recovery codes are not emailed yet.)"/>
+                        <Entry Style="{StaticResource PvEntry}" x:Name="EmailReminderTeamIdEntry" Placeholder="Team ID" MaxLength="60"/>
+                        <Button Style="{StaticResource PvButtonSecondary}" x:Name="RequestAdminCodeEmailButton" Text="Send Recovery Reminder Email" Clicked="OnRequestAdminCodeEmailClicked"/>
                     </StackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
         </VerticalStackLayout>
     </ScrollView>
