@@ -259,7 +259,8 @@ public sealed class CloudTeamService : ICloudTeamService
                 .SetDataAsync(new Dictionary<object, object>
                 {
                     ["role"] = "admin",
-                    ["displayName"] = displayName ?? ""
+                    ["displayName"] = displayName ?? "",
+                    ["uid"] = uid
                 }, SetOptions.Merge()).ConfigureAwait(false);
 
             await _db.GetDocument($"teams/{teamId}/roster/data")
@@ -721,6 +722,7 @@ public sealed class CloudTeamService : ICloudTeamService
                 {
                     ["role"] = "member",
                     ["displayName"] = displayName ?? "",
+                    ["uid"] = uid,
                     ["joinedAt"] = DateTimeOffset.UtcNow
                 }, SetOptions.Merge()).ConfigureAwait(false);
 
@@ -922,6 +924,7 @@ public sealed class CloudTeamService : ICloudTeamService
             {
                 ["role"] = "admin",
                 ["displayName"] = displayName ?? "",
+                ["uid"] = uid,
                 ["rejoinedAt"] = DateTimeOffset.UtcNow
             }, SetOptions.Merge()).ConfigureAwait(false);
 
@@ -1003,6 +1006,7 @@ public sealed class CloudTeamService : ICloudTeamService
             {
                 ["role"] = "admin",
                 ["displayName"] = displayName ?? "",
+                ["uid"] = uid,
                 ["rejoinedAt"] = DateTimeOffset.UtcNow
             }, SetOptions.Merge()).ConfigureAwait(false);
 
@@ -1614,6 +1618,70 @@ public sealed class CloudTeamService : ICloudTeamService
         {
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] TransferOwnership: {ex.Message}");
             return $"error: {ex.Message}";
+        }
+    }
+
+    public async Task<IReadOnlyList<CloudMembership>> ListMyTeamMembershipsAsync()
+    {
+        var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
+        if (uid is null) return Array.Empty<CloudMembership>();
+        var results = new List<CloudMembership>();
+        try
+        {
+            // Needs: members.uid collection-group index + {path=**}/members rule (see firestore.rules).
+            var snap = await _db.GetCollectionGroup("members")
+                .WhereEqualsTo("uid", uid)
+                .LimitedTo(100)
+                .GetDocumentsAsync<Dictionary<string, object>>()
+                .ConfigureAwait(false);
+            if (snap?.Documents is null) return results;
+            foreach (var doc in snap.Documents)
+            {
+                var path = doc.Reference?.Path ?? "";
+                // Only teams/{teamId}/members/{uid}; skip clubs/{clubId}/members/{uid}.
+                if (!path.StartsWith("teams/", StringComparison.Ordinal)
+                    && !path.Contains("/documents/teams/", StringComparison.Ordinal))
+                    continue;
+                var teamId = doc.Reference?.Parent?.Parent?.Id;
+                if (string.IsNullOrEmpty(teamId)) continue;
+                var role = ReadString(doc.Data, "role");
+                var meta = await GetTeamMetadataViaRestAsync(teamId).ConfigureAwait(false);
+                results.Add(new CloudMembership
+                {
+                    TeamId = teamId,
+                    Role = string.IsNullOrWhiteSpace(role) ? "member" : role.Trim().ToLowerInvariant(),
+                    TeamName = meta?.TeamName ?? "",
+                    ClubId = meta?.ClubId ?? "",
+                    ClubName = meta?.ClubName ?? "",
+                    IsOwner = string.Equals(meta?.CreatedBy, uid, StringComparison.Ordinal)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            // Expected until the index + rules are deployed; caller falls back to the local list.
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] ListMyTeamMemberships: {ex.Message}");
+        }
+        return results;
+    }
+
+    public async Task StampMyMemberUidAsync(string teamId)
+    {
+        if (string.IsNullOrWhiteSpace(teamId)) return;
+        try
+        {
+            var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
+            if (uid is null) return;
+            var doc = _db.GetDocument($"teams/{teamId}/members/{uid}");
+            var snap = await doc.GetDocumentSnapshotAsync<Dictionary<string, object>>().ConfigureAwait(false);
+            if (snap?.Data is null) return; // not a member: never create a membership here
+            if (ReadString(snap.Data, "uid") == uid) return;
+            await doc.SetDataAsync(new Dictionary<object, object> { ["uid"] = uid }, SetOptions.Merge())
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] StampMyMemberUid {teamId}: {ex.Message}");
         }
     }
 

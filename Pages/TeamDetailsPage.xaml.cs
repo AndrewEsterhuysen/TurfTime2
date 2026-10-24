@@ -24,8 +24,8 @@ public partial class TeamDetailsPage : ContentPage
 	public TeamDetailsPage()
 	{
 		InitializeComponent();
-		LocalTeamsCollection.ItemsSource = _localTeams;
-		SharedTeamsCollection.ItemsSource = _sharedTeams;
+		BindableLayout.SetItemsSource(LocalTeamsCollection, _localTeams);
+		BindableLayout.SetItemsSource(SharedTeamsCollection, _sharedTeams);
 		LoadCurrentTeam();
 	}
 
@@ -49,6 +49,13 @@ public partial class TeamDetailsPage : ContentPage
 			else if (teamMode == "shared" && !SharedCheckbox.IsChecked)
 				SharedCheckbox.IsChecked = true;
 		}
+
+		// Checkbox already ticked from a previous visit => CheckedChanged won't fire, so the
+		// list would stay stale (e.g. a team joined via deep link / QR since last visit).
+		if (SharedCheckbox.IsChecked)
+			_ = LoadSharedTeamsAsync();
+		if (LocalCheckbox.IsChecked)
+			_ = LoadLocalTeamsAsync();
 
 		if (teamMode == "shared" && !string.IsNullOrEmpty(teamId))
 			_ = RefreshRoleAndAdminToolsInBackgroundAsync(teamId);
@@ -560,15 +567,38 @@ public partial class TeamDetailsPage : ContentPage
 			var newTeams = await Task.Run(() =>
 			{
 				var teamListJson = Preferences.Get("local_team_id_list", "[]");
-				var teamIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(teamListJson) ?? [];
+				List<string> teamIds;
+				try { teamIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(teamListJson) ?? []; }
+				catch { teamIds = []; }
 				var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 				var currentTeamMode = Preferences.Get(TEAM_MODE_KEY, string.Empty);
+
+				// Recover local ids that never made it into local_team_id_list: the current local team,
+				// and local_* ids an old join fallback registered in the online list.
+				var recovered = false;
+				void AddId(string id)
+				{
+					if (!string.IsNullOrWhiteSpace(id) && !teamIds.Contains(id)) { teamIds.Add(id); recovered = true; }
+				}
+				if (string.Equals(currentTeamMode, "local", StringComparison.OrdinalIgnoreCase)
+				    || currentTeamId.StartsWith("local_", StringComparison.Ordinal))
+					AddId(currentTeamId);
+				foreach (var id in GetSharedTeamIds().Where(i => i.StartsWith("local_", StringComparison.Ordinal)))
+					AddId(id);
+				if (recovered)
+					Preferences.Set("local_team_id_list", System.Text.Json.JsonSerializer.Serialize(teamIds));
 
 				var result = new List<LocalTeamItem>();
 				foreach (var teamId in teamIds)
 				{
 					var teamName = Preferences.Get($"{teamId}_name", string.Empty);
-					if (!string.IsNullOrEmpty(teamName))
+					if (string.IsNullOrWhiteSpace(teamName))
+						teamName = Preferences.Get($"setup_team_{teamId}", string.Empty);
+					if (string.IsNullOrWhiteSpace(teamName) && teamId == currentTeamId)
+						teamName = Preferences.Get(TEAM_NAME_KEY, string.Empty);
+					if (string.IsNullOrWhiteSpace(teamName))
+						teamName = teamId;
+					if (!string.IsNullOrWhiteSpace(teamId))
 					{
 						result.Add(new LocalTeamItem
 						{
@@ -617,8 +647,14 @@ public partial class TeamDetailsPage : ContentPage
 				var result = new List<SharedTeamItem>();
 				foreach (var teamId in teamIds)
 				{
+					// Don't drop memberships whose display name was never cached (older join paths
+					// only registered the id) — fall back so the team is still listed and selectable.
 					var teamName = Preferences.Get($"{teamId}_name", string.Empty);
-					if (!string.IsNullOrEmpty(teamName))
+					if (string.IsNullOrWhiteSpace(teamName))
+						teamName = Preferences.Get($"{teamId}_team_name", string.Empty);
+					if (string.IsNullOrWhiteSpace(teamName))
+						teamName = teamId;
+					if (!string.IsNullOrWhiteSpace(teamId))
 					{
 						var isActive = currentTeamMode == "shared" && currentTeamId == teamId;
 						var role = Preferences.Get($"{teamId}_role", "member");
@@ -660,17 +696,14 @@ public partial class TeamDetailsPage : ContentPage
 		}
 	}
 
-	private async void OnSharedTeamSelectionChanged(object sender, SelectionChangedEventArgs e)
+	private async Task SelectSharedTeamAsync(SharedTeamItem selectedTeam)
 	{
-		if (e.CurrentSelection.FirstOrDefault() is not SharedTeamItem selectedTeam)
-			return;
 
 		var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 
 		if (currentTeamId == selectedTeam.TeamId)
 		{
 			// Same team re-selected: still refresh cloud role (e.g. just promoted).
-			SharedTeamsCollection.SelectedItem = null;
 			var refreshed = await RefreshMyRoleFromCloudAsync(selectedTeam.TeamId);
 			LoadCurrentTeam();
 			if (!string.IsNullOrEmpty(refreshed))
@@ -682,7 +715,6 @@ public partial class TeamDetailsPage : ContentPage
 		}
 
 		System.Diagnostics.Debug.WriteLine($"[TeamDetails] Switching to shared team: {selectedTeam.TeamName}");
-		SharedTeamsCollection.SelectedItem = null;
 
 		// Prefer cloud role over stale local cache (join stored "member"; promote updates cloud only).
 		var role = await RefreshMyRoleFromCloudAsync(selectedTeam.TeamId)
@@ -715,18 +747,11 @@ public partial class TeamDetailsPage : ContentPage
 	private void OnSharedTeamItemTapped(object sender, EventArgs e)
 	{
 		if (sender is Frame frame && frame.BindingContext is SharedTeamItem tappedTeam)
-			SharedTeamsCollection.SelectedItem = tappedTeam;
+			_ = SelectSharedTeamAsync(tappedTeam);
 	}
 
-	private void OnLocalTeamSelectionChanged(object sender, SelectionChangedEventArgs e)
+	private void SelectLocalTeam(LocalTeamItem selectedTeam)
 	{
-		System.Diagnostics.Debug.WriteLine($"[TeamDetails] SelectionChanged fired. Selection count: {e.CurrentSelection.Count}");
-
-		if (e.CurrentSelection.FirstOrDefault() is not LocalTeamItem selectedTeam)
-		{
-			System.Diagnostics.Debug.WriteLine($"[TeamDetails] No team selected (CurrentSelection is null or not LocalTeamItem)");
-			return;
-		}
 
 		System.Diagnostics.Debug.WriteLine($"[TeamDetails] Team selected: {selectedTeam.TeamName} (ID: {selectedTeam.TeamId})");
 
@@ -736,12 +761,10 @@ public partial class TeamDetailsPage : ContentPage
 		if (currentTeamId == selectedTeam.TeamId)
 		{
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Already on this team, ignoring selection");
-			LocalTeamsCollection.SelectedItem = null;
 			return;
 		}
 
 		// Clear selection immediately to prevent double-tap issues on Android
-		LocalTeamsCollection.SelectedItem = null;
 
 		MainThread.BeginInvokeOnMainThread(async () =>
 		{
@@ -802,7 +825,7 @@ public partial class TeamDetailsPage : ContentPage
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Tapped team: {tappedTeam.TeamName}");
 
 			// Manually trigger selection
-			LocalTeamsCollection.SelectedItem = tappedTeam;
+			SelectLocalTeam(tappedTeam);
 		}
 		else
 		{
@@ -1731,6 +1754,7 @@ private void RegisterTeamId(string teamId)
 					Preferences.Set(TEAM_NAME_KEY, foundTeam.TeamName);
 					Preferences.Set(USER_ROLE_KEY, "member");
 					Preferences.Set($"{foundTeam.TeamId}_role", "member");
+					Preferences.Set($"{foundTeam.TeamId}_name", foundTeam.TeamName);
 
 					// ALSO store per-team keys for GamePage polling
 					Preferences.Set($"team_mode_{foundTeam.TeamId}", "shared");
@@ -3035,7 +3059,61 @@ private void RegisterTeamId(string teamId)
 	}
 
 	private Task RefreshSharedTeamCloudMetadataAsync()
-		=> Task.WhenAll(RefreshSharedTeamOwnerFlagsAsync(), RefreshSharedTeamRolesFromCloudAsync());
+		=> Task.WhenAll(RefreshSharedTeamOwnerFlagsAsync(), RefreshSharedTeamRolesFromCloudAsync(),
+			SyncCloudMembershipsAsync());
+
+	private int _membershipSyncRunning;
+
+	/// <summary>
+	/// The Select Team list used to come only from this device's Preferences (team_id_list), so
+	/// teams joined on another device, before a reinstall, or added server-side never appeared.
+	/// Merge in every team Firestore says I'm a member of, and backfill <c>uid</c> on my member
+	/// docs so they are discoverable by the collection-group query.
+	/// </summary>
+	private async Task SyncCloudMembershipsAsync()
+	{
+		if (Interlocked.Exchange(ref _membershipSyncRunning, 1) == 1) return;
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null) return;
+
+			var known = GetSharedTeamIds();
+			foreach (var id in known)
+				_ = cloud.StampMyMemberUidAsync(id);
+
+			var memberships = await cloud.ListMyTeamMembershipsAsync().ConfigureAwait(false);
+			var added = false;
+			foreach (var m in memberships)
+			{
+				if (string.IsNullOrWhiteSpace(m.TeamId) || known.Contains(m.TeamId)) continue;
+				var display = ClubTeamNames.ComposeDisplayName(m.TeamName, m.ClubName);
+				if (string.IsNullOrWhiteSpace(display)) display = string.IsNullOrWhiteSpace(m.TeamName) ? m.TeamId : m.TeamName;
+				Preferences.Set($"{m.TeamId}_name", display);
+				Preferences.Set($"{m.TeamId}_team_name", m.TeamName ?? "");
+				Preferences.Set($"{m.TeamId}_club_id", m.ClubId ?? "");
+				Preferences.Set($"{m.TeamId}_club_name", m.ClubName ?? "");
+				Preferences.Set($"{m.TeamId}_isOwner", m.IsOwner);
+				Preferences.Set($"team_mode_{m.TeamId}", "shared");
+				// Per-team role cache only; never touch the *current* team's global keys here.
+				Preferences.Set($"{m.TeamId}_role", m.Role);
+				Preferences.Set($"user_role_{m.TeamId}", m.Role);
+				RegisterTeamId(m.TeamId);
+				added = true;
+			}
+
+			if (added)
+				await MainThread.InvokeOnMainThreadAsync(LoadSharedTeamsAsync);
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Sync cloud memberships: {ex.Message}");
+		}
+		finally
+		{
+			Interlocked.Exchange(ref _membershipSyncRunning, 0);
+		}
+	}
 
 	private async Task RefreshSharedTeamOwnerFlagsAsync()
 	{

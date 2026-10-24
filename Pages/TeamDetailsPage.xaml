@@ -260,11 +260,11 @@
                                    FontAttributes="Bold"
                                    FontSize="14"
                                    IsVisible="False"/>
-                            <CollectionView x:Name="SharedTeamsCollection"
-                                            IsVisible="False"
-                                            SelectionMode="Single"
-                                            SelectionChanged="OnSharedTeamSelectionChanged">
-                                <CollectionView.ItemTemplate>
+                            <!-- BindableLayout, not CollectionView: a CollectionView that starts IsVisible=False inside a
+                                 StackLayout in a ScrollView measured to zero height on iOS (label showed
+                                 "Your Teams (2)" with no rows). Lists are small, so no virtualisation needed. -->
+                            <VerticalStackLayout x:Name="SharedTeamsCollection" IsVisible="False" Spacing="0">
+                                <BindableLayout.ItemTemplate>
                                     <DataTemplate>
                                         <SwipeView>
                                             <SwipeView.LeftItems>
@@ -312,8 +312,8 @@
                                             </Frame>
                                         </SwipeView>
                                     </DataTemplate>
-                                </CollectionView.ItemTemplate>
-                            </CollectionView>
+                                </BindableLayout.ItemTemplate>
+                            </VerticalStackLayout>
                             <BoxView x:Name="SharedTeamSeparator"
                                      HeightRequest="1"
                                      Color="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
@@ -326,11 +326,11 @@
                                    FontAttributes="Bold"
                                    FontSize="14"
                                    IsVisible="False"/>
-                            <CollectionView x:Name="LocalTeamsCollection"
-                                            IsVisible="False"
-                                            SelectionMode="Single"
-                                            SelectionChanged="OnLocalTeamSelectionChanged">
-                                <CollectionView.ItemTemplate>
+                            <!-- BindableLayout, not CollectionView: a CollectionView that starts IsVisible=False inside a
+                                 StackLayout in a ScrollView measured to zero height on iOS (label showed
+                                 "Your Teams (2)" with no rows). Lists are small, so no virtualisation needed. -->
+                            <VerticalStackLayout x:Name="LocalTeamsCollection" IsVisible="False" Spacing="0">
+                                <BindableLayout.ItemTemplate>
                                     <DataTemplate>
                                         <SwipeView>
                                             <SwipeView.LeftItems>
@@ -375,8 +375,8 @@
                                             </Frame>
                                         </SwipeView>
                                     </DataTemplate>
-                                </CollectionView.ItemTemplate>
-                            </CollectionView>
+                                </BindableLayout.ItemTemplate>
+                            </VerticalStackLayout>
                             <BoxView x:Name="TeamSeparator"
                                      HeightRequest="1"
                                      Color="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
