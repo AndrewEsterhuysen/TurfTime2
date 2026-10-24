@@ -256,13 +256,13 @@ public partial class SetupPage : ContentPage
 		var statusText = MatchScheduleEvaluator.StatusLabel(status);
 		ScheduleStatusLabel.Text = string.IsNullOrEmpty(statusText) ? string.Empty : $"Status: {statusText}";
 
-		ScheduleStatusLabel.TextColor = status switch
+		ScheduleStatusLabel.SetPv(Label.TextColorProperty, status switch
 		{
-			MatchScheduleStatus.Upcoming => Color.FromArgb("#2E7D32"),
-			MatchScheduleStatus.Past => Color.FromArgb("#E65100"),
-			MatchScheduleStatus.Incomplete => Color.FromArgb("#F9A825"),
-			_ => Color.FromArgb("#757575")
-		};
+			MatchScheduleStatus.Upcoming => PitchVolt.Primary,
+			MatchScheduleStatus.Past => PitchVolt.WarningText,
+			MatchScheduleStatus.Incomplete => PitchVolt.WarningText,
+			_ => PitchVolt.TextSecondary
+		});
 
 		var updated = MatchScheduleEvaluator.FormatLastUpdated(schedule);
 		ScheduleUpdatedLabel.Text = updated;
@@ -278,9 +278,7 @@ public partial class SetupPage : ContentPage
 			MatchScheduleStatus.Incomplete => "⚠ Incomplete — set match date and kickoff time.",
 			_ => string.Empty
 		};
-		ScheduleStatusBanner.BackgroundColor = status == MatchScheduleStatus.Past
-			? Color.FromArgb("#FFF3E0")
-			: Color.FromArgb("#FFFDE7");
+		// Banner colours come from PvCardWarning (light + dark).
 	}
 
 	private MatchSchedule BuildScheduleFromUi()

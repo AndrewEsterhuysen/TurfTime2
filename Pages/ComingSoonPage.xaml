@@ -3,15 +3,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="TurfTime2.ComingSoonPage"
              Title="Coming soon">
-    <VerticalStackLayout VerticalOptions="Center"
-                         HorizontalOptions="Center"
-                         Padding="40"
-                         Spacing="12">
-        <Label Text="Coming soon…"
-               FontSize="22"
-               FontAttributes="Bold"
-               HorizontalOptions="Center"
-               HorizontalTextAlignment="Center"
-               TextColor="{AppThemeBinding Light=#333, Dark=#EEE}" />
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
+    <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Padding="40" Spacing="12">
+        <Border Style="{StaticResource PvIconTile}" HorizontalOptions="Center" WidthRequest="56" HeightRequest="56">
+            <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconStar}" FontSize="32" />
+        </Border>
+        <Label Style="{StaticResource PvHeadline}" Text="Coming soon…" HorizontalOptions="Center" HorizontalTextAlignment="Center" />
     </VerticalStackLayout>
 </ContentPage>

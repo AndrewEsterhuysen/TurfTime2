@@ -2,122 +2,76 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="TurfTime2.DetailsPage"
-             Title="Details"
-             BackgroundColor="#1b5e20">
+             Title="Details">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
-            <!-- Location -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="0"
-                   HasShadow="True"
-                   Margin="0,8,0,0">
-                <Grid>
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnLocationTapped" />
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Padding="20" Spacing="15">
-                        <Label Text="📍" FontSize="32" VerticalOptions="Center" />
-                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Location"
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   TextColor="White" />
-                            <Label Text="Match venue, GPS, and map links"
-                                   FontSize="14"
-                                   TextColor="#E0E0E0" />
-                        </VerticalStackLayout>
-                        <Label Text="›"
-                               FontSize="32"
-                               TextColor="White"
-                               VerticalOptions="Center" />
-                    </HorizontalStackLayout>
+        <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="12">
+            <Label Style="{StaticResource PvTitle}" Text="Details" Margin="4,8,0,8"/>
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnLocationTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconLocation}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Location" />
+                        <Label Style="{StaticResource PvCaption}" Text="Match venue, GPS, and map links" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
-            </Frame>
-
-            <!-- Kit -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="0"
-                   HasShadow="True">
-                <Grid>
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnKitTapped" />
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Padding="20" Spacing="15">
-                        <Label Text="👕" FontSize="32" VerticalOptions="Center" />
-                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Kit"
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   TextColor="White" />
-                            <Label Text="Arrive, warm-up, game, and event kit"
-                                   FontSize="14"
-                                   TextColor="#E0E0E0" />
-                        </VerticalStackLayout>
-                        <Label Text="›"
-                               FontSize="32"
-                               TextColor="White"
-                               VerticalOptions="Center" />
-                    </HorizontalStackLayout>
+            </Border>
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnKitTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconCheckroom}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Kit" />
+                        <Label Style="{StaticResource PvCaption}" Text="Arrive, warm-up, game, and event kit" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
-            </Frame>
-
-            <!-- Duties -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="0"
-                   HasShadow="True">
-                <Grid>
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnDutiesTapped" />
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Padding="20" Spacing="15">
-                        <Label Text="✅" FontSize="32" VerticalOptions="Center" />
-                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Duties"
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   TextColor="White" />
-                            <Label Text="Duty officer, canteen, grounds, other"
-                                   FontSize="14"
-                                   TextColor="#E0E0E0" />
-                        </VerticalStackLayout>
-                        <Label Text="›"
-                               FontSize="32"
-                               TextColor="White"
-                               VerticalOptions="Center" />
-                    </HorizontalStackLayout>
+            </Border>
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnDutiesTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconFactCheck}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Duties" />
+                        <Label Style="{StaticResource PvCaption}" Text="Duty officer, canteen, grounds, other" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
-            </Frame>
-
-            <!-- Nominations -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="0"
-                   HasShadow="True">
-                <Grid>
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnNominationsTapped" />
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Padding="20" Spacing="15">
-                        <Label Text="⭐" FontSize="32" VerticalOptions="Center" />
-                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Nominations"
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   TextColor="White" />
-                            <Label Text="Player nominations and selections"
-                                   FontSize="14"
-                                   TextColor="#E0E0E0" />
-                        </VerticalStackLayout>
-                        <Label Text="›"
-                               FontSize="32"
-                               TextColor="White"
-                               VerticalOptions="Center" />
-                    </HorizontalStackLayout>
+            </Border>
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnNominationsTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconStar}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Nominations" />
+                        <Label Style="{StaticResource PvCaption}" Text="Player nominations and selections" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
-            </Frame>
+            </Border>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

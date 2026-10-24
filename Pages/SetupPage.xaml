@@ -3,161 +3,87 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="TurfTime2.SetupPage"
              Title="Location">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="14">
-
+        <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="16">
             <!-- View-only banner (shared members) -->
-            <Border x:Name="ViewOnlyBanner"
-                    IsVisible="False"
-                    BackgroundColor="#ffc107"
-                    Padding="10,6"
-                    StrokeShape="RoundRectangle 6"
-                    Margin="0,4,0,0">
-                <Label Text="📖 VIEW-ONLY — Only the team Admin can edit match location"
-                       TextColor="Black"
-                       FontAttributes="Bold"
-                       FontSize="12"
-                       HorizontalOptions="Center"
+            <Border x:Name="ViewOnlyBanner" IsVisible="False" Style="{StaticResource PvCardWarning}" Padding="12,8">
+                <Label Style="{StaticResource PvWarningText}" FontFamily="InterSemiBold"
+                       Text="VIEW-ONLY — Only the team Admin can edit match location"
                        HorizontalTextAlignment="Center" />
             </Border>
-
             <!-- Outdated / incomplete schedule -->
-            <Border x:Name="ScheduleStatusBanner"
-                    IsVisible="False"
-                    BackgroundColor="#FFF3E0"
-                    Padding="10,8"
-                    StrokeShape="RoundRectangle 6">
-                <Label x:Name="ScheduleStatusBannerLabel"
-                       TextColor="#E65100"
-                       FontAttributes="Bold"
-                       FontSize="12"
-                       HorizontalTextAlignment="Center" />
+            <Border x:Name="ScheduleStatusBanner" IsVisible="False" Style="{StaticResource PvCardWarning}" Padding="12,8">
+                <Label Style="{StaticResource PvWarningText}" x:Name="ScheduleStatusBannerLabel" FontFamily="InterSemiBold" HorizontalTextAlignment="Center" />
             </Border>
-
-            <!-- Group 1: Match Start + Arrive Time -->
-            <Frame Padding="14"
-                   CornerRadius="8"
-                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
-                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
-                   HasShadow="False">
+            <Border Style="{StaticResource PvCard}">
                 <VerticalStackLayout Spacing="12">
-                    <Label Text="Schedule"
-                           FontAttributes="Bold"
-                           FontSize="15" />
-
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="Match Start" />
-                        <HorizontalStackLayout Spacing="10">
-                            <DatePicker x:Name="MatchDatePicker"
-                                        HorizontalOptions="FillAndExpand"
-                                        DateSelected="OnFieldChanged" />
-                            <TimePicker x:Name="MatchTimePicker"
-                                        HorizontalOptions="FillAndExpand"
-                                        PropertyChanged="OnFieldChanged" />
-                        </HorizontalStackLayout>
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Schedule" />
+                    <VerticalStackLayout Spacing="4">
+                        <Label Style="{StaticResource PvBodyStrong}" Text="Match Start" />
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                            <Border Style="{StaticResource PvField}">
+                                <DatePicker Style="{StaticResource PvDatePicker}" x:Name="MatchDatePicker" DateSelected="OnFieldChanged" />
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource PvField}">
+                                <TimePicker Style="{StaticResource PvTimePicker}" x:Name="MatchTimePicker" PropertyChanged="OnFieldChanged" />
+                            </Border>
+                        </Grid>
                     </VerticalStackLayout>
-
-                    <VerticalStackLayout Spacing="5">
-                        <Label Text="Arrive Time" />
-                        <Label Text="When to be at the ground for warm-up (not kickoff)"
-                               FontSize="11"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
-                        <TimePicker x:Name="ArriveTimePicker"
-                                    HorizontalOptions="Fill"
-                                    PropertyChanged="OnFieldChanged" />
+                    <VerticalStackLayout Spacing="4">
+                        <Label Style="{StaticResource PvBodyStrong}" Text="Arrive Time" />
+                        <Label Style="{StaticResource PvCaption}" Text="When to be at the ground for warm-up (not kickoff)" />
+                        <Border Style="{StaticResource PvField}">
+                            <TimePicker Style="{StaticResource PvTimePicker}" x:Name="ArriveTimePicker" PropertyChanged="OnFieldChanged" />
+                        </Border>
                     </VerticalStackLayout>
-
-                    <!-- Confidence: status + last updated + source -->
                     <VerticalStackLayout Spacing="2" Margin="0,4,0,0">
-                        <Label x:Name="ScheduleStatusLabel"
-                               FontSize="12"
-                               FontAttributes="Bold"
-                               TextColor="{AppThemeBinding Light=#2E7D32, Dark=#81C784}" />
-                        <Label x:Name="ScheduleUpdatedLabel"
-                               FontSize="11"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
-                        <Label x:Name="ScheduleSourceLabel"
-                               FontSize="11"
-                               TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
+                        <Label Style="{StaticResource PvBodyStrong}" x:Name="ScheduleStatusLabel" FontSize="13" />
+                        <Label Style="{StaticResource PvCaption}" x:Name="ScheduleUpdatedLabel" />
+                        <Label Style="{StaticResource PvCaption}" x:Name="ScheduleSourceLabel" />
                     </VerticalStackLayout>
                 </VerticalStackLayout>
-            </Frame>
-
-            <!-- Group 2: Match Location + Search -->
-            <Frame Padding="14"
-                   CornerRadius="8"
-                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
-                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
-                   HasShadow="False">
-                <VerticalStackLayout Spacing="8">
-                    <Label Text="Match Location"
-                           FontAttributes="Bold"
-                           FontSize="15" />
-                    <Entry x:Name="LocationNameEntry"
-                           Placeholder="Venue or ground name"
-                           TextChanged="OnFieldChanged" />
-                    <Button x:Name="SearchLocationButton"
-                            Text="Search in Google Maps"
-                            Clicked="OnSearchLocationClicked" />
+            </Border>
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="12">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Match Location" />
+                    <Border Style="{StaticResource PvField}">
+                        <Entry Style="{StaticResource PvEntry}" x:Name="LocationNameEntry" Placeholder="Venue or ground name" TextChanged="OnFieldChanged" />
+                    </Border>
+                    <Button Style="{StaticResource PvButtonSecondary}" x:Name="SearchLocationButton" Text="Search in Google Maps" Clicked="OnSearchLocationClicked" />
                 </VerticalStackLayout>
-            </Frame>
-
-            <!-- Group 3: GPS + Get Current Location -->
-            <Frame Padding="14"
-                   CornerRadius="8"
-                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
-                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
-                   HasShadow="False">
-                <VerticalStackLayout Spacing="8">
-                    <Label Text="GPS Coordinates"
-                           FontAttributes="Bold"
-                           FontSize="15" />
-                    <Label Text="Optional"
-                           FontSize="11"
-                           TextColor="{AppThemeBinding Light=#666, Dark=#AAA}" />
-                    <HorizontalStackLayout Spacing="10">
-                        <Entry x:Name="LatitudeEntry"
-                               Placeholder="Latitude"
-                               Keyboard="Numeric"
-                               HorizontalOptions="FillAndExpand"
-                               TextChanged="OnFieldChanged" />
-                        <Entry x:Name="LongitudeEntry"
-                               Placeholder="Longitude"
-                               Keyboard="Numeric"
-                               HorizontalOptions="FillAndExpand"
-                               TextChanged="OnFieldChanged" />
-                    </HorizontalStackLayout>
-                    <Button x:Name="GetLocationButton"
-                            Text="Get Current Location"
-                            Clicked="OnGetLocationClicked" />
+            </Border>
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="12">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="GPS Coordinates" />
+                    <Label Style="{StaticResource PvCaption}" Text="Optional" />
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                        <Border Style="{StaticResource PvField}">
+                            <Entry Style="{StaticResource PvEntry}" x:Name="LatitudeEntry" Placeholder="Latitude" Keyboard="Numeric" TextChanged="OnFieldChanged" />
+                        </Border>
+                        <Border Grid.Column="1" Style="{StaticResource PvField}">
+                            <Entry Style="{StaticResource PvEntry}" x:Name="LongitudeEntry" Placeholder="Longitude" Keyboard="Numeric" TextChanged="OnFieldChanged" />
+                        </Border>
+                    </Grid>
+                    <Button Style="{StaticResource PvButtonSecondary}" x:Name="GetLocationButton" Text="Get Current Location" Clicked="OnGetLocationClicked" />
                 </VerticalStackLayout>
-            </Frame>
-
-            <!-- Group 4: Maps link + Pick Location + Open in Maps -->
-            <Frame Padding="14"
-                   CornerRadius="8"
-                   BorderColor="{AppThemeBinding Light=#E0E0E0, Dark=#404040}"
-                   BackgroundColor="{AppThemeBinding Light=#F8F8F8, Dark=#2C2C2C}"
-                   HasShadow="False">
-                <VerticalStackLayout Spacing="8">
-                    <Label Text="Maps Link"
-                           FontAttributes="Bold"
-                           FontSize="15" />
-                    <Label Text="Link (Google Maps)"
-                           FontSize="12" />
-                    <Entry x:Name="MapsLinkEntry"
-                           Placeholder="Paste Google Maps link here"
-                           Keyboard="Url"
-                           TextChanged="OnFieldChanged" />
-                    <Button x:Name="PickLocationButton"
-                            Text="Pick Location from Maps"
-                            Clicked="OnPickLocationClicked" />
-                    <Button x:Name="OpenLinkButton"
-                            Text="Open in Maps"
-                            Clicked="OnOpenLinkClicked" />
+            </Border>
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="12">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Maps Link" />
+                    <Label Style="{StaticResource PvCaption}" Text="Link (Google Maps)" />
+                    <Border Style="{StaticResource PvField}">
+                        <Entry Style="{StaticResource PvEntry}" x:Name="MapsLinkEntry" Placeholder="Paste Google Maps link here" Keyboard="Url" TextChanged="OnFieldChanged" />
+                    </Border>
+                    <Button Style="{StaticResource PvButtonSecondary}" x:Name="PickLocationButton" Text="Pick Location from Maps" Clicked="OnPickLocationClicked" />
+                    <Button Style="{StaticResource PvButtonPrimary}" x:Name="OpenLinkButton" Text="Open in Maps" Clicked="OnOpenLinkClicked" />
                 </VerticalStackLayout>
-            </Frame>
-
+            </Border>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

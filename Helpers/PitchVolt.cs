@@ -5,7 +5,7 @@ namespace TurfTime2.Helpers;
 
 /// <summary>
 /// Pitch &amp; Volt tokens for code-behind (ui-refresh). Mirrors Resources/Styles/PitchVolt.xaml.
-/// Only used by in-scope pages (Chat, Settings + children, Help).
+/// Only used by in-scope pages (Chat, Settings + children, Help, Details + children).
 /// </summary>
 public static class PitchVolt
 {

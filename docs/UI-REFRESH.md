@@ -16,14 +16,21 @@ Purpose: develop and test the "Pitch & Volt" visual refresh on a limited set of 
 | Settings › Timers | `Pages/TimersSettingsPage.xaml(.cs)` | `settings/timers` |
 | Settings › Options | `Pages/OptionsPage.xaml(.cs)` | `settings/options` |
 | Help | `Pages/HelpPage.xaml(.cs)` | Tab `HelpPage` |
+| Details | `Pages/DetailsPage.xaml(.cs)` | Tab `DetailsPage` |
+| Details › Location | `Pages/SetupPage.xaml(.cs)` | `details/location` |
+| Details › Kit | `Pages/KitPage.xaml(.cs)` | `details/kit` |
+| Details › Duties | `Pages/DutiesPage.xaml(.cs)` | `details/duties` |
+| Details › Nominations (placeholder) | `Pages/ComingSoonPage.xaml(.cs)` | `details/comingsoon` |
 
 New shared style resources for these pages (new files only), e.g.
 `Resources/Styles/PitchVolt.xaml` (+ fonts/icons under `Resources/Fonts` if Inter / Material Symbols Rounded are added).
 
 ### Out of scope (do not modify)
-GamePage, DetailsPage, SetupPage, KitPage, DutiesPage, ComingSoonPage, GoalDetailModal, WelcomePage,
+GamePage, GoalDetailModal, WelcomePage,
 RotationStylePage (not reachable from Settings navigation; only referenced by GamePage via a static event),
 AppShell (tab bar), and the global `Resources/Styles/Styles.xaml` / `Colors.xaml`.
+
+Details pages added to scope on 2026-10-24 (build 47) at Andrew's request.
 
 ## Approach
 - Apply Pitch & Volt via **page-scoped styles**: a new ResourceDictionary (`PitchVolt.xaml`) merged
