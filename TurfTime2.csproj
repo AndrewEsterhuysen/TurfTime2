@@ -30,7 +30,7 @@
 		     ApplicationVersion = integer build (CFBundleVersion / versionCode). Store rejects reuse. -->
 		<ApplicationDisplayVersion>3.4.2</ApplicationDisplayVersion>
 		<!-- Build 39: View Team Members for all members; Field token initials (A.E); Simulator push note. -->
-		<ApplicationVersion>47</ApplicationVersion>
+		<ApplicationVersion>48</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>

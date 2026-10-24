@@ -50,9 +50,15 @@
             </Grid>
         </Border>
 
+        <!-- ui-refresh: fixed, low-contrast pitch background behind the list (see ChatPitchBackground.cs) -->
+        <GraphicsView x:Name="ChatBackground"
+                      Grid.Row="1"
+                      InputTransparent="True" />
+
         <CollectionView x:Name="MessagesList"
                         Grid.Row="1"
                         SelectionMode="None"
+                        BackgroundColor="Transparent"
                         Margin="8" />
 
         <!-- Reply quote strip above composer -->

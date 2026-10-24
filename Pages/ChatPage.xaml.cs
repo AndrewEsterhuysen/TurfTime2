@@ -36,6 +36,10 @@ public partial class ChatPage : ContentPage
 	public ChatPage()
 	{
 		InitializeComponent();
+		ChatBackground.Drawable = new ChatPitchBackground();
+		if (Application.Current is not null)
+			Application.Current.RequestedThemeChanged += (_, _) =>
+				MainThread.BeginInvokeOnMainThread(() => ChatBackground.Invalidate());
 		MessagesList.ItemsSource = _listItems;
 		MessagesList.ItemTemplate = new ChatItemTemplateSelector
 		{
