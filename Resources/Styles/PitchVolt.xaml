@@ -58,7 +58,7 @@
     <x:String x:Key="PvIconVisibility">&#xe8f4;</x:String>
     <x:String x:Key="PvIconMail">&#xe159;</x:String>
     <x:String x:Key="PvIconAttach">&#xe226;</x:String>
-    <x:String x:Key="PvIconPhone">&#xe32c;</x:String>
+    <x:String x:Key="PvIconPhone">&#xe7ba;</x:String>
     <x:String x:Key="PvIconKey">&#xe73c;</x:String>
 
     <!-- ===== Page ===== -->
