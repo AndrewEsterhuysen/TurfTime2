@@ -746,7 +746,7 @@ public partial class TeamDetailsPage : ContentPage
 
 	private void OnSharedTeamItemTapped(object sender, EventArgs e)
 	{
-		if (sender is Frame frame && frame.BindingContext is SharedTeamItem tappedTeam)
+		if (sender is BindableObject tapped && tapped.BindingContext is SharedTeamItem tappedTeam)
 			_ = SelectSharedTeamAsync(tappedTeam);
 	}
 
@@ -818,9 +818,9 @@ public partial class TeamDetailsPage : ContentPage
 			// Alternative handler for TapGestureRecognizer (Android fallback)
 	private void OnTeamItemTapped(object sender, EventArgs e)
 	{
-		System.Diagnostics.Debug.WriteLine($"[TeamDetails] TapGesture fired on Frame");
+		System.Diagnostics.Debug.WriteLine($"[TeamDetails] TapGesture fired on team card");
 
-		if (sender is Frame frame && frame.BindingContext is LocalTeamItem tappedTeam)
+		if (sender is BindableObject tapped && tapped.BindingContext is LocalTeamItem tappedTeam)
 		{
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] Tapped team: {tappedTeam.TeamName}");
 
