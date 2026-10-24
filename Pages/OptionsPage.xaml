@@ -2,196 +2,95 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="TurfTime2.OptionsPage"
-             Title="Options"
-             BackgroundColor="#1b5e20">
+             Title="Options">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
-            <Label Text="⚙️ Options"
-                   FontSize="28"
-                   FontAttributes="Bold"
-                   HorizontalOptions="Center"
-                   TextColor="White"
-                   Margin="0,10,0,20" />
+        <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="16">
+            <Label Style="{StaticResource PvTitle}" Text="Options" Margin="4,8,0,8"/>
 
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="20"
-                   HasShadow="True">
-                <VerticalStackLayout Spacing="10">
-                    <Label Text="Enable reporting goal scorer and assist"
-                           FontSize="18"
-                           FontAttributes="Bold"
-                           TextColor="White" />
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvCardTitle}" Text="Enable reporting goal scorer and assist"/>
 
                     <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
-                        <Label x:Name="ToggleStateLabel"
-                               Text="ON"
-                               FontSize="16"
-                               FontAttributes="Bold"
-                               TextColor="#A5D6A7"
-                               VerticalOptions="Center" />
-                        <Switch x:Name="EnableGoalDetailsSwitch"
-                                IsToggled="True"
-                                Toggled="OnEnableGoalDetailsToggled"
-                                HorizontalOptions="Start"
-                                VerticalOptions="Center" />
+                        <Label Style="{StaticResource PvAccentText}" x:Name="ToggleStateLabel" Text="ON" VerticalOptions="Center"/>
+                        <Switch Style="{StaticResource PvSwitch}" x:Name="EnableGoalDetailsSwitch" IsToggled="True" Toggled="OnEnableGoalDetailsToggled" HorizontalOptions="Start" VerticalOptions="Center"/>
                     </HorizontalStackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
             <!-- Rotation Basis — who is selected for the next rotate -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="20"
-                   HasShadow="True">
-                <VerticalStackLayout Spacing="10">
-                    <Label Text="Rotation Basis"
-                           FontSize="18"
-                           FontAttributes="Bold"
-                           TextColor="White" />
-                    <Label Text="How the app chooses who comes off the field and who comes on from the bench."
-                           FontSize="12"
-                           TextColor="#C8E6C9" />
-                    <Picker x:Name="RotationBasisPicker"
-                            Title="Basis"
-                            TextColor="White"
-                            TitleColor="#A5D6A7"
-                            SelectedIndexChanged="OnRotationBasisChanged" />
-                    <Label x:Name="RotationBasisDescriptionLabel"
-                           FontSize="13"
-                           TextColor="#A5D6A7"
-                           LineBreakMode="WordWrap" />
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvCardTitle}" Text="Rotation Basis"/>
+                    <Label Style="{StaticResource PvCaption}" Text="How the app chooses who comes off the field and who comes on from the bench."/>
+                    <Picker Style="{StaticResource PvPicker}" x:Name="RotationBasisPicker" Title="Basis" SelectedIndexChanged="OnRotationBasisChanged"/>
+                    <Label Style="{StaticResource PvCaption}" x:Name="RotationBasisDescriptionLabel" LineBreakMode="WordWrap"/>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
             <!-- Optional Game-tab tips (rotation basis line today; more later) -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="20"
-                   HasShadow="True">
-                <VerticalStackLayout Spacing="10">
-                    <Label Text="Information text"
-                           FontSize="18"
-                           FontAttributes="Bold"
-                           TextColor="White" />
-                    <Label Text="Show short instructional tips on the Game tab (for example the yellow rotation tip above Field View during a match). Turn off for a cleaner sideline display."
-                           FontSize="12"
-                           TextColor="#C8E6C9" />
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvCardTitle}" Text="Information text"/>
+                    <Label Style="{StaticResource PvCaption}" Text="Show short instructional tips on the Game tab (for example the yellow rotation tip above Field View during a match). Turn off for a cleaner sideline display."/>
                     <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
-                        <Label x:Name="InformationTextStateLabel"
-                               Text="ON"
-                               FontSize="16"
-                               FontAttributes="Bold"
-                               TextColor="#A5D6A7"
-                               VerticalOptions="Center"
-                               WidthRequest="48" />
-                        <Switch x:Name="InformationTextSwitch"
-                                IsToggled="True"
-                                Toggled="OnInformationTextToggled"
-                                HorizontalOptions="Start"
-                                VerticalOptions="Center" />
+                        <Label Style="{StaticResource PvAccentText}" x:Name="InformationTextStateLabel" Text="ON" VerticalOptions="Center" WidthRequest="48"/>
+                        <Switch Style="{StaticResource PvSwitch}" x:Name="InformationTextSwitch" IsToggled="True" Toggled="OnInformationTextToggled" HorizontalOptions="Start" VerticalOptions="Center"/>
                     </HorizontalStackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
             <!-- Legacy Team (roster list) View — off by default -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="20"
-                   HasShadow="True">
-                <VerticalStackLayout Spacing="10">
-                    <Label Text="Enable Team View"
-                           FontSize="18"
-                           FontAttributes="Bold"
-                           TextColor="White" />
-                    <Label Text="Include the roster list in the View cycle (Field → Team → Rotation). Off by default — Field toggles only with Rotation."
-                           FontSize="12"
-                           TextColor="#C8E6C9" />
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvCardTitle}" Text="Enable Team View"/>
+                    <Label Style="{StaticResource PvCaption}" Text="Include the roster list in the View cycle (Field → Team → Rotation). Off by default — Field toggles only with Rotation."/>
                     <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
-                        <Label x:Name="TeamViewStateLabel"
-                               Text="OFF"
-                               FontSize="16"
-                               FontAttributes="Bold"
-                               TextColor="#A5D6A7"
-                               VerticalOptions="Center"
-                               WidthRequest="48" />
-                        <Switch x:Name="TeamViewSwitch"
-                                IsToggled="False"
-                                Toggled="OnTeamViewToggled"
-                                HorizontalOptions="Start"
-                                VerticalOptions="Center" />
+                        <Label Style="{StaticResource PvAccentText}" x:Name="TeamViewStateLabel" Text="OFF" VerticalOptions="Center" WidthRequest="48"/>
+                        <Switch Style="{StaticResource PvSwitch}" x:Name="TeamViewSwitch" IsToggled="False" Toggled="OnTeamViewToggled" HorizontalOptions="Start" VerticalOptions="Center"/>
                     </HorizontalStackLayout>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
 
             <!-- Match reminders (local notifications) -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="20"
-                   HasShadow="True">
+            <Border Style="{StaticResource PvCard}">
                 <VerticalStackLayout Spacing="12">
-                    <Label Text="Match reminders"
-                           FontSize="18"
-                           FontAttributes="Bold"
-                           TextColor="White" />
-                    <Label Text="Uses Details → Location schedule. One tap enables day-before, morning, and leave reminders (arrive time minus buffer)."
-                           FontSize="12"
-                           TextColor="#C8E6C9" />
+                    <Label Style="{StaticResource PvCardTitle}" Text="Match reminders"/>
+                    <Label Style="{StaticResource PvCaption}" Text="Uses Details → Location schedule. One tap enables day-before, morning, and leave reminders (arrive time minus buffer)."/>
 
                     <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
-                        <Label x:Name="RemindersMasterLabel"
-                               Text="OFF"
-                               FontSize="16"
-                               FontAttributes="Bold"
-                               TextColor="#A5D6A7"
-                               VerticalOptions="Center"
-                               WidthRequest="48" />
-                        <Switch x:Name="RemindersEnabledSwitch"
-                                Toggled="OnRemindersEnabledToggled"
-                                HorizontalOptions="Start"
-                                VerticalOptions="Center" />
-                        <Label Text="Enable reminders"
-                               FontSize="15"
-                               TextColor="White"
-                               VerticalOptions="Center" />
+                        <Label Style="{StaticResource PvAccentText}" x:Name="RemindersMasterLabel" Text="OFF" VerticalOptions="Center" WidthRequest="48"/>
+                        <Switch Style="{StaticResource PvSwitch}" x:Name="RemindersEnabledSwitch" Toggled="OnRemindersEnabledToggled" HorizontalOptions="Start" VerticalOptions="Center"/>
+                        <Label Style="{StaticResource PvBody}" Text="Enable reminders" VerticalOptions="Center"/>
                     </HorizontalStackLayout>
 
-                    <VerticalStackLayout x:Name="ReminderDetailsPanel" Spacing="10" IsVisible="False">
+                    <VerticalStackLayout x:Name="ReminderDetailsPanel" Spacing="8" IsVisible="False">
                         <HorizontalStackLayout Spacing="12">
-                            <Switch x:Name="DayBeforeSwitch" Toggled="OnReminderDetailToggled" />
-                            <Label Text="Day before"
-                                   TextColor="White"
-                                   VerticalOptions="Center" />
+                            <Switch Style="{StaticResource PvSwitch}" x:Name="DayBeforeSwitch" Toggled="OnReminderDetailToggled"/>
+                            <Label Style="{StaticResource PvBody}" Text="Day before" VerticalOptions="Center"/>
                         </HorizontalStackLayout>
                         <HorizontalStackLayout Spacing="12">
-                            <Switch x:Name="MorningSwitch" Toggled="OnReminderDetailToggled" />
-                            <Label Text="Morning of match"
-                                   TextColor="White"
-                                   VerticalOptions="Center" />
+                            <Switch Style="{StaticResource PvSwitch}" x:Name="MorningSwitch" Toggled="OnReminderDetailToggled"/>
+                            <Label Style="{StaticResource PvBody}" Text="Morning of match" VerticalOptions="Center"/>
                         </HorizontalStackLayout>
                         <HorizontalStackLayout Spacing="12">
-                            <Switch x:Name="LeaveSwitch" Toggled="OnReminderDetailToggled" />
-                            <Label Text="Time to leave"
-                                   TextColor="White"
-                                   VerticalOptions="Center" />
+                            <Switch Style="{StaticResource PvSwitch}" x:Name="LeaveSwitch" Toggled="OnReminderDetailToggled"/>
+                            <Label Style="{StaticResource PvBody}" Text="Time to leave" VerticalOptions="Center"/>
                         </HorizontalStackLayout>
 
-                        <Label Text="Leave buffer (before arrive)"
-                               FontSize="13"
-                               TextColor="#C8E6C9" />
-                        <Picker x:Name="LeaveBufferPicker"
-                                Title="Buffer"
-                                TextColor="White"
-                                TitleColor="#A5D6A7"
-                                SelectedIndexChanged="OnLeaveBufferChanged" />
+                        <Label Style="{StaticResource PvCaption}" Text="Leave buffer (before arrive)"/>
+                        <Picker Style="{StaticResource PvPicker}" x:Name="LeaveBufferPicker" Title="Buffer" SelectedIndexChanged="OnLeaveBufferChanged"/>
                     </VerticalStackLayout>
 
-                    <Label x:Name="RemindersStatusLabel"
-                           FontSize="12"
-                           TextColor="#A5D6A7"
-                           Margin="0,4,0,0" />
+                    <Label Style="{StaticResource PvCaption}" x:Name="RemindersStatusLabel" Margin="0,4,0,0"/>
                 </VerticalStackLayout>
-            </Frame>
+            </Border>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

@@ -4,83 +4,54 @@
              x:Class="TurfTime2.QrShareModal"
              Title="Share Team"
              Shell.PresentationMode="Modal">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="Close" Clicked="OnCloseToolbarClicked" />
     </ContentPage.ToolbarItems>
 
     <ScrollView>
-    <VerticalStackLayout Padding="20" Spacing="15">
+    <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="16">
 
-        <Label
-            Text="Share via QR Code"
-            FontSize="24"
-            FontAttributes="Bold"
-            HorizontalOptions="Center" />
+        <Label Style="{StaticResource PvHeadline}" Text="Share via QR Code" HorizontalOptions="Center"/>
 
-        <Frame BorderColor="#E0E0E0" CornerRadius="10" Padding="15" HasShadow="True">
+        <Border Style="{StaticResource PvCard}">
             <VerticalStackLayout Spacing="8">
-                <Label Text="{Binding TeamName}" FontSize="18" FontAttributes="Bold" />
-                <Label Text="{Binding SubtitleLine}" FontSize="14" />
-                <Label Text="{Binding DetailLine}" FontSize="12" TextColor="#666" />
+                <Label Style="{StaticResource PvCardTitle}" Text="{Binding TeamName}"/>
+                <Label Style="{StaticResource PvCaption}" Text="{Binding SubtitleLine}"/>
+                <Label Style="{StaticResource PvCaption}" Text="{Binding DetailLine}"/>
             </VerticalStackLayout>
-        </Frame>
+        </Border>
 
-        <Frame BorderColor="#000000" CornerRadius="10" Padding="10" HasShadow="True" HorizontalOptions="Center">
+        <Border Style="{StaticResource PvCard}" HorizontalOptions="Center" Padding="8" BackgroundColor="White">
             <Image
                 Source="{Binding QrImage}"
                 WidthRequest="280"
                 HeightRequest="360"
                 Aspect="AspectFit" />
-        </Frame>
+        </Border>
 
         <!-- Shared team: tappable join deep link for email / SMS -->
-        <VerticalStackLayout IsVisible="{Binding ShowJoinLink}" Spacing="6">
-            <Label Text="Join link (email or text message)"
-                   FontSize="13"
-                   FontAttributes="Bold"
-                   TextColor="#333"
-                   HorizontalTextAlignment="Center" />
-            <Label Text="{Binding JoinLink}"
-                   FontSize="12"
-                   TextColor="#1565C0"
-                   HorizontalTextAlignment="Center"
-                   LineBreakMode="CharacterWrap">
+        <VerticalStackLayout IsVisible="{Binding ShowJoinLink}" Spacing="8">
+            <Label Style="{StaticResource PvBodyStrong}" Text="Join link (email or text message)" HorizontalTextAlignment="Center"/>
+            <Label Style="{StaticResource PvLink}" Text="{Binding JoinLink}" HorizontalTextAlignment="Center" LineBreakMode="CharacterWrap">
                 <Label.GestureRecognizers>
                     <TapGestureRecognizer Command="{Binding CopyJoinLinkCommand}" />
                 </Label.GestureRecognizers>
             </Label>
-            <Button Text="Copy join link"
-                    Command="{Binding CopyJoinLinkCommand}"
-                    BackgroundColor="#455A64"
-                    TextColor="White"
-                    CornerRadius="8"
-                    Padding="12,10"
-                    FontSize="14" />
+            <Button Style="{StaticResource PvButtonOutline}" Text="Copy join link" Command="{Binding CopyJoinLinkCommand}"/>
         </VerticalStackLayout>
 
-        <Label
-            Text="{Binding Instructions}"
-            FontSize="12"
-            TextColor="#666"
-            HorizontalTextAlignment="Center"
-            Margin="0,10" />
+        <Label Style="{StaticResource PvCaption}" Text="{Binding Instructions}" HorizontalTextAlignment="Center" Margin="0,8"/>
 
-        <VerticalStackLayout Spacing="10">
-            <Button
-                Text="{Binding ShareButtonText}"
-                Command="{Binding ShareQrImageCommand}"
-                BackgroundColor="#673AB7"
-                TextColor="White"
-                CornerRadius="8"
-                Padding="15,12" />
+        <VerticalStackLayout Spacing="8">
+            <Button Style="{StaticResource PvButtonPrimary}" Text="{Binding ShareButtonText}" Command="{Binding ShareQrImageCommand}"/>
 
-            <Button
-                Text="Close"
-                Command="{Binding CloseCommand}"
-                BackgroundColor="#F44336"
-                TextColor="White"
-                CornerRadius="8"
-                Padding="15,12" />
+            <Button Style="{StaticResource PvButtonOutline}" Text="Close" Command="{Binding CloseCommand}"/>
         </VerticalStackLayout>
     </VerticalStackLayout>
     </ScrollView>
