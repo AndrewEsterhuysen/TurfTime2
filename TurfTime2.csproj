@@ -119,7 +119,8 @@
 		<MauiIcon Include="Resources\AppIcon\appicon.svg" Color="#512BD4" />
 
 		<!-- Splash: small PNG + modest BaseSize keeps density variants small (old 1.7MB SVG @ 620 blew up to ~8MB of PNGs). -->
-		<MauiSplashScreen Include="Resources\Splash\turftimer_splash_256.png" Color="#0E2128" BaseSize="256,256" />
+		<!-- iOS uses Platforms/iOS/LaunchScreen.storyboard (full-screen); MauiSplash would override UILaunchStoryboardName -->
+		<MauiSplashScreen Condition="$(TargetFramework.Contains('-ios')) != true" Include="Resources\Splash\turftimer_splash_256.png" Color="#0E2128" BaseSize="256,256" />
 
 		<!-- Images -->
 		<MauiImage Include="Resources\Images\*" />
