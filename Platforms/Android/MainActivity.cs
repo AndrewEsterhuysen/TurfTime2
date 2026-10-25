@@ -9,7 +9,7 @@ namespace TurfTime2
 {
     // AdjustResize so bottom Entry (e.g. Chat) stays above the soft keyboard instead of being covered.
     [Activity(
-        Theme = "@style/Maui.SplashTheme",
+        Theme = "@style/TurfTimer.SplashTheme",
         MainLauncher = true,
         LaunchMode = LaunchMode.SingleTop,
         ScreenOrientation = ScreenOrientation.Portrait,

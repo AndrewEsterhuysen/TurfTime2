@@ -421,6 +421,7 @@
 
             <!-- VIEW_A: Swipeable list -->
             <CollectionView x:Name="SwipeableRoster"
+                            IsVisible="False"
                             ItemsSource="{Binding DisplayItems}"
                             ItemTemplate="{StaticResource RosterSelector}"
                             ItemsLayout="VerticalList"
