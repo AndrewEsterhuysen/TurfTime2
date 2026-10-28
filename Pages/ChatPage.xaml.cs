@@ -36,6 +36,10 @@ public partial class ChatPage : ContentPage
 	public ChatPage()
 	{
 		InitializeComponent();
+		ChatBackground.Drawable = new ChatPitchBackground();
+		if (Application.Current is not null)
+			Application.Current.RequestedThemeChanged += (_, _) =>
+				MainThread.BeginInvokeOnMainThread(() => ChatBackground.Invalidate());
 		MessagesList.ItemsSource = _listItems;
 		MessagesList.ItemTemplate = new ChatItemTemplateSelector
 		{
@@ -189,25 +193,25 @@ public partial class ChatPage : ContentPage
 			var chip = new Border
 			{
 				StrokeThickness = selected ? 2 : 1,
-				Stroke = selected ? Color.FromArgb("#2E7D32") : Color.FromArgb("#81C784"),
-				BackgroundColor = selected ? Color.FromArgb("#2E7D32") : Colors.White,
-				Padding = new Thickness(10, 6),
+				Padding = new Thickness(12, 8),
 				MinimumWidthRequest = 56
 			};
-			chip.StrokeShape = new RoundRectangle { CornerRadius = 14 };
+			chip.StrokeShape = new RoundRectangle { CornerRadius = 18 };
+			chip.SetPv(Border.StrokeProperty, selected ? PitchVolt.Primary : PitchVolt.Outline);
+			chip.SetPv(VisualElement.BackgroundColorProperty, selected ? PitchVolt.Primary : PitchVolt.Surface);
 
 			var text = hasUnread ? $"{label} ●" : label;
 			var lbl = new Label
 			{
 				Text = text,
 				FontSize = 13,
-				FontAttributes = selected ? FontAttributes.Bold : FontAttributes.None,
-				TextColor = selected ? Colors.White : Color.FromArgb("#1B5E20"),
+				FontFamily = selected ? "InterSemiBold" : "Inter",
 				VerticalOptions = LayoutOptions.Center,
 				HorizontalOptions = LayoutOptions.Center
 			};
+			lbl.SetPv(Label.TextColorProperty, selected ? PitchVolt.OnPrimary : PitchVolt.Text);
 			if (hasUnread && !selected)
-				lbl.TextColor = Color.FromArgb("#C62828");
+				lbl.SetPv(Label.TextColorProperty, PitchVolt.Danger);
 
 			chip.Content = lbl;
 			var capturedId = id;
@@ -378,13 +382,14 @@ public partial class ChatPage : ContentPage
 	{
 		var label = new Label
 		{
-			FontSize = 12,
-			FontAttributes = FontAttributes.Bold,
-			TextColor = Color.FromArgb("#666666"),
+			FontSize = 11,
+			FontFamily = "InterSemiBold",
+			CharacterSpacing = 0.5,
 			HorizontalOptions = LayoutOptions.Center,
 			HorizontalTextAlignment = TextAlignment.Center,
-			Margin = new Thickness(0, 10, 0, 6)
+			Margin = new Thickness(0, 16, 0, 8)
 		};
+		label.SetPv(Label.TextColorProperty, PitchVolt.TextSecondary);
 		label.SetBinding(Label.TextProperty, nameof(ChatDayHeader.Label));
 		return label;
 	}
@@ -394,41 +399,48 @@ public partial class ChatPage : ContentPage
 		// Built once per template instance; bind to ChatMessage.
 		var root = new VerticalStackLayout { Spacing = 2, Padding = new Thickness(4) };
 
-		var nameLabel = new Label { FontSize = 11, TextColor = Color.FromArgb("#666666") };
+		var nameLabel = new Label { FontSize = 11, FontFamily = "InterSemiBold" };
+		nameLabel.SetPv(Label.TextColorProperty, PitchVolt.TextSecondary);
 		nameLabel.SetBinding(Label.TextProperty, nameof(ChatMessage.SenderName));
 		nameLabel.SetBinding(Label.IsVisibleProperty, new Binding(nameof(ChatMessage.IsMine), converter: new InvertBoolConverter()));
 
 		var replyQuote = new Border
 		{
 			StrokeThickness = 0,
-			BackgroundColor = Color.FromArgb("#00000012"),
 			Padding = new Thickness(8, 4),
 			Margin = new Thickness(0, 0, 0, 4)
 		};
-		replyQuote.StrokeShape = new RoundRectangle { CornerRadius = 6 };
+		replyQuote.SetPv(VisualElement.BackgroundColorProperty, PitchVolt.Background);
+		replyQuote.StrokeShape = new RoundRectangle { CornerRadius = 8 };
 		var replyStack = new VerticalStackLayout { Spacing = 1 };
-		var replyName = new Label { FontSize = 10, FontAttributes = FontAttributes.Bold, TextColor = Color.FromArgb("#2e7d32") };
-		var replyText = new Label { FontSize = 11, TextColor = Color.FromArgb("#555555"), LineBreakMode = LineBreakMode.TailTruncation, MaxLines = 2 };
+		var replyName = new Label { FontSize = 11, FontFamily = "InterSemiBold" };
+		replyName.SetPv(Label.TextColorProperty, PitchVolt.Primary);
+		var replyText = new Label { FontSize = 13, FontFamily = "Inter", LineBreakMode = LineBreakMode.TailTruncation, MaxLines = 2 };
+		replyText.SetPv(Label.TextColorProperty, PitchVolt.TextSecondary);
 		replyStack.Children.Add(replyName);
 		replyStack.Children.Add(replyText);
 		replyQuote.Content = replyStack;
 
-		var textLabel = new Label { FontSize = 15, LineBreakMode = LineBreakMode.WordWrap };
+		var textLabel = new Label { FontSize = 15, FontFamily = "Inter", LineBreakMode = LineBreakMode.WordWrap };
 
 		var timeLabel = new Label
 		{
-			FontSize = 10,
-			TextColor = Color.FromArgb("#888888"),
+			FontSize = 11,
+			FontFamily = "Inter",
 			HorizontalOptions = LayoutOptions.End
 		};
+		timeLabel.SetPv(Label.TextColorProperty, PitchVolt.TextSecondary);
 		timeLabel.SetBinding(Label.TextProperty, nameof(ChatMessage.LocalTimeText));
 
 		var pinBadge = new Label
 		{
-			Text = "📌",
-			FontSize = 11,
+			Text = PitchVolt.IconPin,
+			FontFamily = PitchVolt.IconFont,
+			FontSize = 13,
+			VerticalOptions = LayoutOptions.Center,
 			IsVisible = false
 		};
+		pinBadge.SetPv(Label.TextColorProperty, PitchVolt.WarningText);
 
 		var metaRow = new Grid { ColumnDefinitions = new ColumnDefinitionCollection { new(), new(GridLength.Auto) } };
 		metaRow.Add(pinBadge, 0);
@@ -442,12 +454,12 @@ public partial class ChatPage : ContentPage
 
 		var border = new Border
 		{
-			Padding = new Thickness(10, 8),
+			Padding = new Thickness(12, 8),
 			StrokeThickness = 0,
 			Content = bubbleStack,
 			MaximumWidthRequest = 320
 		};
-		border.StrokeShape = new RoundRectangle { CornerRadius = 12 };
+		border.StrokeShape = new RoundRectangle { CornerRadius = 16 };
 
 		var reactionsRow = new HorizontalStackLayout
 		{
@@ -504,9 +516,10 @@ public partial class ChatPage : ContentPage
 		HorizontalStackLayout reactionsRow,
 		VerticalStackLayout column)
 	{
-		border.BackgroundColor = msg.IsMine
-			? Color.FromArgb("#DCF8C6")
-			: Color.FromArgb("#FFFFFF");
+		// Mine = primary container; others = surface with outline.
+		border.SetPv(VisualElement.BackgroundColorProperty, msg.IsMine ? PitchVolt.PrimaryContainer : PitchVolt.Surface);
+		border.StrokeThickness = msg.IsMine ? 0 : 1;
+		border.SetPv(Border.StrokeProperty, PitchVolt.Outline);
 		column.HorizontalOptions = msg.IsMine ? LayoutOptions.End : LayoutOptions.Start;
 		reactionsRow.HorizontalOptions = msg.IsMine ? LayoutOptions.End : LayoutOptions.Start;
 
@@ -516,7 +529,7 @@ public partial class ChatPage : ContentPage
 		{
 			textLabel.Text = "This message was deleted";
 			textLabel.FontAttributes = FontAttributes.Italic;
-			textLabel.TextColor = Color.FromArgb("#888888");
+			textLabel.SetPv(Label.TextColorProperty, PitchVolt.TextSecondary);
 			textLabel.FormattedText = null;
 			replyQuote.IsVisible = false;
 			reactionsRow.Children.Clear();
@@ -525,7 +538,7 @@ public partial class ChatPage : ContentPage
 		}
 
 		textLabel.FontAttributes = FontAttributes.None;
-		textLabel.TextColor = Colors.Black;
+		textLabel.SetPv(Label.TextColorProperty, PitchVolt.Text);
 		textLabel.FormattedText = BuildMentionFormatted(msg.Text);
 		if (textLabel.FormattedText is null)
 			textLabel.Text = msg.Text;
@@ -549,17 +562,12 @@ public partial class ChatPage : ContentPage
 			any = true;
 			var chip = new Border
 			{
-				StrokeThickness = mine ? 1.5 : 0,
-				Stroke = mine ? Color.FromArgb("#2e7d32") : Colors.Transparent,
-				BackgroundColor = Color.FromArgb("#F0F0F0"),
-				Padding = new Thickness(8, 3),
-				Content = new Label
-				{
-					Text = $"{emoji} {count}",
-					FontSize = 13,
-					TextColor = Colors.Black
-				}
+				StrokeThickness = mine ? 1.5 : 1,
+				Padding = new Thickness(8, 4),
+				Content = CreateReactionChipLabel($"{emoji} {count}")
 			};
+			chip.SetPv(Border.StrokeProperty, mine ? PitchVolt.Primary : PitchVolt.Outline);
+			chip.SetPv(VisualElement.BackgroundColorProperty, mine ? PitchVolt.PrimaryContainer : PitchVolt.Surface);
 			chip.StrokeShape = new RoundRectangle { CornerRadius = 12 };
 
 			var capturedEmoji = emoji;
@@ -570,6 +578,13 @@ public partial class ChatPage : ContentPage
 			reactionsRow.Children.Add(chip);
 		}
 		reactionsRow.IsVisible = any;
+	}
+
+	private static Label CreateReactionChipLabel(string text)
+	{
+		var label = new Label { Text = text, FontSize = 13, FontFamily = "Inter" };
+		label.SetPv(Label.TextColorProperty, PitchVolt.Text);
+		return label;
 	}
 
 	private FormattedString? BuildMentionFormatted(string? text)
@@ -603,19 +618,19 @@ public partial class ChatPage : ContentPage
 		{
 			if (m.Index > last)
 			{
-				fs.Spans.Add(new Span { Text = text[last..m.Index], TextColor = Colors.Black, FontSize = 15 });
+				fs.Spans.Add(new Span { Text = text[last..m.Index], TextColor = PitchVolt.Text.Current, FontFamily = "Inter", FontSize = 15 });
 			}
 			fs.Spans.Add(new Span
 			{
 				Text = m.Value,
-				TextColor = Color.FromArgb("#1565C0"),
-				FontAttributes = FontAttributes.Bold,
+				TextColor = PitchVolt.Primary.Current,
+				FontFamily = "InterSemiBold",
 				FontSize = 15
 			});
 			last = m.Index + m.Length;
 		}
 		if (last < text.Length)
-			fs.Spans.Add(new Span { Text = text[last..], TextColor = Colors.Black, FontSize = 15 });
+			fs.Spans.Add(new Span { Text = text[last..], TextColor = PitchVolt.Text.Current, FontFamily = "Inter", FontSize = 15 });
 
 		return fs;
 	}
@@ -643,9 +658,11 @@ public partial class ChatPage : ContentPage
 				FontSize = 28,
 				WidthRequest = 56,
 				HeightRequest = 56,
-				BackgroundColor = Color.FromArgb("#F5F5F5"),
+				CornerRadius = 28,
+				Padding = 0,
 				Margin = 4
 			};
+			btn.SetPv(VisualElement.BackgroundColorProperty, PitchVolt.Background);
 			btn.Clicked += async (_, _) =>
 			{
 				await page.Navigation.PopModalAsync();
@@ -654,7 +671,11 @@ public partial class ChatPage : ContentPage
 			grid.Children.Add(btn);
 		}
 
-		var cancel = new Button { Text = "Cancel", Margin = new Thickness(12) };
+		var cancel = new Button { Text = "Cancel", Margin = new Thickness(16), CornerRadius = 24, MinimumHeightRequest = 48, FontFamily = "InterSemiBold", BorderWidth = 1 };
+		cancel.SetPv(VisualElement.BackgroundColorProperty, PitchVolt.Surface);
+		cancel.SetPv(Button.TextColorProperty, PitchVolt.Text);
+		cancel.SetPv(Button.BorderColorProperty, PitchVolt.Outline);
+		page.SetPv(VisualElement.BackgroundColorProperty, PitchVolt.Surface);
 		cancel.Clicked += async (_, _) => await page.Navigation.PopModalAsync();
 
 		page.Content = new ScrollView
@@ -1088,22 +1109,13 @@ public partial class ChatPage : ContentPage
 
 	private void ApplyThemeToInputBar()
 	{
-		var theme = Preferences.Get("AppTheme", "classic");
-		if (theme == "modern")
-		{
-			InputBar.BackgroundColor = Color.FromArgb("#1b263b");
-			SendButton.BackgroundColor = Color.FromArgb("#00d9ff");
-			SendButton.TextColor = Color.FromArgb("#0d1b2a");
-		}
-		else
-		{
-			InputBar.BackgroundColor = Color.FromArgb("#2e7d32");
-			SendButton.BackgroundColor = Color.FromArgb("#FF6B35");
-			SendButton.TextColor = Colors.White;
-		}
-
-		MessageEntry.TextColor = Color.FromArgb("#111111");
-		MessageEntry.PlaceholderColor = Color.FromArgb("#888888");
+		// Pitch & Volt (ui-refresh): composer colours follow light/dark via tokens.
+		// The legacy "AppTheme" preference ("classic"/"modern") is no longer written anywhere, so both paths use the same palette.
+		InputBar.SetPv(VisualElement.BackgroundColorProperty, PitchVolt.Surface);
+		SendButton.SetPv(VisualElement.BackgroundColorProperty, PitchVolt.Primary);
+		SendButton.SetPv(Button.TextColorProperty, PitchVolt.OnPrimary);
+		MessageEntry.SetPv(Entry.TextColorProperty, PitchVolt.Text);
+		MessageEntry.SetPv(Entry.PlaceholderColorProperty, PitchVolt.TextSecondary);
 		MessageEntry.BackgroundColor = Colors.Transparent;
 	}
 

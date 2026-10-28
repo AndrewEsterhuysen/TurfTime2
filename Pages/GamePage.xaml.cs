@@ -98,6 +98,12 @@ public partial class GamePage : ContentPage
         InitializeComponent();
         EnsureFieldBandScrollTransparency();
 
+        // All three views start hidden in XAML; show the correct one synchronously so nothing
+        // flashes before the async ViewModel load calls ApplyViewMode. Team list only if enabled.
+        var startOnTeamList = TeamViewOptions.IsEnabled();
+        SwipeableRoster.IsVisible = startOnTeamList;
+        FieldView.IsVisible = !startOnTeamList;
+
 #if IOS
         // Full-row pan blocks UICollectionView scrolling on iOS; use swipe + handle-only pan.
         if (Resources.TryGetValue("RosterSelector", out var selectorObj)

@@ -2,130 +2,80 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="TurfTime2.SettingsPage"
-             Title="Settings"
-             BackgroundColor="#1b5e20">
+             Title="Settings">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
     <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
-            <!-- Header -->
-            <Label Text="⚙️ Settings" 
-                   FontSize="28"
-                   FontAttributes="Bold"
-                   HorizontalOptions="Center"
-                   TextColor="White"
-                   Margin="0,10,0,20" />
+        <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="8">
+            <Label Style="{StaticResource PvTitle}" Text="Settings" Margin="4,8,0,16" />
 
-            <!-- Team Details Option -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="0"
-                   HasShadow="True">
-                <Grid>
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnTeamDetailsTapped" />
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Padding="20" Spacing="15">
-                        <Label Text="👥" FontSize="32" VerticalOptions="Center" />
-                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Team Selection" 
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   TextColor="White" />
-                            <Label Text="Switch teams, invites, QR share, and admin tools" 
-                                   FontSize="14"
-                                   TextColor="#E0E0E0" />
-                        </VerticalStackLayout>
-                        <Label Text="›" 
-                               FontSize="32"
-                               TextColor="White"
-                               VerticalOptions="Center" />
-                    </HorizontalStackLayout>
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnTeamDetailsTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconGroups}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Team Selection" />
+                        <Label Style="{StaticResource PvCaption}" Text="Switch teams, invites, QR share, and admin tools" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
-            </Frame>
+            </Border>
 
-            <!-- Reports Option -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="0"
-                   HasShadow="True">
-                <Grid>
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnReportsTapped" />
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Padding="20" Spacing="15">
-                        <Label Text="📊" FontSize="32" VerticalOptions="Center" />
-                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Reports" 
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   TextColor="White" />
-                            <Label Text="View and email match reports" 
-                                   FontSize="14"
-                                   TextColor="#E0E0E0" />
-                        </VerticalStackLayout>
-                        <Label Text="›" 
-                               FontSize="32"
-                               TextColor="White"
-                               VerticalOptions="Center" />
-                    </HorizontalStackLayout>
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnReportsTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconChart}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Reports" />
+                        <Label Style="{StaticResource PvCaption}" Text="View and email match reports" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
-            </Frame>
+            </Border>
 
-            <!-- Timers Option -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="0"
-                   HasShadow="True">
-                <Grid>
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnTimersTapped" />
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Padding="20" Spacing="15">
-                        <Label Text="⏱" FontSize="32" VerticalOptions="Center" />
-                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Timers"
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   TextColor="White" />
-                            <Label Text="Configure match, rotation and vibration timers"
-                                   FontSize="14"
-                                   TextColor="#E0E0E0" />
-                        </VerticalStackLayout>
-                        <Label Text="›"
-                               FontSize="32"
-                               TextColor="White"
-                               VerticalOptions="Center" />
-                    </HorizontalStackLayout>
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnTimersTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconTimer}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Timers" />
+                        <Label Style="{StaticResource PvCaption}" Text="Configure match, rotation and vibration timers" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
-            </Frame>
+            </Border>
 
-            <!-- Options -->
-            <Frame BackgroundColor="#2e7d32"
-                   CornerRadius="10"
-                   Padding="0"
-                   HasShadow="True">
-                <Grid>
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnOptionsTapped" />
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Padding="20" Spacing="15">
-                        <Label Text="🛠️" FontSize="32" VerticalOptions="Center" />
-                        <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="FillAndExpand">
-                            <Label Text="Options"
-                                   FontSize="20"
-                                   FontAttributes="Bold"
-                                   TextColor="White" />
-                            <Label Text="Configure goal scorer and assist reporting"
-                                   FontSize="14"
-                                   TextColor="#E0E0E0" />
-                        </VerticalStackLayout>
-                        <Label Text="›"
-                               FontSize="32"
-                               TextColor="White"
-                               VerticalOptions="Center" />
-                    </HorizontalStackLayout>
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnOptionsTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconTune}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Options" />
+                        <Label Style="{StaticResource PvCaption}" Text="Configure goal scorer and assist reporting" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
-            </Frame>
-
+            </Border>
 
         </VerticalStackLayout>
     </ScrollView>

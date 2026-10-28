@@ -73,6 +73,11 @@ namespace TurfTime2
                 {
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                     fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
+                    // Pitch & Volt (ui-refresh): used only by page-scoped styles in Resources/Styles/PitchVolt.xaml
+                    fonts.AddFont("Inter-Regular.ttf", "Inter");
+                    fonts.AddFont("Inter-SemiBold.ttf", "InterSemiBold");
+                    fonts.AddFont("Inter-Bold.ttf", "InterBold");
+                    fonts.AddFont("MaterialSymbolsRounded.ttf", "MaterialSymbols");
                 })
                 .ConfigureMauiHandlers(handlers =>
                 {

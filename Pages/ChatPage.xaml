@@ -4,6 +4,12 @@
              x:Class="TurfTime2.ChatPage"
              Title="Chat"
              HideSoftInputOnTapped="False">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
     <!-- RootGrid bottom padding is raised on iOS when the keyboard is open so InputBar stays visible. -->
     <Grid x:Name="RootGrid" RowDefinitions="Auto, *, Auto, Auto, Auto">
         <!-- Pinned message (admin/coach) -->
@@ -11,37 +17,48 @@
                 Grid.Row="0"
                 IsVisible="False"
                 StrokeThickness="0"
-                BackgroundColor="#FFF8E1"
-                Padding="12,8"
-                Margin="0,0,0,2">
+                BackgroundColor="{AppThemeBinding Light={StaticResource PvWarningContainerLight}, Dark={StaticResource PvWarningContainerDark}}"
+                Padding="16,8"
+                Margin="0">
             <Grid ColumnDefinitions="*, Auto">
                 <VerticalStackLayout Grid.Column="0" Spacing="2">
-                    <Label Text="📌 Pinned"
-                           FontSize="11"
-                           FontAttributes="Bold"
-                           TextColor="#E65100" />
+                    <HorizontalStackLayout Spacing="4">
+                        <Label Style="{StaticResource PvIcon}"
+                               Text="{StaticResource PvIconPin}"
+                               FontSize="14"
+                               TextColor="{AppThemeBinding Light={StaticResource PvWarningTextLight}, Dark={StaticResource PvWarningDark}}" />
+                        <Label Style="{StaticResource PvOverline}"
+                               Text="PINNED"
+                               VerticalOptions="Center"
+                               TextColor="{AppThemeBinding Light={StaticResource PvWarningTextLight}, Dark={StaticResource PvWarningDark}}" />
+                    </HorizontalStackLayout>
                     <Label x:Name="PinnedTextLabel"
-                           FontSize="13"
+                           Style="{StaticResource PvCaption}"
                            LineBreakMode="TailTruncation"
                            MaxLines="2"
-                           TextColor="#333333" />
+                           TextColor="{AppThemeBinding Light={StaticResource PvTextLight}, Dark={StaticResource PvTextDark}}" />
                 </VerticalStackLayout>
                 <Button x:Name="UnpinButton"
                         Grid.Column="1"
+                        Style="{StaticResource PvButtonText}"
                         Text="Unpin"
-                        FontSize="12"
-                        Padding="8,4"
-                        HeightRequest="36"
-                        BackgroundColor="Transparent"
-                        TextColor="#E65100"
+                        FontSize="13"
+                        MinimumHeightRequest="36"
+                        TextColor="{AppThemeBinding Light={StaticResource PvWarningTextLight}, Dark={StaticResource PvWarningDark}}"
                         Clicked="OnUnpinClicked"
                         IsVisible="False" />
             </Grid>
         </Border>
 
+        <!-- ui-refresh: fixed, low-contrast pitch background behind the list (see ChatPitchBackground.cs) -->
+        <GraphicsView x:Name="ChatBackground"
+                      Grid.Row="1"
+                      InputTransparent="True" />
+
         <CollectionView x:Name="MessagesList"
                         Grid.Row="1"
                         SelectionMode="None"
+                        BackgroundColor="Transparent"
                         Margin="8" />
 
         <!-- Reply quote strip above composer -->
@@ -49,26 +66,22 @@
               Grid.Row="2"
               IsVisible="False"
               ColumnDefinitions="4, *, Auto"
-              Padding="10,6"
-              BackgroundColor="#E8F5E9">
-            <BoxView Grid.Column="0" Color="#2e7d32" WidthRequest="4" />
+              Padding="16,8"
+              BackgroundColor="{AppThemeBinding Light={StaticResource PvPrimaryContainerLight}, Dark={StaticResource PvPrimaryContainerDark}}">
+            <BoxView Grid.Column="0" Color="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}" WidthRequest="4" CornerRadius="2" />
             <VerticalStackLayout Grid.Column="1" Margin="8,0,0,0" Spacing="1">
                 <Label x:Name="ReplyBarName"
-                       FontSize="11"
-                       FontAttributes="Bold"
-                       TextColor="#2e7d32" />
+                       Style="{StaticResource PvOverline}"
+                       TextColor="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}" />
                 <Label x:Name="ReplyBarText"
-                       FontSize="12"
+                       Style="{StaticResource PvCaption}"
                        LineBreakMode="TailTruncation"
-                       MaxLines="1"
-                       TextColor="#555555" />
+                       MaxLines="1" />
             </VerticalStackLayout>
             <Button Grid.Column="2"
-                    Text="✕"
-                    BackgroundColor="Transparent"
-                    TextColor="#666666"
-                    WidthRequest="40"
-                    HeightRequest="36"
+                    Style="{StaticResource PvIconButton}"
+                    Text="{StaticResource PvIconClose}"
+                    SemanticProperties.Description="Cancel reply"
                     Clicked="OnCancelReplyClicked" />
         </Grid>
 
@@ -76,20 +89,23 @@
         <Grid x:Name="InputBar"
               Grid.Row="3"
               ColumnDefinitions="*, Auto"
-              Padding="10,8"
-              BackgroundColor="#2e7d32">
+              Padding="16,8"
+              BackgroundColor="{AppThemeBinding Light={StaticResource PvSurfaceLight}, Dark={StaticResource PvSurfaceDark}}">
             <Border Grid.Column="0"
-                    StrokeThickness="0"
-                    BackgroundColor="White"
-                    Padding="10,6"
+                    StrokeThickness="1"
+                    Stroke="{AppThemeBinding Light={StaticResource PvOutlineLight}, Dark={StaticResource PvOutlineDark}}"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource PvBackgroundLight}, Dark={StaticResource PvBackgroundDark}}"
+                    Padding="16,4"
                     VerticalOptions="Center">
                 <Border.StrokeShape>
-                    <RoundRectangle CornerRadius="8" />
+                    <RoundRectangle CornerRadius="22" />
                 </Border.StrokeShape>
                 <Entry x:Name="MessageEntry"
                        Placeholder="Type a message..."
-                       PlaceholderColor="#888888"
-                       TextColor="#111111"
+                       FontFamily="Inter"
+                       FontSize="15"
+                       PlaceholderColor="{AppThemeBinding Light={StaticResource PvTextSecondaryLight}, Dark={StaticResource PvTextSecondaryDark}}"
+                       TextColor="{AppThemeBinding Light={StaticResource PvTextLight}, Dark={StaticResource PvTextDark}}"
                        BackgroundColor="Transparent"
                        MaxLength="500"
                        Keyboard="Chat"
@@ -103,14 +119,19 @@
             </Border>
             <Button x:Name="SendButton"
                     Grid.Column="1"
-                    Text="Send"
+                    Text="{StaticResource PvIconSend}"
+                    FontFamily="MaterialSymbols"
+                    FontSize="22"
+                    SemanticProperties.Description="Send"
                     Clicked="OnSendClicked"
-                    Margin="10,0,0,0"
+                    Margin="8,0,0,0"
+                    Padding="0"
                     VerticalOptions="Center"
-                    WidthRequest="80"
-                    HeightRequest="44"
-                    BackgroundColor="#FF6B35"
-                    TextColor="White" />
+                    WidthRequest="48"
+                    HeightRequest="48"
+                    CornerRadius="24"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource PvPrimaryLight}, Dark={StaticResource PvPrimaryDark}}"
+                    TextColor="{AppThemeBinding Light={StaticResource PvOnPrimaryLight}, Dark={StaticResource PvOnPrimaryDark}}" />
         </Grid>
 
         <!-- Team Chat Identifiers — all online teams; does not change Game/Details team -->
@@ -119,8 +140,8 @@
                     Orientation="Horizontal"
                     HorizontalScrollBarVisibility="Never"
                     IsVisible="False"
-                    Padding="8,6"
-                    BackgroundColor="{AppThemeBinding Light=#E8F5E9, Dark=#1B3D1E}">
+                    Padding="16,8"
+                    BackgroundColor="{AppThemeBinding Light={StaticResource PvSurfaceLight}, Dark={StaticResource PvSurfaceDark}}">
             <HorizontalStackLayout x:Name="TeamChatStrip"
                                   Spacing="8" />
         </ScrollView>

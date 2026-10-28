@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="turf_splash_bg">#0E2128</color>
+    <style name="TurfTimer.SplashTheme" parent="Maui.SplashTheme">
+        <item name="android:windowBackground">@drawable/turf_splash_full_layer</item>
+    </style>
+</resources>

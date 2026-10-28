@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older: full-bleed launch artwork (centre-cropped by the window). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/turf_splash_bg" />
+    <item>
+        <bitmap android:src="@drawable/turf_splash_full" android:gravity="center" />
+    </item>
+</layer-list>

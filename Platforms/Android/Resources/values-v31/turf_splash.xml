@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: the system splash only allows a background colour + centred icon. -->
+<resources>
+    <style name="TurfTimer.SplashTheme" parent="Maui.SplashTheme">
+        <item name="android:windowSplashScreenBackground">@color/turf_splash_bg</item>
+    </style>
+</resources>
