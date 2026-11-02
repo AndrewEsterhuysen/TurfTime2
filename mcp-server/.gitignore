@@ -1,0 +1,4 @@
+node_modules/
+build/
+*.log
+service-account*.json
