@@ -291,6 +291,7 @@ service cloud.firestore {
     // Server-only: written and read with the Admin SDK, never by clients.
     match /mcp_clients/{id} { allow read, write: if false; }
     match /mcp_auth_codes/{id} { allow read, write: if false; }
+    match /mcp_auth_requests/{id} { allow read, write: if false; }
     match /mcp_grants/{id} { allow read, write: if false; }
     match /mcp_link_codes/{id} { allow read, write: if false; }
 

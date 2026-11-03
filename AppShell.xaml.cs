@@ -19,6 +19,7 @@ namespace TurfTime2
             Routing.RegisterRoute("settings/reports", typeof(ReportsPage));
             Routing.RegisterRoute("settings/timers", typeof(TimersSettingsPage));
             Routing.RegisterRoute("settings/options", typeof(OptionsPage));
+            Routing.RegisterRoute("settings/aiconnect", typeof(AiConnectPage));
 
             // Register routes for navigation from Details page
             Routing.RegisterRoute("details/location", typeof(SetupPage));

@@ -49,7 +49,7 @@
 				 Suppress that by also excluding the project-local obj\ and bin\ directories. -->
 		<DefaultItemExcludes Condition="'$(BaseIntermediateOutputPath)' != 'obj\' and '$(BaseIntermediateOutputPath)' != 'obj/'">$(DefaultItemExcludes);$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\bin\**</DefaultItemExcludes>
 		<!-- Node projects (Cloud Functions, MCP server) are not part of the app build; skip their node_modules in globbing. -->
-		<DefaultItemExcludes>$(DefaultItemExcludes);functions\**;mcp-server\**</DefaultItemExcludes>
+		<DefaultItemExcludes>$(DefaultItemExcludes);functions\**;mcp-server\**;firestore-tests\**</DefaultItemExcludes>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>

@@ -7,6 +7,8 @@ import { createApp } from "../src/app.js";
 import { RateLimiter } from "../src/ratelimit.js";
 import { setAuditSink } from "../src/audit.js";
 import { fakeFirestore } from "./fakeFirestore.js";
+import { MemoryStore } from "../src/oauth/store.js";
+import { TokenSigner } from "../src/oauth/tokens.js";
 
 const docs = {
   "teams/T1/metadata/info": { teamName: "U12 Girls", kind: "nickname", lastActivityUtc: "2026-11-02T08:00:00Z", createdBy: "alice" },
@@ -32,7 +34,10 @@ before(async () => {
   setAuditSink(e => audits.push(e));
   const app = createApp({
     projectId: "turf-timer", fetchImpl: fake.fetch, limiter: new RateLimiter(25, 0),
-    verify: async t => { if (!tokens[t]) throw new Error("bad"); return { uid: tokens[t] }; },
+    baseUrl: "http://127.0.0.1", store: new MemoryStore(), signer: new TokenSigner("x".repeat(32), "http://127.0.0.1", "http://127.0.0.1/mcp"),
+    idTokens: { forUid: async u => `tok-${u}` },
+    allowFirebaseIdTokens: true, // these tests drive tools directly with Firebase-style tokens; OAuth is covered in oauth.test.ts
+    verifyFirebase: async (t: string) => { if (!tokens[t]) throw new Error("bad"); return { uid: tokens[t] }; },
   });
   await new Promise<void>(r => { server = app.listen(0, () => r()); });
   url = new URL(`http://127.0.0.1:${(server.address() as any).port}/mcp`);

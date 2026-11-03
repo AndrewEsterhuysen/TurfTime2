@@ -11,6 +11,19 @@ public partial class SettingsPage : ContentPage
     {
         base.OnAppearing();
         DetailsPage.ApplyPageTeamTitle(this, "Settings");
+        AiConnectCard.IsVisible = Services.AiConnectConfig.IsEnabled;
+    }
+
+    private async void OnAiConnectTapped(object sender, EventArgs e)
+    {
+        try
+        {
+            await Shell.Current.GoToAsync("settings/aiconnect");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
+        }
     }
 
     private async void OnTeamDetailsTapped(object sender, EventArgs e)

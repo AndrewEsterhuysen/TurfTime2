@@ -82,7 +82,10 @@ test('removed member loses access', async () => {
 });
 test('mcp_* collections are server-only', async () => {
   await assertFails(getDoc(doc(as('mem'), 'mcp_grants/g1')));
-  await assertFails(setDoc(doc(as('mem'), 'mcp_clients/c1'), { a: 1 }));
+  for (const c of ['mcp_clients', 'mcp_auth_codes', 'mcp_auth_requests', 'mcp_grants', 'mcp_link_codes']) {
+    await assertFails(getDoc(doc(as('mem'), `${c}/x`)));
+    await assertFails(setDoc(doc(as('mem'), `${c}/x`), { a: 1 }));
+  }
 });
 test('unauthenticated cannot read anything', async () => {
   const db = env.unauthenticatedContext().firestore();
