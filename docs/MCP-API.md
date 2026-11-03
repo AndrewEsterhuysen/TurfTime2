@@ -1,45 +1,87 @@
 # TurfTimer MCP API
 
-Goal: let a user's own AI agent (Claude, ChatGPT, Grok, Cursor and so on) read and, in later phases, act on TurfTimer team data, with **exactly the user's permission level**. The code lives in `mcp-server/`.
+Goal: let a user's own AI assistant (ChatGPT, Claude, Grok, Copilot, ...) read TurfTimer team data, with **exactly the user's permissions**. Code: `mcp-server/`. Testing guide: [MCP-TESTING.md](MCP-TESTING.md).
 
 ## Phases
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Read-only tools, Firebase ID-token bearer, rate limit, audit-log stub | **This branch** (`feature/mcp-api`), not deployed |
-| 2 | Proper OAuth 2.1 for MCP clients (authorization server that signs in via Firebase Auth), deploy to Cloud Run (`turf-timer`), persisted audit log, shared rate limit | Planned |
-| 3 | Write tools (post chat message, edit kit/duties/fixture as admin) behind explicit confirmation, still enforced by firestore.rules | Planned |
-| 4 | Real fixtures list or season schedule (needs an app schema change), push-style change feeds | Idea |
+| 1 | Read-only tools, rate limit, audit-log stub | Done on `feature/mcp-api` |
+| 2 | MCP OAuth 2.1 (DCR, PKCE, link-code sign-in, refresh grants, revocation), tightened rules, Cloud Run script, app "Connect AI assistant" page | **Done on `feature/mcp-api`, nothing deployed** |
+| 3 | Write tools (post chat, edit kit/duties as admin) behind explicit confirmation, scope `turftimer.write` | Planned |
+| 4 | Season fixtures imported from a third-party site; change feed | Later (Andrew: no fixtures list yet) |
 
 ## Architecture
 ```
-AI agent --MCP Streamable HTTP (POST /mcp, Bearer <Firebase ID token>)--> mcp-server (Node/TS, Cloud Run)
-   mcp-server --Firestore REST, same Bearer token--> Firestore (firestore.rules enforce access)
+AI client --(1) discovers /.well-known/oauth-protected-resource, registers (DCR), OAuth code+PKCE-->
+   mcp-server /oauth/* (authorization server, same Cloud Run service)
+AI client --POST /mcp, Bearer <our access JWT, 15 min>--> mcp-server
+   mcp-server: verify JWT -> grant still active? -> uid -> Firebase ID token for that uid (custom token exchange, cached 1h)
+   mcp-server --Firestore REST, Bearer <that ID token>--> Firestore (firestore.rules enforce access)
 ```
-- The transport is the `@modelcontextprotocol/sdk` StreamableHTTPServerTransport. It runs **stateless**, with a fresh server per request and JSON responses, so no session state is shared between users and it scales horizontally.
-- `GET` and `DELETE /mcp` return 405, because no server-initiated streams are needed for read-only use. `/healthz` is the health check.
+Stateless Streamable HTTP (`enableJsonResponse`), fresh MCP server per request; `GET`/`DELETE /mcp` -> 405; `/healthz`.
 
-### Why REST with the user's ID token rather than the Admin SDK
-- **Rules stay the single source of truth.** Every read goes through `firestore.rules`, exactly like the app's own REST calls (`ChatService`, `TeamDetailsDocService`). With the Admin SDK, rules are bypassed and we would have to re-implement and keep them in sync by hand. Any drift becomes a data leak.
-- **Least privilege.** The server holds no service-account credential that can read every team. A compromised server can only see what the tokens passing through it can see.
-- **The extra membership check.** Some rules only require `signedIn()`: `messages`, `sessions`, `roster/data`, `metadata/info`. So every team tool *also* reads `teams/{teamId}/members/{uid}` with the user's token and refuses if it is missing. The MCP layer therefore never widens access beyond "teams I belong to". Tightening those rules is a separate decision (see Open questions). Phase 1 does not change the rules.
-- `firebase-admin` is used **only** for `verifyIdToken` (signature, audience `turf-timer`, expiry). Set `CHECK_REVOKED=1` on Cloud Run to also check revocation; this needs ADC.
+## Who is the user? (impersonation)
+TurfTimer users sign in **anonymously** (`FirebaseAuthService.SignInAnonymouslyAsync`). There is no email, Google or Apple account, so a web page cannot "sign in as the app user", and an agent must never be trusted to say which user it is.
 
-## Auth flow
-**Phase 1 (bearer):**
-1. The user signs in to Firebase Auth for project `turf-timer`, using the same providers as the app.
-2. The client sends `Authorization: Bearer <ID token>` to `/mcp`.
-3. The server verifies the token, takes `uid`, and forwards the same token to Firestore REST.
-4. ID tokens expire after 1 hour, so the client must refresh them (Firebase refresh token, `securetoken.googleapis.com`).
-5. A missing or invalid token gets a 401 with `WWW-Authenticate`.
+Solution: **the app is the identity provider.**
+1. In the app, Settings -> **Connect AI assistant** -> *Get code*. The app calls `POST /link/code` with its own Firebase ID token; the server verifies it and stores a one-time code (8 chars, 10 min, hashed, single use) mapped to that uid.
+2. The AI client opens our `/oauth/authorize` page. It shows the client's name, the host it returns to and what read-only access means; the user types the code and taps *Allow*.
+3. The server maps code -> uid and issues an authorization code to the client's registered redirect URI.
 
-**Phase 2 (MCP OAuth 2.1, so agents can connect with a "Sign in with TurfTimer" button):**
-1. Publish `/.well-known/oauth-protected-resource` on the MCP server, pointing to the authorization server.
-2. The authorization server (Cloud Run or a Firebase Function) supports dynamic client registration and PKCE, and its `/authorize` page signs the user in with the Firebase Auth web SDK.
-3. On success it issues an access token bound to the `uid`, plus a stored Firebase refresh token.
-4. Each MCP request exchanges or refreshes it to a fresh Firebase ID token server-side. The Firestore reads therefore still run as the user, under the rules.
-5. Scopes: `turftimer.read` (Phase 1 tools) and `turftimer.write` (Phase 3).
+The uid therefore comes only from a verified app session on the user's phone. No tool takes a user name or uid (tested), 5 wrong codes kill the request, codes expire in 10 min, and the user sees which assistant they are approving. A person without the app (or without having joined a team) gets nothing: there is no code to type and no team membership.
 
-## Phase 1 tools and schema mapping
+Later option: when the app adds account linking (Sign in with Apple/Google via `linkWithCredential`, which keeps the same uid), the authorize page can offer those providers too.
+
+## Design choice: how the server reads data
+Options considered:
+| Option | Verdict |
+|---|---|
+| A. Admin SDK reads + explicit membership checks in one module | Rejected: bypasses rules, so rules must be re-implemented and kept in sync by hand; any drift is a leak; the server SA could read every team. |
+| B. Keep the user's Firebase refresh token server-side | Impossible/unsafe here: the app is anonymous, so the only refresh token is the app's own session; exporting it would hand the whole app session to the server and the anonymous account cannot be re-created if lost. |
+| **C. (chosen) Mint a Firebase ID token for the authorized uid** | Admin `createCustomToken(uid)` -> Identity Toolkit `signInWithCustomToken` -> 1-hour ID token, cached per uid; Firestore REST is then called **as the user**, so `firestore.rules` remain the single source of truth and "their permissions apply to MCP requests" literally. |
+
+Notes on C: the server's SA needs only `roles/datastore.user` (for its own `mcp_*` collections via Admin) and `roles/iam.serviceAccountTokenCreator` on itself (to sign custom tokens). The custom-token sign-in does not touch the app's anonymous session. Tools additionally check `teams/{t}/members/{uid}` (`requireMember`) as defence in depth. `idtoken.ts` is the only place that mints tokens.
+
+## OAuth endpoints (MCP authorization spec 2025-06-18 / 2025-11-25)
+| Endpoint | Spec |
+|---|---|
+| `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728; `resource=<base>/mcp`, `authorization_servers=[<base>]` |
+| `GET /.well-known/oauth-authorization-server` (+ `openid-configuration` alias) | RFC 8414 |
+| `POST /oauth/register` | RFC 7591 DCR. Confidential by default (`client_secret_post`/`basic`; Copilot Studio requires a secret); `token_endpoint_auth_method: "none"` for public clients |
+| `GET/POST /oauth/authorize` | Code flow, **PKCE S256 required**, `state`, `iss` in response (RFC 9207), `resource` checked (RFC 8707). Unknown client or redirect -> error page, never a redirect |
+| `POST /oauth/token` | `authorization_code`, `refresh_token`. Access token: HS256 JWT, 15 min, `aud=<base>/mcp`, `sub=uid`, `scope`, `gid`. Refresh: opaque `gid.secret`, 30-day sliding, **rotated on every use; reuse of an old one revokes the grant** |
+| `POST /oauth/revoke` | RFC 7009; revokes the whole grant; MCP access stops within 30 s |
+| `POST /link/code`, `GET /link/grants`, `DELETE /link/grants/{id}` | App-only (Firebase ID token). Used by the app's Connect AI assistant page |
+
+Scope: `turftimer.read` only (anything else -> `invalid_scope`). 401s carry `WWW-Authenticate: Bearer resource_metadata="<base>/.well-known/oauth-protected-resource", scope="turftimer.read"`.
+
+**Redirect URIs accepted at registration** (`src/oauth/redirects.ts`): `https://chatgpt.com/connector/oauth/<id>`, `https://chatgpt.com/connector_platform_oauth_redirect`, `https://claude.ai|claude.com/api/mcp/auth_callback`, `https://grok.com/connectors-oauth-exchange-code/`, `https://global.consent.azure-apim.net/redirect[/<id>]`, `https://vscode.dev/redirect`, and loopback `http://127.0.0.1|localhost|[::1]:<any port>/...` (port-agnostic match per RFC 8252). Add more with `MCP_EXTRA_REDIRECTS`. Not implemented: Client ID Metadata Documents (CIMD); all four clients fall back to DCR.
+
+**Storage** (server-only Firestore collections, rules `if false`, TTL field `ttl`): `mcp_clients`, `mcp_auth_requests`, `mcp_auth_codes`, `mcp_link_codes`, `mcp_grants`. Secrets, codes and refresh tokens are stored only as SHA-256 hashes.
+
+**App TODOs:** the Connect AI assistant page (code + connected assistants + Disconnect) is in the app but **hidden until `AiConnectConfig.BaseUrl` is set** (Services/AiConnectService.cs). A fuller Settings "revoke" screen polish is a TODO; the server endpoints exist.
+
+## Firestore rules changes (branch only; not deployed)
+| Path | Before | After |
+|---|---|---|
+| `teams/{t}/messages` read | any signed-in | member **or team owner** |
+| `teams/{t}/messages` create / reaction update | any signed-in | member |
+| `teams/{t}/sessions` read / create, update | any signed-in | member or owner / member |
+| `teams/{t}/roster/data` read, write | any signed-in | member or owner |
+| `teams/{t}/logs` | member | member or owner |
+| `activeControllers/{t}` read | any signed-in | member |
+| `mcp_*` | (default deny) | explicit `if false` |
+| Unchanged (needed before joining): `teams/{t}/metadata/info`, `teams/{t}/public/*`, `invite_codes`, `clubs/*/metadata/info` | any signed-in | any signed-in |
+
+Why "or owner": `DeleteTeamAsOwnerAsync` deletes `members/*` first and then lists messages, sessions and logs to delete them; the owner is no longer a member at that point (this already failed for `logs` before).
+
+App-impact trace: join by invite reads `invite_codes`, `public`, `metadata` before the member doc exists (kept open); Select Team uses the collection-group `members` query (`uid == me`, unchanged); create team writes `metadata` -> `members/{uid}` -> `roster/data` (member exists before roster); owner recovery writes `members/{uid}` before anything else; chat/sessions/roster/controller writes all run after joining. The collection-group `public` and `metadata` queries in CloudTeamService are **already denied today** (no `{path=**}` rule) and the app falls back to `invite_codes`; unchanged.
+
+Residual risk: a user on an old build whose member doc is missing would lose chat/roster access. Run `mcp-server/scripts/audit-membership.mjs` (read-only) before deploying the rules. Tests: `firestore-tests/` (emulator, 10 tests).
+
+Still open (not changed): `metadata/info` contains `inviteCode`, `adminCodeHash` and `creatorEmail` and is readable by any signed-in user; the legacy root `/messages` and `rosters/` paths.
+
+## Tools and schema mapping
 All tools are annotated `readOnlyHint: true`. The server only issues `GET` and `:runQuery`.
 
 | Tool | Input | Firestore source | Notes |
@@ -54,27 +96,16 @@ All tools are annotated `readOnlyHint: true`. The server only issues `GET` and `
 Not exposed in Phase 1: `roster/data`, `sessions` (game reports), `logs`, `invite_codes`, `activeControllers` and club admin data. These are candidates for later phases. Sessions are past games, not fixtures.
 
 ## Safety
-- **Rate limit:** an in-memory token bucket per uid (default 60 burst, 1/s refill; env `RATE_CAPACITY` and `RATE_PER_SEC`), plus a coarse per-IP limit. It is per instance; Phase 2 moves to Redis or Firestore if more than one instance runs.
-- **Audit stub:** one JSON line per tool call (`kind: mcp_audit`, with uid, tool, teamId, ok, count and ms) goes to stdout, which Cloud Logging picks up. It never contains tokens or message text.
-- **Input validation:** `teamId` must not contain `/`, which prevents path traversal into other collections. `since` must be ISO-8601.
-- **Errors:** 403 from Firestore maps to "Permission denied by TurfTimer rules". Internal errors are not echoed.
+- **Rate limits:** per uid on `/mcp` (60 burst, 1/s), per IP on `/mcp` and on OAuth endpoints (30 burst), per uid on `/link/code`. In-memory per instance (max 3 instances).
+- **Audit stub:** one JSON line per tool call (`kind: mcp_audit`, uid, tool, teamId, ok, count, ms); never tokens or message text.
+- **Input validation:** `teamId` cannot contain `/`; `since` must be ISO-8601.
+- **Authorize page:** `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`, `no-store`, HTML-escaped client names.
+- Raw Firebase ID tokens are rejected on `/mcp` unless `ALLOW_FIREBASE_ID_TOKENS=1` (local dev only).
 
-## Run, test, smoke
+## Run and test
 ```
-cd mcp-server
-npm ci
-npm test          # builds, then runs 11 end-to-end tests: real MCP client <-> server <-> fake Firestore REST
-npm start         # PORT=8080, FIREBASE_PROJECT_ID=turf-timer
-MCP_URL=http://localhost:8080/mcp ID_TOKEN=<your Firebase ID token> npm run smoke
+cd mcp-server && npm ci && npm test       # 23 tests: tools + full OAuth flow against fake Firestore
+cd firestore-tests && npm ci && npm test  # 10 rules tests on the Firestore emulator (needs Java 11+)
+cp deploy/env.example deploy/env.local    # fill in, then: set -a; . deploy/env.local; set +a; npm run build && npm start
 ```
-- The Firestore emulator is not used yet: the dev box has no Java. To use it, run `firebase emulators:start --only firestore` and start the server with `FIRESTORE_REST_BASE=http://127.0.0.1:8080/v1`. Note that the emulator accepts unsigned tokens, so pair it with a test verifier.
-- **Deploy (Phase 2; not done):**
-  `gcloud run deploy turftimer-mcp --source mcp-server --project turf-timer --region <region> --allow-unauthenticated`
-  `--allow-unauthenticated` is needed because auth happens in-app via the Firebase token.
-
-## Open questions
-1. **Tighten the rules?** `messages`, `sessions` and `roster/data` are readable or writable by any signed-in user. The MCP server compensates with a membership check, but the app's own exposure remains.
-2. **Fixtures:** do we want a real `teams/{t}/fixtures/{id}` collection (season schedule)? Today there is only the next match.
-3. **Change feed:** `get_changes_since` is coarse. Should the app write a `teams/{t}/changes` log, or a `lastModifiedUtc` on the roster?
-4. **Hosting:** Cloud Run (recommended: Streamable HTTP, long requests, simple OAuth endpoints) or a second Firebase Functions codebase?
-5. **Which agents first?** This affects the Phase 2 OAuth details (redirect URIs, dynamic client registration).
+Deploy: `CONFIRM=deploy FIREBASE_WEB_API_KEY=... ./deploy/cloudrun.sh` (needs approval; see MCP-TESTING.md).

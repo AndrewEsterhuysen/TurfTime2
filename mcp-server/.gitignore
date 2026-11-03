@@ -2,3 +2,4 @@ node_modules/
 build/
 *.log
 service-account*.json
+deploy/env.local
