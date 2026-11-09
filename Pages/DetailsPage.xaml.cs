@@ -21,8 +21,15 @@ public partial class DetailsPage : ContentPage
     /// Plain <see cref="Page.Title"/> cannot mix fonts, so a Shell TitleView is used.
     /// </summary>
     internal static void ApplyPageTeamTitle(ContentPage page, string pageName)
+        => ApplyPageTeamTitle(page, pageName, Preferences.Get(TeamNameKey, string.Empty));
+
+    /// <summary>
+    /// Same as <see cref="ApplyPageTeamTitle(ContentPage, string)"/> but with an explicit team name
+    /// (e.g. Chat, whose selected team can differ from the app-wide Game/Details team).
+    /// </summary>
+    internal static void ApplyPageTeamTitle(ContentPage page, string pageName, string? teamName)
     {
-        var name = Preferences.Get(TeamNameKey, string.Empty)?.Trim();
+        var name = teamName?.Trim();
 
         // Accessibility / platform fallback (single style)
         page.Title = string.IsNullOrEmpty(name) ? pageName : $"{pageName}: {name}";
