@@ -51,7 +51,6 @@ public partial class ChatPage : ContentPage
 	protected override async void OnAppearing()
 	{
 		base.OnAppearing();
-		DetailsPage.ApplyPageTeamTitle(this, "Chat");
 		// Always restore bottom tabs (Android often never fires Unfocused after keyboard hide).
 		RestoreChatChrome();
 		ResolveServices();
@@ -62,6 +61,7 @@ public partial class ChatPage : ContentPage
 
 		var onlineIds = GetOnlineTeamIds();
 		_teamId = ResolveChatTeamId(onlineIds);
+		ApplyChatTitle();
 		RebuildTeamChatStrip(onlineIds);
 		_isAdmin = IsCurrentUserAdmin(_teamId);
 		UnpinButton.IsVisible = _isAdmin;
@@ -222,6 +222,21 @@ public partial class ChatPage : ContentPage
 		}
 	}
 
+	/// <summary>
+	/// Title shows the team whose chat is open (the strip selection), not the app-wide Game/Details team.
+	/// </summary>
+	private void ApplyChatTitle()
+	{
+		var name = string.Empty;
+		if (!string.IsNullOrEmpty(_teamId) && !_teamId.StartsWith("local_", StringComparison.Ordinal))
+		{
+			name = Preferences.Get($"{_teamId}_name", string.Empty);
+			if (string.IsNullOrWhiteSpace(name))
+				name = Preferences.Get($"{_teamId}_team_name", string.Empty);
+		}
+		DetailsPage.ApplyPageTeamTitle(this, "Chat", name);
+	}
+
 	private void RefreshTeamChatStripSelection()
 		=> RebuildTeamChatStrip(GetOnlineTeamIds());
 
@@ -235,6 +250,7 @@ public partial class ChatPage : ContentPage
 		_subscription = null;
 		_teamId = teamId;
 		Preferences.Set(ChatBadgeHelper.ChatSelectedTeamIdKey, teamId);
+		ApplyChatTitle();
 		_isAdmin = IsCurrentUserAdmin(_teamId);
 		UnpinButton.IsVisible = _isAdmin;
 		ChatBadgeHelper.SetChatVisible(true, _teamId);
