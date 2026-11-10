@@ -1924,6 +1924,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(InactivePlayerCount));
         // Phase drives Watch Only vs vacant-control UI for co-admins.
         NotifyRoleProperties();
+        // Rotation Basis tip follows mirrored Phase (members skip UpdateStartButtonState).
+        NotifyRotationBasisUi();
 
         if (IsGameController)
             _controllerHydrated = true;
@@ -2519,6 +2521,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(ScoresVisible));
         OnPropertyChanged(nameof(ShowFieldViewAbsentZone));
         NotifyRoleProperties();
+        // Show the Rotation Basis tip as soon as the match starts (not only after Rotate).
+        NotifyRotationBasisUi();
         // Claim + full roster + explicit controller patch (controller fields must hit cloud
         // even if full upload is masked/raced — other Admins depend on this).
         _ = PublishMatchStartToCloudAsync();

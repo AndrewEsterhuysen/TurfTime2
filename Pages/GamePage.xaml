@@ -404,8 +404,10 @@
                     TextColor="White"
                     FontSize="13"
                     FontAttributes="Bold"
-                    HeightRequest="36"
+                    HeightRequest="22"
+                    MinimumHeightRequest="0"
                     Padding="8,0"
+                    CornerRadius="4"
                     Clicked="OnSessionViewOnlyToggleClicked" />
             <Label Text="{Binding RotationBasisHintText}"
                    IsVisible="{Binding ShowRotationBasisHint}"
