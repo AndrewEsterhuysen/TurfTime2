@@ -101,11 +101,13 @@ All tools are annotated `readOnlyHint: true`. The server only issues `GET` and `
 | `get_duties` | `teamId` | `teams/{t}/details/duties` | `officer`, `canteen`, `groundsSetup`, `groundsPackup`, `other`, `lastModifiedUtc`, `updatedByUid` |
 | `get_fixtures` | `teamId` | `teams/{t}/details/location` | **There is no fixtures collection.** The app stores only the *next* match (`matchDate`, `matchTime`, `arriveTime`, `locationName`, `latitude`, `longitude`, `mapsLink`). The tool returns 0 or 1 fixtures plus a note saying so. |
 | `get_changes_since` | `teamId`, `since` | `lastModifiedUtc` on details/location, kit and duties; `metadata/info.lastActivityUtc`; message count since | A summary, not a diff. There is no change log in the schema. |
+| `get_roster` | `teamId`, `includeUnnamed?` | `teams/{t}/roster/data` → `players[]` | Player `name` + `status` (goalie/field/bench/inactive) only. Default "#NN Player" slots hidden unless `includeUnnamed`. Online (shared) teams only; Local teams are never in Firestore. |
+| `get_lineup` | `teamId` | `teams/{t}/roster/data` (written by the controlling admin, watched by members) | `onField` (name, status, `cell` 1-16 row-major on the 4x4 Field View grid with `row`/`col`, `secondsOnTimer`), `bench`, `inactive`, and `game` (`phase` from `currentHalf`, `timerRunning`, `matchRemainingSeconds`, score us/them, `rotationCount`, `controlledBy` display name, `lastModifiedUtc`). No uids. |
 
-Not exposed in Phase 1: `roster/data`, `sessions` (game reports), `logs`, `invite_codes`, `activeControllers` and club admin data. These are candidates for later phases. Sessions are past games, not fixtures.
+Not exposed: `sessions` (game reports), `logs`, `invite_codes`, `activeControllers` and club admin data. These are candidates for later phases. Sessions are past games, not fixtures.
 
 ## Safety
-- **Rate limits:** per uid on `/mcp` (60 burst, 1/s), per IP on `/mcp` and on OAuth endpoints (30 burst), per uid on `/link/code`. In-memory per instance (max 3 instances).
+- **Rate limits:** per uid on `/mcp` (60 burst, 1/s), per IP on `/mcp` and on OAuth endpoints (30 burst), per uid on `/link/code`. In-memory per instance (max 2 instances).
 - **Audit stub:** one JSON line per tool call (`kind: mcp_audit`, uid, tool, teamId, ok, count, ms); never tokens or message text.
 - **Input validation:** `teamId` cannot contain `/`; `since` must be ISO-8601.
 - **Authorize page:** `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`, `no-store`, HTML-escaped client names.

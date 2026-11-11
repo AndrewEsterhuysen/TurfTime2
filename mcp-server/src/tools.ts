@@ -120,6 +120,68 @@ export async function getChangesSince(ctx: ToolContext, t: string, since: string
   };
 }
 
+// ---- Roster / live game (teams/{t}/roster/data) -------------------------------------------------
+// Written by the controlling admin's app (CloudRosterService.UploadViaRestAsync); members watch it.
+// Only Online (shared) teams have it: Local teams live on one phone and are never in Firestore.
+const PHASES: Record<string, string> = { setup: "not started", firsthalf: "first half", first: "first half", halftime: "half time", half: "half time", secondhalf: "second half", second: "second half", ended: "ended" };
+const DEFAULT_NAME = /^#\d{2} Player$/;
+
+type RosterPlayer = { name: string; status: "goalie" | "field" | "bench" | "inactive"; cell?: number; row?: number; col?: number; secondsOnTimer?: number; unnamedSlot?: boolean };
+
+function shapePlayer(p: any): RosterPlayer {
+  const status = p.goalie === true ? "goalie" : p.field === true ? "field" : p.inactive === true ? "inactive" : "bench";
+  const out: RosterPlayer = { name: String(p.name ?? ""), status };
+  const cell = Number(p.fieldCell ?? 0);
+  if (status === "field" && cell >= 1 && cell <= 16) { out.cell = cell; out.row = Math.ceil(cell / 4); out.col = ((cell - 1) % 4) + 1; }
+  if (typeof p.counterSeconds === "number") out.secondsOnTimer = p.counterSeconds;
+  if (DEFAULT_NAME.test(out.name)) out.unnamedSlot = true;
+  return out;
+}
+
+async function loadRoster(ctx: ToolContext, t: string) {
+  await requireMember(ctx, t);
+  const d = await ctx.fs.getDoc(`teams/${t}/roster/data`);
+  const players = Array.isArray(d?.data.players) ? (d!.data.players as any[]).map(shapePlayer) : [];
+  return { d, players };
+}
+
+const NO_ROSTER_NOTE = "No roster saved in the cloud for this team. Only Online (shared) teams sync their roster/game; Local teams stay on the phone.";
+
+export async function getRoster(ctx: ToolContext, t: string, includeUnnamed = false) {
+  const { d, players } = await loadRoster(ctx, t);
+  const list = players.filter(p => includeUnnamed || !p.unnamedSlot).map(({ name, status }) => ({ name, status }));
+  return { teamId: t, exists: !!d, ...(d ? {} : { note: NO_ROSTER_NOTE }), lastModifiedUtc: d?.data.lastModifiedUtc ?? null, players: list,
+    hiddenUnnamedSlots: includeUnnamed ? 0 : players.filter(p => p.unnamedSlot).length };
+}
+
+export async function getLineup(ctx: ToolContext, t: string) {
+  const { d, players } = await loadRoster(ctx, t);
+  if (!d) return { teamId: t, exists: false, note: NO_ROSTER_NOTE, onField: [], bench: [], inactive: [] };
+  const g = d.data;
+  const byCell = (a: RosterPlayer, b: RosterPlayer) => (a.cell ?? 99) - (b.cell ?? 99);
+  const strip = ({ unnamedSlot, ...p }: RosterPlayer) => p;
+  const named = (p: RosterPlayer) => !p.unnamedSlot;
+  const phaseRaw = String(g.currentHalf ?? "setup").toLowerCase();
+  return {
+    teamId: t,
+    exists: true,
+    game: {
+      phase: PHASES[phaseRaw] ?? phaseRaw,
+      timerRunning: g.timerRunning === true,
+      matchRemainingSeconds: g.matchRemainingSeconds ?? null,
+      score: { us: g.teamAScore ?? 0, them: g.teamBScore ?? 0 },
+      rotationCount: g.rotationCount ?? null,
+      controlledBy: (g.controllerDisplayName as string) || null,
+      lastModifiedUtc: g.lastModifiedUtc ?? null,
+    },
+    gridNote: "Pitch is the app's 4x4 Field View grid: cell 1-16 row-major, row 1 = top row as shown in the app.",
+    onField: players.filter(p => p.status === "goalie" || p.status === "field").sort(byCell).map(strip),
+    bench: players.filter(p => p.status === "bench" && named(p)).map(strip),
+    inactive: players.filter(p => p.status === "inactive" && named(p)).map(strip),
+    hiddenUnnamedSlots: players.filter(p => p.status !== "field" && p.status !== "goalie" && p.unnamedSlot).length,
+  };
+}
+
 type Handler = (args: any) => Promise<unknown>;
 
 export function registerTools(server: McpServer, ctx: ToolContext) {
@@ -127,7 +189,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     const start = Date.now();
     try {
       const result: any = await fn(args);
-      const count = result?.teams?.length ?? result?.messages?.length ?? result?.changes?.length;
+      const count = result?.teams?.length ?? result?.messages?.length ?? result?.changes?.length ?? result?.players?.length ?? result?.onField?.length;
       audit({ uid: ctx.uid, tool, teamId: args?.teamId, ok: true, count, ms: Date.now() - start });
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], structuredContent: result };
     } catch (e: any) {
@@ -154,4 +216,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   server.registerTool("get_changes_since", { title: "What changed", description: "Summary of team changes since an ISO timestamp: fixtures/kit/duties edits, team activity and new chat message count.",
     inputSchema: { teamId, since: isoSince }, annotations: ro },
     wrap("get_changes_since", a => getChangesSince(ctx, a.teamId, a.since)));
+  server.registerTool("get_roster", { title: "Team roster", description: "Player names on an Online (shared) team's game roster, with status (goalie/field/bench/inactive). Names only; no contact details. Local-only teams are not stored in the cloud and cannot be read. Unnamed default slots ('#01 Player') are hidden unless includeUnnamed is true.",
+    inputSchema: { teamId, includeUnnamed: z.boolean().optional() }, annotations: ro },
+    wrap("get_roster", a => getRoster(ctx, a.teamId, a.includeUnnamed)));
+  server.registerTool("get_lineup", { title: "Current lineup", description: "Who is on the field now (with 4x4 pitch grid cell/row/col and goalie), who is on the bench, plus game phase, score, clock and last update, for an Online (shared) team. This is the latest state saved by the admin running the game; Local-only teams are not in the cloud.",
+    inputSchema: { teamId }, annotations: ro },
+    wrap("get_lineup", a => getLineup(ctx, a.teamId)));
 }

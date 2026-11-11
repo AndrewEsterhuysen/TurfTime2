@@ -20,6 +20,15 @@ const docs = {
   "teams/T1/messages/m1": { text: "old", userId: "alice", senderName: "Alice", timestamp: "2026-10-30T10:00:00Z" },
   "teams/T1/messages/m2": { text: "Training moved", userId: "alice", senderName: "Alice", timestamp: "2026-11-02T09:00:00Z" },
   "teams/T1/messages/m3": { text: "secret", userId: "bob", senderName: "Bob", timestamp: "2026-11-02T09:05:00Z", isDeleted: true },
+  "teams/T1/roster/data": { currentHalf: "secondhalf", timerRunning: true, matchRemainingSeconds: 600, teamAScore: 2, teamBScore: 1, rotationCount: 3,
+    controllerUid: "alice", controllerDisplayName: "Alice", lastModifiedUtc: "2026-11-02T09:10:00Z", players: [
+    { slotId: 1, name: "Mia", field: true, bench: false, goalie: false, inactive: false, counterSeconds: 120, fieldCell: 6 },
+    { slotId: 2, name: "Zoe", field: false, bench: false, goalie: true, inactive: false, counterSeconds: 300, fieldCell: 0 },
+    { slotId: 3, name: "Ava", field: true, bench: false, goalie: false, inactive: false, counterSeconds: 60, fieldCell: 1 },
+    { slotId: 4, name: "Ella", field: false, bench: true, goalie: false, inactive: false, counterSeconds: 30, fieldCell: 0 },
+    { slotId: 5, name: "Ruby", field: false, bench: false, goalie: false, inactive: true, counterSeconds: 0, fieldCell: 0 },
+    { slotId: 6, name: "#06 Player", field: false, bench: true, goalie: false, inactive: false, counterSeconds: 0, fieldCell: 0 } ] },
+  "teams/T2/roster/data": { currentHalf: "firsthalf", players: [{ slotId: 1, name: "Secret Kid", field: true, fieldCell: 1 }] },
   "teams/T2/metadata/info": { teamName: "Other team" },
   "teams/T2/members/zed": { uid: "zed", role: "admin" },
   "teams/T2/messages/x1": { text: "not for bob", userId: "zed", senderName: "Zed", timestamp: "2026-11-02T09:00:00Z" },
@@ -33,7 +42,7 @@ let server: Server; let url: URL;
 before(async () => {
   setAuditSink(e => audits.push(e));
   const app = createApp({
-    projectId: "turf-timer", fetchImpl: fake.fetch, limiter: new RateLimiter(25, 0),
+    projectId: "turf-timer", fetchImpl: fake.fetch, limiter: new RateLimiter(60, 0),
     baseUrl: "http://127.0.0.1", store: new MemoryStore(), signer: new TokenSigner("x".repeat(32), "http://127.0.0.1", "http://127.0.0.1/mcp"),
     idTokens: { forUid: async u => `tok-${u}` },
     allowFirebaseIdTokens: true, // these tests drive tools directly with Firebase-style tokens; OAuth is covered in oauth.test.ts
@@ -60,10 +69,10 @@ test("rejects missing/invalid bearer", async () => {
   assert.equal((await fetch(url, { method: "GET" })).status, 405);
 });
 
-test("exposes exactly the six read-only tools", async () => {
+test("exposes exactly the eight read-only tools", async () => {
   const c = await client("tok-bob");
   const { tools } = await c.listTools();
-  assert.deepEqual(tools.map(t => t.name).sort(), ["get_changes_since", "get_duties", "get_fixtures", "get_kit", "get_messages_since", "list_teams"]);
+  assert.deepEqual(tools.map(t => t.name).sort(), ["get_changes_since", "get_duties", "get_fixtures", "get_kit", "get_lineup", "get_messages_since", "get_roster", "list_teams"]);
   for (const t of tools) assert.equal(t.annotations?.readOnlyHint, true);
   await c.close();
 });
@@ -106,6 +115,42 @@ test("changes since", async () => {
   const { data } = await call(c, "get_changes_since", { teamId: "T1", since: "2026-11-01T12:00:00Z" });
   assert.deepEqual(data.changes.map((x: any) => x.area).sort(), ["fixtures", "team"]);
   assert.equal(data.newMessages, 2);
+  await c.close();
+});
+
+test("lineup: on-field by grid cell with goalie, bench, game status; no uids", async () => {
+  const c = await client("tok-bob");
+  const { data } = await call(c, "get_lineup", { teamId: "T1" });
+  assert.deepEqual(data.onField.map((p: any) => [p.name, p.status, p.cell ?? null, p.row ?? null, p.col ?? null]),
+    [["Ava", "field", 1, 1, 1], ["Mia", "field", 6, 2, 2], ["Zoe", "goalie", null, null, null]]);
+  assert.deepEqual(data.bench.map((p: any) => p.name), ["Ella"]);
+  assert.deepEqual(data.inactive.map((p: any) => p.name), ["Ruby"]);
+  assert.equal(data.hiddenUnnamedSlots, 1);
+  assert.deepEqual(data.game, { phase: "second half", timerRunning: true, matchRemainingSeconds: 600, score: { us: 2, them: 1 }, rotationCount: 3, controlledBy: "Alice", lastModifiedUtc: "2026-11-02T09:10:00Z" });
+  assert.equal(JSON.stringify(data).includes("alice"), false); // no controllerUid
+  await c.close();
+});
+
+test("roster: names and status only; unnamed slots optional", async () => {
+  const c = await client("tok-bob");
+  const { data } = await call(c, "get_roster", { teamId: "T1" });
+  assert.deepEqual(data.players.map((p: any) => Object.keys(p).sort()), Array(5).fill(["name", "status"]));
+  assert.equal(data.hiddenUnnamedSlots, 1);
+  assert.equal((await call(c, "get_roster", { teamId: "T1", includeUnnamed: true })).data.players.length, 6);
+  await c.close();
+});
+
+test("roster/lineup: non-members denied, no data leaked", async () => {
+  const c = await client("tok-bob");
+  for (const tool of ["get_roster", "get_lineup"]) {
+    const { r } = await call(c, tool, { teamId: "T2" });
+    assert.equal(r.isError, true);
+    assert.equal(JSON.stringify(r).includes("Secret Kid"), false);
+  }
+  const a = await client("tok-alice");
+  // alice is not in T2 either
+  assert.equal((await call(a, "get_lineup", { teamId: "T2" })).r.isError, true);
+  await a.close();
   await c.close();
 });
 

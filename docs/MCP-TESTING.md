@@ -13,7 +13,7 @@ MCP URL after deploy: `https://<cloud-run-url>/mcp` (call it `$MCP`; base `$BASE
    ```
 3. Build the app with `AiConnectConfig.BaseUrl = "$BASE"` (Services/AiConnectService.cs). This is a TestFlight or internal-track build only; the Settings card stays hidden in store builds until we decide.
 4. On the phone: join a test team. Then **Settings → Connect AI assistant → Get code** when a client asks for it (the code is valid once, for 10 minutes).
-5. Expected in every client: tools `list_teams`, `get_kit`, `get_duties`, `get_fixtures` (next match only), `get_messages_since`, `get_changes_since`, all read-only. Try: "What do I need to bring on Saturday, and who's on canteen?"
+5. Expected in every client: tools `list_teams`, `get_kit`, `get_duties`, `get_fixtures` (next match only), `get_messages_since`, `get_changes_since`, `get_roster`, `get_lineup`, all read-only. Try: "What do I need to bring on Saturday, and who's on canteen?"
 6. Negative test: ask about a team you have not joined (the result is "Not a member"). Disconnect from the app; within about 30 s the client gets 401 and must reconnect.
 
 ## 1. ChatGPT (developer mode)

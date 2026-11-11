@@ -2,9 +2,12 @@
 import type { FetchLike } from "../src/firestore.js";
 
 const ROOT = "projects/turf-timer/databases/(default)/documents";
-type Val = string | number | boolean | null;
+type Val = string | number | boolean | null | Val[] | { [k: string]: Val };
 const enc = (v: Val): any => typeof v === "string" ? (/^\d{4}-\d\d-\d\dT/.test(v) ? { timestampValue: v } : { stringValue: v })
-  : typeof v === "number" ? { integerValue: String(v) } : typeof v === "boolean" ? { booleanValue: v } : { nullValue: null };
+  : typeof v === "number" ? { integerValue: String(v) } : typeof v === "boolean" ? { booleanValue: v }
+  : Array.isArray(v) ? { arrayValue: { values: v.map(enc) } }
+  : v && typeof v === "object" ? { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, enc(x)])) } }
+  : { nullValue: null };
 
 export function fakeFirestore(docs: Record<string, Record<string, Val>>, tokens: Record<string, string>) {
   const calls: { method: string; url: string }[] = [];
