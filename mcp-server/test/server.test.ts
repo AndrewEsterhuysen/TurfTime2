@@ -28,7 +28,18 @@ const docs = {
     { slotId: 4, name: "Ella", field: false, bench: true, goalie: false, inactive: false, counterSeconds: 30, fieldCell: 0 },
     { slotId: 5, name: "Ruby", field: false, bench: false, goalie: false, inactive: true, counterSeconds: 0, fieldCell: 0 },
     { slotId: 6, name: "#06 Player", field: false, bench: true, goalie: false, inactive: false, counterSeconds: 0, fieldCell: 0 } ] },
-  "teams/T2/roster/data": { currentHalf: "firsthalf", players: [{ slotId: 1, name: "Secret Kid", field: true, fieldCell: 1 }] },
+  "teams/T3/metadata/info": { teamName: "Hunters" },
+  "teams/T3/members/bob": { uid: "bob", role: "admin", displayName: "Bob" },
+  "teams/T3/roster/data": { currentHalf: "setup", lastModifiedUtc: "2026-11-11T07:00:00Z", players: [
+    { slotId: 1, name: "Ann", field: true, bench: false, goalie: false, inactive: false, counterSeconds: 0, fieldCell: 3 },
+    { slotId: 2, name: "#02 Player", field: true, bench: false, goalie: false, inactive: false, counterSeconds: 0, fieldCell: 7 },
+    { slotId: 4, name: "#04 Player", field: false, bench: true, goalie: false, inactive: false, counterSeconds: 0, fieldCell: 0 },
+    { slotId: 7, name: "#07 Player", field: false, bench: true, goalie: false, inactive: false, counterSeconds: 0, fieldCell: 0 },
+    { slotId: 9, name: "#09 Player", field: false, bench: true, goalie: false, inactive: false, counterSeconds: 0, fieldCell: 0 },
+    { slotId: 10, name: "#10 Player", field: false, bench: false, goalie: false, inactive: true, counterSeconds: 0, fieldCell: 0 },
+    { slotId: 11, name: "Kim", field: false, bench: false, goalie: false, inactive: true, counterSeconds: 0, fieldCell: 0 },
+    { slotId: 12, name: "#12 Player", field: false, bench: false, goalie: false, inactive: true, counterSeconds: 0, fieldCell: 0 } ] },
+  "teams/T2/roster/data": { currentHalf: "firsthalf", players: [{ slotId: 1, name: "Secret Kid", field: true, bench: false, goalie: false, inactive: false, counterSeconds: 0, fieldCell: 1 }] },
   "teams/T2/metadata/info": { teamName: "Other team" },
   "teams/T2/members/zed": { uid: "zed", role: "admin" },
   "teams/T2/messages/x1": { text: "not for bob", userId: "zed", senderName: "Zed", timestamp: "2026-11-02T09:00:00Z" },
@@ -80,7 +91,8 @@ test("exposes exactly the eight read-only tools", async () => {
 test("list_teams returns only my teams (skips clubs)", async () => {
   const c = await client("tok-bob");
   const { data } = await call(c, "list_teams");
-  assert.deepEqual(data.teams, [{ teamId: "T1", role: "member", displayName: "Bob", teamName: "U12 Girls", kind: "nickname", lastActivityUtc: "2026-11-02T08:00:00Z" }]);
+  assert.deepEqual(data.teams, [{ teamId: "T1", role: "member", displayName: "Bob", teamName: "U12 Girls", kind: "nickname", lastActivityUtc: "2026-11-02T08:00:00Z" },
+    { teamId: "T3", role: "admin", displayName: "Bob", teamName: "Hunters" }]);
   await c.close();
 });
 
@@ -123,9 +135,10 @@ test("lineup: on-field by grid cell with goalie, bench, game status; no uids", a
   const { data } = await call(c, "get_lineup", { teamId: "T1" });
   assert.deepEqual(data.onField.map((p: any) => [p.name, p.status, p.cell ?? null, p.row ?? null, p.col ?? null]),
     [["Ava", "field", 1, 1, 1], ["Mia", "field", 6, 2, 2], ["Zoe", "goalie", null, null, null]]);
-  assert.deepEqual(data.bench.map((p: any) => p.name), ["Ella"]);
+  assert.deepEqual(data.bench.map((p: any) => p.name), ["Ella", "#06 Player"]);
+  assert.equal(data.bench[1].defaultName, true);
   assert.deepEqual(data.inactive.map((p: any) => p.name), ["Ruby"]);
-  assert.equal(data.hiddenUnnamedSlots, 1);
+  assert.equal(data.unusedSlots, 0);
   assert.deepEqual(data.game, { phase: "second half", timerRunning: true, matchRemainingSeconds: 600, score: { us: 2, them: 1 }, rotationCount: 3, controlledBy: "Alice", lastModifiedUtc: "2026-11-02T09:10:00Z" });
   assert.equal(JSON.stringify(data).includes("alice"), false); // no controllerUid
   await c.close();
@@ -134,9 +147,25 @@ test("lineup: on-field by grid cell with goalie, bench, game status; no uids", a
 test("roster: names and status only; unnamed slots optional", async () => {
   const c = await client("tok-bob");
   const { data } = await call(c, "get_roster", { teamId: "T1" });
-  assert.deepEqual(data.players.map((p: any) => Object.keys(p).sort()), Array(5).fill(["name", "status"]));
-  assert.equal(data.hiddenUnnamedSlots, 1);
+  assert.deepEqual(data.players.map((p: any) => Object.keys(p).sort()), Array(6).fill(["name", "status"]));
+  assert.equal(data.unusedSlots, 0);
   assert.equal((await call(c, "get_roster", { teamId: "T1", includeUnnamed: true })).data.players.length, 6);
+  await c.close();
+});
+
+test("regression: default-named bench players are listed; only inactive default slots are hidden", async () => {
+  const c = await client("tok-bob");
+  const lu = (await call(c, "get_lineup", { teamId: "T3" })).data;
+  assert.deepEqual(lu.onField.map((p: any) => p.name), ["Ann", "#02 Player"]);
+  assert.deepEqual(lu.bench.map((p: any) => p.name), ["#04 Player", "#07 Player", "#09 Player"]);
+  assert.ok(lu.bench.every((p: any) => p.defaultName === true && p.status === "bench"));
+  assert.deepEqual(lu.inactive.map((p: any) => p.name), ["Kim"]);
+  assert.equal(lu.unusedSlots, 2);
+  const ro = (await call(c, "get_roster", { teamId: "T3" })).data;
+  assert.deepEqual(ro.players.filter((p: any) => p.status === "bench").map((p: any) => p.name), ["#04 Player", "#07 Player", "#09 Player"]);
+  assert.equal(ro.players.length, 6);
+  assert.equal(ro.unusedSlots, 2);
+  assert.equal((await call(c, "get_roster", { teamId: "T3", includeUnnamed: true })).data.players.length, 8);
   await c.close();
 });
 

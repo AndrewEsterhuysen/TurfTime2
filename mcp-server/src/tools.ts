@@ -126,7 +126,10 @@ export async function getChangesSince(ctx: ToolContext, t: string, since: string
 const PHASES: Record<string, string> = { setup: "not started", firsthalf: "first half", first: "first half", halftime: "half time", half: "half time", secondhalf: "second half", second: "second half", ended: "ended" };
 const DEFAULT_NAME = /^#\d{2} Player$/;
 
-type RosterPlayer = { name: string; status: "goalie" | "field" | "bench" | "inactive"; cell?: number; row?: number; col?: number; secondsOnTimer?: number; unnamedSlot?: boolean };
+// "#NN Player" is the app's default name. Active players (field/goalie/bench) are ALWAYS returned, whatever
+// their name; only INACTIVE default-named slots are treated as unused and hidden (counted as unusedSlots).
+type RosterPlayer = { name: string; status: "goalie" | "field" | "bench" | "inactive"; cell?: number; row?: number; col?: number; secondsOnTimer?: number; defaultName?: boolean };
+const isUnusedSlot = (p: RosterPlayer) => p.status === "inactive" && p.defaultName === true;
 
 function shapePlayer(p: any): RosterPlayer {
   const status = p.goalie === true ? "goalie" : p.field === true ? "field" : p.inactive === true ? "inactive" : "bench";
@@ -134,7 +137,7 @@ function shapePlayer(p: any): RosterPlayer {
   const cell = Number(p.fieldCell ?? 0);
   if (status === "field" && cell >= 1 && cell <= 16) { out.cell = cell; out.row = Math.ceil(cell / 4); out.col = ((cell - 1) % 4) + 1; }
   if (typeof p.counterSeconds === "number") out.secondsOnTimer = p.counterSeconds;
-  if (DEFAULT_NAME.test(out.name)) out.unnamedSlot = true;
+  if (DEFAULT_NAME.test(out.name)) out.defaultName = true;
   return out;
 }
 
@@ -149,9 +152,10 @@ const NO_ROSTER_NOTE = "No roster saved in the cloud for this team. Only Online 
 
 export async function getRoster(ctx: ToolContext, t: string, includeUnnamed = false) {
   const { d, players } = await loadRoster(ctx, t);
-  const list = players.filter(p => includeUnnamed || !p.unnamedSlot).map(({ name, status }) => ({ name, status }));
+  const list = players.filter(p => includeUnnamed || !isUnusedSlot(p)).map(({ name, status }) => ({ name, status }));
   return { teamId: t, exists: !!d, ...(d ? {} : { note: NO_ROSTER_NOTE }), lastModifiedUtc: d?.data.lastModifiedUtc ?? null, players: list,
-    hiddenUnnamedSlots: includeUnnamed ? 0 : players.filter(p => p.unnamedSlot).length };
+    unusedSlots: includeUnnamed ? 0 : players.filter(isUnusedSlot).length,
+    unusedSlotsNote: "Inactive slots still named '#NN Player' (the app default) are unused and hidden unless includeUnnamed is true. Active players are always listed, even with a default name." };
 }
 
 export async function getLineup(ctx: ToolContext, t: string) {
@@ -159,8 +163,7 @@ export async function getLineup(ctx: ToolContext, t: string) {
   if (!d) return { teamId: t, exists: false, note: NO_ROSTER_NOTE, onField: [], bench: [], inactive: [] };
   const g = d.data;
   const byCell = (a: RosterPlayer, b: RosterPlayer) => (a.cell ?? 99) - (b.cell ?? 99);
-  const strip = ({ unnamedSlot, ...p }: RosterPlayer) => p;
-  const named = (p: RosterPlayer) => !p.unnamedSlot;
+
   const phaseRaw = String(g.currentHalf ?? "setup").toLowerCase();
   return {
     teamId: t,
@@ -175,10 +178,11 @@ export async function getLineup(ctx: ToolContext, t: string) {
       lastModifiedUtc: g.lastModifiedUtc ?? null,
     },
     gridNote: "Pitch is the app's 4x4 Field View grid: cell 1-16 row-major, row 1 = top row as shown in the app.",
-    onField: players.filter(p => p.status === "goalie" || p.status === "field").sort(byCell).map(strip),
-    bench: players.filter(p => p.status === "bench" && named(p)).map(strip),
-    inactive: players.filter(p => p.status === "inactive" && named(p)).map(strip),
-    hiddenUnnamedSlots: players.filter(p => p.status !== "field" && p.status !== "goalie" && p.unnamedSlot).length,
+    onField: players.filter(p => p.status === "goalie" || p.status === "field").sort(byCell),
+    bench: players.filter(p => p.status === "bench"),
+    inactive: players.filter(p => p.status === "inactive" && !isUnusedSlot(p)),
+    unusedSlots: players.filter(isUnusedSlot).length,
+    unusedSlotsNote: "Inactive slots still named '#NN Player' (the app default) are unused and only counted. Field, goalie and bench players are always listed; defaultName=true marks an app default name.",
   };
 }
 
@@ -216,10 +220,10 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   server.registerTool("get_changes_since", { title: "What changed", description: "Summary of team changes since an ISO timestamp: fixtures/kit/duties edits, team activity and new chat message count.",
     inputSchema: { teamId, since: isoSince }, annotations: ro },
     wrap("get_changes_since", a => getChangesSince(ctx, a.teamId, a.since)));
-  server.registerTool("get_roster", { title: "Team roster", description: "Player names on an Online (shared) team's game roster, with status (goalie/field/bench/inactive). Names only; no contact details. Local-only teams are not stored in the cloud and cannot be read. Unnamed default slots ('#01 Player') are hidden unless includeUnnamed is true.",
+  server.registerTool("get_roster", { title: "Team roster", description: "Player names on an Online (shared) team's game roster, with status (goalie/field/bench/inactive). Names only; no contact details. Local-only teams are not stored in the cloud and cannot be read. Inactive slots still named with the app default ('#01 Player') are unused and hidden unless includeUnnamed is true; active players are always listed whatever their name.",
     inputSchema: { teamId, includeUnnamed: z.boolean().optional() }, annotations: ro },
     wrap("get_roster", a => getRoster(ctx, a.teamId, a.includeUnnamed)));
-  server.registerTool("get_lineup", { title: "Current lineup", description: "Who is on the field now (with 4x4 pitch grid cell/row/col and goalie), who is on the bench, plus game phase, score, clock and last update, for an Online (shared) team. This is the latest state saved by the admin running the game; Local-only teams are not in the cloud.",
+  server.registerTool("get_lineup", { title: "Current lineup", description: "Who is on the field now (with 4x4 pitch grid cell/row/col and goalie), who is on the bench (always all bench players, including default names like '#04 Player'), named inactive players and a count of unused inactive default slots, plus game phase, score, clock and last update, for an Online (shared) team. This is the latest state saved by the admin running the game; Local-only teams are not in the cloud.",
     inputSchema: { teamId }, annotations: ro },
     wrap("get_lineup", a => getLineup(ctx, a.teamId)));
 }
