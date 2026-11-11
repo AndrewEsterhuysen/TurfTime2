@@ -66,7 +66,7 @@ public partial class AiConnectPage : ContentPage
                 var id = g.Id;
                 revoke.Clicked += async (_, _) =>
                 {
-                    if (!await DisplayAlert("Disconnect", $"Stop {g.ClientName} reading your TurfTimer data?", "Disconnect", "Cancel")) return;
+                    if (!await DisplayAlert("Disconnect", $"Stop {g.ClientName} accessing your TurfTimer data?", "Disconnect", "Cancel")) return;
                     try { await svc.RevokeAsync(id); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[AiConnect] revoke: {ex.Message}"); }
                     await LoadGrantsAsync();
                 };

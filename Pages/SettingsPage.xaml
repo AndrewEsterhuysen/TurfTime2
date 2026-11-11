@@ -87,7 +87,7 @@
                     </Border>
                     <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
                         <Label Style="{StaticResource PvCardTitle}" Text="Connect AI assistant" />
-                        <Label Style="{StaticResource PvCaption}" Text="Read-only access for ChatGPT, Claude, Grok or Copilot" />
+                        <Label Style="{StaticResource PvCaption}" Text="Let ChatGPT, Claude, Grok or Copilot read or update team info" />
                     </VerticalStackLayout>
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>

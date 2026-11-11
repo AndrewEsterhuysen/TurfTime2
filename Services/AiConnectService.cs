@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace TurfTime2.Services;
 
 /// <summary>
-/// "Connect AI assistant" (MCP, read-only). The app proves the user's identity to the MCP server with
+/// "Connect AI assistant" (MCP; read-only or read-and-write, chosen on the consent page). The app proves the user's identity to the MCP server with
 /// its own Firebase ID token and receives a short-lived one-time link code that the user types on the
 /// server's authorize page. The AI assistant never supplies a user name or uid.
 /// Hidden in the UI while <see cref="BaseUrl"/> is empty (i.e. until the server is deployed).

@@ -13,7 +13,13 @@
         <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="12">
             <Label Style="{StaticResource PvTitle}" Text="Connect AI assistant" Margin="4,8,0,8" />
             <Label Style="{StaticResource PvBody}"
-                   Text="Let ChatGPT, Claude, Grok or Copilot read your teams' kit, duties, next match and chat (read-only). Add the TurfTimer connector in your assistant, then enter this code when asked." />
+                   Text="Let ChatGPT, Claude, Grok or Copilot see your teams, next match, kit, duties, roster, lineup and chat." />
+            <Label Style="{StaticResource PvBody}"
+                   Text="Choose Allow read and write when connecting to also let it post chat messages as you and, if you're an admin, update kit, duties, next match and roster. Or choose Allow read-only." />
+            <Label Style="{StaticResource PvCaption}"
+                   Text="Shared (online) teams only. Local teams stay on this phone." />
+            <Label Style="{StaticResource PvBody}"
+                   Text="Add the TurfTimer connector in your assistant, then tap Get code and enter it on the Connect TurfTimer page." />
             <Border Style="{StaticResource PvCard}" Padding="16,12">
                 <VerticalStackLayout Spacing="8">
                     <Label x:Name="CodeLabel" Style="{StaticResource PvTitle}" Text="—" HorizontalOptions="Center" />
@@ -24,6 +30,7 @@
             <Label Style="{StaticResource PvBodyStrong}" Text="Connected assistants" Margin="4,8,0,0" />
             <VerticalStackLayout x:Name="GrantsList" Spacing="8" />
             <Label x:Name="NoGrantsLabel" Style="{StaticResource PvCaption}" Text="None" />
+            <Label Style="{StaticResource PvCaption}" Text="Tap Disconnect to remove an assistant's access at any time." />
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>
