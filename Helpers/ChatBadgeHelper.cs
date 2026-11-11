@@ -13,6 +13,9 @@ public static class ChatBadgeHelper
 	private const string LastReadPrefix = "chat_last_read_utc_";
 	public const string ChatSelectedTeamIdKey = "chat_selected_team_id";
 
+	/// <summary>One-shot team to open (notification / deep link); overrides the default Chat team once.</summary>
+	public const string ChatOpenRequestTeamIdKey = "chat_open_request_team_id";
+
 	/// <summary>True while ChatPage is on screen (appearing and not disappeared).</summary>
 	public static bool IsChatVisible { get; private set; }
 
@@ -219,7 +222,10 @@ public static class ChatNavigation
 	public static void OpenChat(string? teamId = null)
 	{
 		if (!string.IsNullOrWhiteSpace(teamId))
+		{
 			Preferences.Set(ChatBadgeHelper.ChatSelectedTeamIdKey, teamId.Trim());
+			Preferences.Set(ChatBadgeHelper.ChatOpenRequestTeamIdKey, teamId.Trim());
+		}
 
 		_ = MainThread.InvokeOnMainThreadAsync(async () =>
 		{

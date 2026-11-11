@@ -28,6 +28,8 @@ public partial class ChatPage : ContentPage
 	private DateTime _pointerDownUtc;
 	private ChatMessage? _pointerMessage;
 	private int _rebuildGeneration;
+	/// <summary>True while a modal pushed from Chat (e.g. reaction picker) is open; its dismissal re-fires OnAppearing.</summary>
+	private bool _returningFromModal;
 
 #if IOS
 	private NSObject? _keyboardFrameObserver;
@@ -51,7 +53,6 @@ public partial class ChatPage : ContentPage
 	protected override async void OnAppearing()
 	{
 		base.OnAppearing();
-		DetailsPage.ApplyPageTeamTitle(this, "Chat");
 		// Always restore bottom tabs (Android often never fires Unfocused after keyboard hide).
 		RestoreChatChrome();
 		ResolveServices();
@@ -61,7 +62,10 @@ public partial class ChatPage : ContentPage
 		ChatBadgeHelper.Changed += OnChatBadgeChanged;
 
 		var onlineIds = GetOnlineTeamIds();
-		_teamId = ResolveChatTeamId(onlineIds);
+		var returningFromModal = _returningFromModal;
+		_returningFromModal = false;
+		_teamId = ResolveChatTeamId(onlineIds, preferLastChat: returningFromModal);
+		ApplyChatTitle();
 		RebuildTeamChatStrip(onlineIds);
 		_isAdmin = IsCurrentUserAdmin(_teamId);
 		UnpinButton.IsVisible = _isAdmin;
@@ -121,10 +125,20 @@ public partial class ChatPage : ContentPage
 		{
 			var json = Preferences.Get("team_id_list", "[]");
 			var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? [];
-			return list
+			var ids = list
 				.Where(id => !string.IsNullOrWhiteSpace(id) && !id.StartsWith("local_", StringComparison.Ordinal))
 				.Distinct(StringComparer.Ordinal)
 				.ToList();
+
+			// Settings > Team Selection (Team Admin) team goes first; others keep their order.
+			var adminTeam = GetTeamAdminSelectedOnlineTeamId();
+			var idx = string.IsNullOrEmpty(adminTeam) ? -1 : ids.IndexOf(adminTeam);
+			if (idx > 0)
+			{
+				ids.RemoveAt(idx);
+				ids.Insert(0, adminTeam);
+			}
+			return ids;
 		}
 		catch
 		{
@@ -133,26 +147,51 @@ public partial class ChatPage : ContentPage
 	}
 
 	/// <summary>
-	/// Last chat team if still a member; else app-wide online team; else first in list.
-	/// Does not change Game/Details selection.
+	/// Team currently selected in Settings > Team Selection (shown in Team Admin Panel),
+	/// when it is an online team. Empty for local teams or no selection.
 	/// </summary>
-	private static string ResolveChatTeamId(IReadOnlyList<string> onlineIds)
+	private static string GetTeamAdminSelectedOnlineTeamId()
 	{
-		if (onlineIds.Count == 0)
-			return string.Empty;
-
-		var lastChat = Preferences.Get(ChatBadgeHelper.ChatSelectedTeamIdKey, string.Empty);
-		if (!string.IsNullOrEmpty(lastChat)
-		    && onlineIds.Contains(lastChat, StringComparer.Ordinal))
-			return lastChat;
-
 		var current = Preferences.Get("team_id", string.Empty);
 		var mode = Preferences.Get("team_mode", string.Empty);
 		if (string.Equals(mode, "shared", StringComparison.OrdinalIgnoreCase)
 		    && !string.IsNullOrEmpty(current)
-		    && !current.StartsWith("local_", StringComparison.Ordinal)
-		    && onlineIds.Contains(current, StringComparer.Ordinal))
+		    && !current.StartsWith("local_", StringComparison.Ordinal))
 			return current;
+		return string.Empty;
+	}
+
+	/// <summary>
+	/// Notification / deep-link request first (one-shot); then the Settings Team Selection team;
+	/// then last chat team; then first in list. When returning from a Chat modal, keep the last chat.
+	/// Does not change Game/Details selection.
+	/// </summary>
+	private static string ResolveChatTeamId(IReadOnlyList<string> onlineIds, bool preferLastChat = false)
+	{
+		var requested = Preferences.Get(ChatBadgeHelper.ChatOpenRequestTeamIdKey, string.Empty);
+		if (!string.IsNullOrEmpty(requested))
+			Preferences.Remove(ChatBadgeHelper.ChatOpenRequestTeamIdKey);
+
+		if (onlineIds.Count == 0)
+			return string.Empty;
+
+		if (!string.IsNullOrEmpty(requested)
+		    && onlineIds.Contains(requested, StringComparer.Ordinal))
+			return requested;
+
+		var lastChat = Preferences.Get(ChatBadgeHelper.ChatSelectedTeamIdKey, string.Empty);
+		var lastChatValid = !string.IsNullOrEmpty(lastChat)
+		    && onlineIds.Contains(lastChat, StringComparer.Ordinal);
+		if (preferLastChat && lastChatValid)
+			return lastChat;
+
+		var adminTeam = GetTeamAdminSelectedOnlineTeamId();
+		if (!string.IsNullOrEmpty(adminTeam)
+		    && onlineIds.Contains(adminTeam, StringComparer.Ordinal))
+			return adminTeam;
+
+		if (lastChatValid)
+			return lastChat;
 
 		return onlineIds[0];
 	}
@@ -222,6 +261,21 @@ public partial class ChatPage : ContentPage
 		}
 	}
 
+	/// <summary>
+	/// Title shows the team whose chat is open (the strip selection), not the app-wide Game/Details team.
+	/// </summary>
+	private void ApplyChatTitle()
+	{
+		var name = string.Empty;
+		if (!string.IsNullOrEmpty(_teamId) && !_teamId.StartsWith("local_", StringComparison.Ordinal))
+		{
+			name = Preferences.Get($"{_teamId}_name", string.Empty);
+			if (string.IsNullOrWhiteSpace(name))
+				name = Preferences.Get($"{_teamId}_team_name", string.Empty);
+		}
+		DetailsPage.ApplyPageTeamTitle(this, "Chat", name);
+	}
+
 	private void RefreshTeamChatStripSelection()
 		=> RebuildTeamChatStrip(GetOnlineTeamIds());
 
@@ -235,6 +289,7 @@ public partial class ChatPage : ContentPage
 		_subscription = null;
 		_teamId = teamId;
 		Preferences.Set(ChatBadgeHelper.ChatSelectedTeamIdKey, teamId);
+		ApplyChatTitle();
 		_isAdmin = IsCurrentUserAdmin(_teamId);
 		UnpinButton.IsVisible = _isAdmin;
 		ChatBadgeHelper.SetChatVisible(true, _teamId);
@@ -697,6 +752,7 @@ public partial class ChatPage : ContentPage
 			}
 		};
 
+		_returningFromModal = true;
 		await Navigation.PushModalAsync(new NavigationPage(page));
 	}
 

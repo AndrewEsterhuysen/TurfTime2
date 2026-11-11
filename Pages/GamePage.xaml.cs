@@ -1624,6 +1624,10 @@ public partial class GamePage : ContentPage
     {
         if (FieldView is null || OutfieldGridHost is null || PitchBandsGrid is null) return;
         if (!FieldView.IsVisible) return;
+        // Field View is shown from the constructor (no Team View flash), but shared teams await the
+        // cloud role before the ViewModel exists. Don't lay out (or cache sizes) until it does —
+        // ApplyViewMode re-runs this once the ViewModel is bound.
+        if (_vm is null) return;
 
         var viewW = FieldView.Width;
         var viewH = FieldView.Height;
@@ -1811,8 +1815,10 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void RefreshOutfieldGridItems()
     {
-        if (OutfieldGridView is null) return;
-        var src = OutfieldGridView.ItemsSource;
+        // Assigning ItemsSource replaces the XAML {Binding FieldGridCells}; always re-point it at the
+        // ViewModel's cells (never null) so the 4×4 grid can't be left empty.
+        var src = _vm?.FieldGridCells;
+        if (OutfieldGridView is null || src is null) return;
         OutfieldGridView.ItemsSource = null;
         OutfieldGridView.ItemsSource = src;
     }
