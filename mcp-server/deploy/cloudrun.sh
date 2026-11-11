@@ -31,7 +31,7 @@ gcloud secrets add-iam-policy-binding "$SECRET" --member "serviceAccount:$SA" --
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)' 2>/dev/null || true)"
 deploy() {
   gcloud run deploy "$SERVICE" --source . --region "$REGION" --service-account "$SA" \
-    --allow-unauthenticated --min-instances 0 --max-instances 3 --concurrency 40 --memory 512Mi --cpu 1 \
+    --allow-unauthenticated --min-instances 0 --max-instances 2 --memory 512Mi --cpu 1 \
     --set-secrets "MCP_JWT_SECRET=${SECRET}:latest" \
     --set-env-vars "FIREBASE_PROJECT_ID=${PROJECT},PUBLIC_BASE_URL=${1},FIREBASE_WEB_API_KEY=${FIREBASE_WEB_API_KEY}"
 }
