@@ -6,9 +6,18 @@ Goal: let a user's own AI assistant (ChatGPT, Claude, Grok, Copilot, ...) read T
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Read-only tools, rate limit, audit-log stub | Done on `feature/mcp-api` |
-| 2 | MCP OAuth 2.1 (DCR, PKCE, link-code sign-in, refresh grants, revocation), tightened rules, Cloud Run script, app "Connect AI assistant" page | **Done on `feature/mcp-api`, nothing deployed** |
+| 2 | MCP OAuth 2.1 (DCR, PKCE, link-code sign-in, refresh grants, revocation), tightened rules, Cloud Run script, app "Connect AI assistant" page | Done on `feature/mcp-api`; rules live 2026-11-10; server live 2026-11-11 (see Deployment) |
 | 3 | Write tools (post chat, edit kit/duties as admin) behind explicit confirmation, scope `turftimer.write` | Planned |
 | 4 | Season fixtures imported from a third-party site; change feed | Later (Andrew: no fixtures list yet) |
+
+## Deployment (live)
+- **Service URL:** `https://turftimer-mcp-co6qd7jw6q-ts.a.run.app` (this is `PUBLIC_BASE_URL`/OAuth issuer; use it, not the alias `https://turftimer-mcp-846410659178.australia-southeast1.run.app`, because tokens are bound to the issuer).
+- **MCP endpoint:** `https://turftimer-mcp-co6qd7jw6q-ts.a.run.app/mcp`. Discovery: `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`. Health: `/health`.
+- Cloud Run `turftimer-mcp`, project `turf-timer`, `australia-southeast1`. Min 0 / max 2 instances (scales to zero when idle), CPU only during requests, 1 vCPU, 512Mi, default concurrency (80). Public at the Run level; auth is the server's own OAuth.
+- Runtime SA `turftimer-mcp@turf-timer.iam.gserviceaccount.com` (`roles/datastore.user`, Token Creator on itself, Secret Accessor on `mcp-jwt-secret`). Secret `MCP_JWT_SECRET` from Secret Manager `mcp-jwt-secret:latest`.
+- Artifact Registry `cloud-run-source-deploy` cleanup policy: keep latest 2 images, delete older than 1 day.
+- Budget: AUD 5/month on project `turf-timer` (alerts at 50/90/100% to billing admins), alongside the existing AUD 25 Firebase budget.
+- Redeploy: `CONFIRM=deploy FIREBASE_WEB_API_KEY=<web app apiKey> ./deploy/cloudrun.sh` from `mcp-server/`.
 
 ## Architecture
 ```
@@ -18,7 +27,7 @@ AI client --POST /mcp, Bearer <our access JWT, 15 min>--> mcp-server
    mcp-server: verify JWT -> grant still active? -> uid -> Firebase ID token for that uid (custom token exchange, cached 1h)
    mcp-server --Firestore REST, Bearer <that ID token>--> Firestore (firestore.rules enforce access)
 ```
-Stateless Streamable HTTP (`enableJsonResponse`), fresh MCP server per request; `GET`/`DELETE /mcp` -> 405; `/healthz`.
+Stateless Streamable HTTP (`enableJsonResponse`), fresh MCP server per request; `GET`/`DELETE /mcp` -> 405; `/health` (Cloud Run reserves `/healthz` at its front end; `/healthz` still works locally).
 
 ## Who is the user? (impersonation)
 TurfTimer users sign in **anonymously** (`FirebaseAuthService.SignInAnonymouslyAsync`). There is no email, Google or Apple account, so a web page cannot "sign in as the app user", and an agent must never be trusted to say which user it is.

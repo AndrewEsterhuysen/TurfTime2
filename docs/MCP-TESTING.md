@@ -80,11 +80,14 @@ Store the returned `client_secret` in the client only; it is shown once and stor
 ## 7. Known limits
 - No CIMD; DCR only. Redirects must be on the allowlist (`src/oauth/redirects.ts`, or `MCP_EXTRA_REDIRECTS`).
 - Read-only (`turftimer.read`); `get_fixtures` returns the next match only (no season list yet).
-- Rate limits and revocation cache are per instance (max 3 instances); revocation applies within 30 s.
+- Rate limits and revocation cache are per instance (max 2 instances); revocation applies within 30 s.
 - Without deploying the tightened rules, the server still refuses non-members (tool-level `requireMember`). The app's own exposure (any signed-in user can read chat, sessions and roster) remains until the rules are deployed.
 
-## Approvals needed from Andrew (production actions; none done)
-1. **Deploy the Cloud Run service** `turftimer-mcp` in `turf-timer` (region `australia-southeast1`, public ingress, max 3 instances). Command: `CONFIRM=deploy ./deploy/cloudrun.sh`.
+## Approvals needed from Andrew (production actions)
+
+Done: items 1-5 (rules 2026-11-10; Cloud Run service, secret, IAM, TTL policies 2026-11-11). Live URL: `https://turftimer-mcp-co6qd7jw6q-ts.a.run.app` (see MCP-API.md, Deployment). Remaining: 6-8.
+
+1. **Deploy the Cloud Run service** `turftimer-mcp` in `turf-timer` (region `australia-southeast1`, public ingress, min 0 / max 2 instances). Command: `CONFIRM=deploy ./deploy/cloudrun.sh`.
 2. **Create the secret** `mcp-jwt-secret` in Secret Manager (the script generates it; it is never printed).
 3. **IAM:** create SA `turftimer-mcp@turf-timer.iam.gserviceaccount.com` with `roles/datastore.user`, Token Creator on itself (custom tokens), and Secret Accessor on the secret. Enable the Run, Secret Manager, IAM Credentials, Cloud Build and Artifact Registry APIs.
 4. **Firestore TTL policies** on field `ttl` for `mcp_auth_requests`, `mcp_auth_codes`, `mcp_link_codes`, `mcp_grants` (in the script).
