@@ -95,12 +95,13 @@ test("discovery: 401 challenge points to protected-resource metadata, which poin
   assert.ok(asm.registration_endpoint && asm.revocation_endpoint);
 });
 
-test("DCR redirect allowlist covers ChatGPT, Claude, Grok, Copilot Studio, VS Code, loopback; rejects others", () => {
+test("DCR redirect allowlist covers ChatGPT, Claude, Grok, Grok Bot (cursor.com), Copilot Studio, VS Code, loopback; rejects others", () => {
   for (const u of ["https://chatgpt.com/connector/oauth/abc_123", "https://chatgpt.com/connector_platform_oauth_redirect", CB, "https://claude.com/api/mcp/auth_callback",
     "https://grok.com/connectors-oauth-exchange-code/", "https://global.consent.azure-apim.net/redirect/cr123-5fturftimer", "https://global.consent.azure-apim.net/redirect",
-    "https://vscode.dev/redirect", "http://127.0.0.1:33418/", "http://localhost:6274/oauth/callback"])
+    "https://vscode.dev/redirect", "https://www.cursor.com/agents/mcp/oauth/callback", "http://localhost:8787/callback", "http://127.0.0.1:33418/", "http://localhost:6274/oauth/callback"])
     assert.equal(isAllowedRedirect(u), true, u);
-  for (const u of ["https://evil.com/cb", "http://chatgpt.com/connector/oauth/x", "https://chatgpt.com.evil.com/connector/oauth/x", "https://claude.ai/other", "javascript:alert(1)", "https://user:pw@grok.com/connectors-oauth-exchange-code/"])
+  for (const u of ["https://evil.com/cb", "http://chatgpt.com/connector/oauth/x", "https://chatgpt.com.evil.com/connector/oauth/x", "https://claude.ai/other", "javascript:alert(1)", "https://user:pw@grok.com/connectors-oauth-exchange-code/",
+    "https://www.cursor.com/agents/mcp/oauth/callback/x", "https://cursor.com/agents/mcp/oauth/callback", "https://www.cursor.com.evil.com/agents/mcp/oauth/callback", "http://www.cursor.com/agents/mcp/oauth/callback"])
     assert.equal(isAllowedRedirect(u), false, u);
 });
 

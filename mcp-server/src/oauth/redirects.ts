@@ -7,6 +7,7 @@ const HTTPS_ALLOW: RegExp[] = [
   /^https:\/\/chatgpt\.com\/connector_platform_oauth_redirect$/,          // ChatGPT legacy
   /^https:\/\/(claude\.ai|claude\.com)\/api\/mcp\/auth_callback$/,         // Claude.ai / Desktop / mobile custom connectors
   /^https:\/\/grok\.com\/connectors-oauth-exchange-code\/?$/,              // Grok custom connectors
+  /^https:\/\/www\.cursor\.com\/agents\/mcp\/oauth\/callback$/,           // Grok Bot / Cursor agents connectors (exact)
   /^https:\/\/global\.consent\.azure-apim\.net\/redirect(\/[A-Za-z0-9._-]+)?$/, // Copilot Studio / Power Platform
   /^https:\/\/vscode\.dev\/redirect$/,                                     // VS Code (GitHub Copilot) web redirect
 ];
