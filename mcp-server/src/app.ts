@@ -32,7 +32,8 @@ export function createApp(o: AppOptions) {
   const ipLimiter = new RateLimiter(120, 2);
   const grantSeen = new Map<string, number>(); // grantId -> checkedAt (30s cache so revocation applies within 30s)
 
-  app.get("/healthz", (_q, r) => { r.json({ ok: true }); });
+  // Cloud Run's front end reserves /healthz, so /health is the public check; /healthz kept for local use.
+  app.get(["/health", "/healthz"], (_q, r) => { r.json({ ok: true }); });
   app.use(oauthRouter({ baseUrl: o.baseUrl, store: o.store, signer: o.signer, verifyFirebase: o.verifyFirebase, ipLimiter: o.oauthLimiter }));
 
   const challenge = (extra = "") =>
