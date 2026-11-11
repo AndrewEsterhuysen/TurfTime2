@@ -14,6 +14,7 @@ rules_version = '2';
 //   teams/{teamId}/details/duties    (Details → Duties — admin write, member read)
 //   teams/{teamId}/messages/{messageId}
 //   teams/{teamId}/sessions/{sessionId}
+//   mcp_* (server-only MCP OAuth state; Admin SDK only)
 //   teams/{teamId}/public/invite     (join reverse-lookup under team tree)
 //   invite_codes/{code}             (O(1) join lookup; may include clubId/clubName)
 //   activeControllers/{teamId}      (presence index for stale controller release)
@@ -40,6 +41,13 @@ service cloud.firestore {
       return signedIn()
         && exists(/databases/$(database)/documents/teams/$(teamId)/metadata/info)
         && get(/databases/$(database)/documents/teams/$(teamId)/metadata/info).data.createdBy == request.auth.uid;
+    }
+
+    // Team data readers: joined members, plus the team creator (metadata.createdBy). The owner
+    // clause keeps DeleteTeamAsOwner working: it deletes members/* first and then lists
+    // messages/sessions/logs to delete them, at which point the owner is no longer a member.
+    function canReadTeam(teamId) {
+      return isTeamMember(teamId) || isTeamOwner(teamId);
     }
 
     function clubMetaPath(clubId) {
@@ -126,7 +134,7 @@ service cloud.firestore {
     // scanning every teams/*/roster/data each minute). Doc id = teamId.
     // Clients (admins) upsert/delete; Admin SDK in Cloud Functions also writes.
     match /activeControllers/{teamId} {
-      allow read: if signedIn();
+      allow read: if isTeamMember(teamId);
       allow create, update, delete: if isTeamAdmin(teamId);
     }
 
@@ -206,9 +214,11 @@ service cloud.firestore {
     }
 
     // Roster
+    // Members read and write (game control / controller requests are member PATCHes).
+    // Team create writes members/{uid} before roster/data, so the creator is already a member.
     match /teams/{teamId}/roster/data {
-      allow read: if signedIn();
-      allow write: if signedIn();
+      allow read: if canReadTeam(teamId);
+      allow write: if canReadTeam(teamId);
     }
 
     // Match schedule / Location (Details → Location)
@@ -231,13 +241,13 @@ service cloud.firestore {
     // pin (admin). Immutable core fields (userId/timestamp/senderName) must not change
     // on reaction/pin updates; soft-delete may set isDeleted + deletedAt.
     match /teams/{teamId}/messages/{messageId} {
-      allow read: if signedIn();
-      allow create: if signedIn()
+      allow read: if canReadTeam(teamId);
+      allow create: if isTeamMember(teamId)
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.text is string
         && request.resource.data.text.size() <= 500;
 
-      allow update: if signedIn() && (
+      allow update: if isTeamMember(teamId) && (
         // Toggle reactions — only the reactions map may change
         (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
@@ -267,15 +277,23 @@ service cloud.firestore {
 
     // Game sessions (reports)
     match /teams/{teamId}/sessions/{sessionId} {
-      allow read: if signedIn();
-      allow create, update: if signedIn();
+      allow read: if canReadTeam(teamId);
+      allow create, update: if isTeamMember(teamId);
       allow delete: if isTeamAdmin(teamId);
     }
 
     // Game logs
     match /teams/{teamId}/logs/{logId} {
-      allow read, write: if isTeamMember(teamId);
+      allow read, write: if canReadTeam(teamId);
     }
+
+    // MCP server (mcp-server/) state: OAuth clients, auth codes, refresh grants, link codes.
+    // Server-only: written and read with the Admin SDK, never by clients.
+    match /mcp_clients/{id} { allow read, write: if false; }
+    match /mcp_auth_codes/{id} { allow read, write: if false; }
+    match /mcp_auth_requests/{id} { allow read, write: if false; }
+    match /mcp_grants/{id} { allow read, write: if false; }
+    match /mcp_link_codes/{id} { allow read, write: if false; }
 
     // Legacy paths
     match /rosters/{userId}/{document=**} {

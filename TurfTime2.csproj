@@ -30,7 +30,7 @@
 		     ApplicationVersion = integer build (CFBundleVersion / versionCode). Store rejects reuse. -->
 		<ApplicationDisplayVersion>3.4.2</ApplicationDisplayVersion>
 		<!-- Build 39: View Team Members for all members; Field token initials (A.E); Simulator push note. -->
-		<ApplicationVersion>54</ApplicationVersion>
+		<ApplicationVersion>56</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
@@ -48,6 +48,8 @@
 				 glob exclusions no longer cover the local obj\ folder, so generated files from other TFMs bleed in.
 				 Suppress that by also excluding the project-local obj\ and bin\ directories. -->
 		<DefaultItemExcludes Condition="'$(BaseIntermediateOutputPath)' != 'obj\' and '$(BaseIntermediateOutputPath)' != 'obj/'">$(DefaultItemExcludes);$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\bin\**</DefaultItemExcludes>
+		<!-- Node projects (Cloud Functions, MCP server) are not part of the app build; skip their node_modules in globbing. -->
+		<DefaultItemExcludes>$(DefaultItemExcludes);functions\**;mcp-server\**;firestore-tests\**</DefaultItemExcludes>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>

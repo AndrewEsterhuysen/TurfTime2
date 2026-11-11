@@ -1,0 +1,30 @@
+{
+  "name": "turftimer-mcp-server",
+  "version": "0.1.0",
+  "description": "TurfTimer read-only MCP server (Phase 1). Reads Firestore with the caller's Firebase ID token so firestore.rules enforce access.",
+  "private": true,
+  "type": "module",
+  "main": "build/src/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node build/src/index.js",
+    "test": "tsc -p tsconfig.json && node --test build/test/",
+    "smoke": "node scripts/smoke.mjs",
+    "test:emulator": "tsc -p tsconfig.json && cd ../firestore-tests && npx firebase emulators:exec --only firestore --project demo-turftimer-mcp \"cd ../mcp-server && node --test build/test/emulator.test.js\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "express": "^5.3.0",
+    "firebase-admin": "^14.5.0",
+    "jose": "^6.2.15",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3"
+  }
+}

@@ -411,6 +411,25 @@ public partial class HelpPage : ContentPage
         </div>
     </details>
 
+    <!-- ── AI assistant (MCP) ── -->
+    <details class='topic'>
+        <summary class='topic-head'>
+            <span class='topic-title'><svg class='ico' viewBox='0 0 24 24' aria-hidden='true'><path d='M3.9 12a3.1 3.1 0 0 1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm9-6h-4v1.9h4a3.1 3.1 0 0 1 0 6.2h-4V17h4a5 5 0 0 0 0-10z'/></svg><span class='label'>Connect an AI assistant</span><svg class='chevron' viewBox='0 0 960 960' aria-hidden='true'><path transform='matrix(1 0 0 -1 0 960)' d='M452 373 268 557Q257 568 257 585Q257 602 268 613Q279 624 296 624Q313 624 324 613L480 457L636 613Q647 624 664 624Q681 624 692 613Q703 602 703 585Q703 568 692 557L508 373Q502 367 495 364Q488 362 480 362Q472 362 465 364Q458 367 452 373Z'/></svg></span>
+            <span class='topic-blurb'>Use ChatGPT, Claude, Grok Bot / Cursor or Copilot with your shared teams</span>
+        </summary>
+        <div class='topic-body'>
+            <p>Assistants can read your teams, next match, kit, duties, roster, lineup and chat. With <strong>Allow read and write</strong> they can also post chat as you and (Admins only) update Kit, Duties, the next match and the roster / lineup. Shared teams only — Local teams are not reachable.</p>
+            <ul>
+                <li>In your assistant, add a <strong>custom MCP connector</strong> with URL <code>https://turftimer-mcp-co6qd7jw6q-ts.a.run.app/mcp</code> (no API key needed).</li>
+                <li>Connect it. A <strong>Connect TurfTimer</strong> page opens and asks for a code.</li>
+                <li>In TurfTimer, go to <strong>Settings → Connect AI assistant</strong> and tap <span class='key'>Get code</span>.</li>
+                <li>Enter the code on the Connect TurfTimer page. Codes work once and expire after 10 minutes.</li>
+                <li>Choose <strong>Allow read-only</strong> or <strong>Allow read and write</strong>. To change later, disconnect and connect again.</li>
+                <li><strong>Revoke:</strong> Settings → Connect AI assistant → <em>Connected assistants</em> → <span class='key'>Disconnect</span>.</li>
+            </ul>
+        </div>
+    </details>
+
     <details class='topic'>
         <summary class='topic-head'>
             <span class='topic-title'><svg class='ico' viewBox='0 0 960 960' aria-hidden='true'><path transform='matrix(1 0 0 -1 0 960)' d='M400 160H560Q560 127 536 104Q513 80 480 80Q447 80 424 104Q400 127 400 160ZM360 200Q343 200 332 212Q320 223 320 240Q320 257 332 268Q343 280 360 280H600Q617 280 628 268Q640 257 640 240Q640 223 628 212Q617 200 600 200ZM330 320Q261 361 220 430Q180 499 180 580Q180 705 268 792Q355 880 480 880Q605 880 692 792Q780 705 780 580Q780 499 740 430Q699 361 630 320ZM354 400H606Q651 432 676 479Q700 526 700 580Q700 672 636 736Q572 800 480 800Q388 800 324 736Q260 672 260 580Q260 526 284 479Q309 432 354 400ZM480 400Q480 400 480 400Q480 400 480 400Q480 400 480 400Q480 400 480 400Q480 400 480 400Q480 400 480 400Q480 400 480 400Q480 400 480 400Z'/></svg><span class='label'>Tips</span><svg class='chevron' viewBox='0 0 960 960' aria-hidden='true'><path transform='matrix(1 0 0 -1 0 960)' d='M452 373 268 557Q257 568 257 585Q257 602 268 613Q279 624 296 624Q313 624 324 613L480 457L636 613Q647 624 664 624Q681 624 692 613Q703 602 703 585Q703 568 692 557L508 373Q502 367 495 364Q488 362 480 362Q472 362 465 364Q458 367 452 373Z'/></svg></span>
