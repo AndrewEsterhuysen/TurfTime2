@@ -11,8 +11,8 @@ namespace TurfTime2.Services;
 /// </summary>
 public static class AiConnectConfig
 {
-    // Set to the Cloud Run URL (e.g. "https://turftimer-mcp-xxxx.a.run.app") once Andrew approves deployment.
-    public const string BaseUrl = "";
+    // Cloud Run service turftimer-mcp (OAuth issuer URL; do not use the -846410659178 alias).
+    public const string BaseUrl = "https://turftimer-mcp-co6qd7jw6q-ts.a.run.app";
     public static bool IsEnabled => !string.IsNullOrWhiteSpace(BaseUrl);
 }
 
