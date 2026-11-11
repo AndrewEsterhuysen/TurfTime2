@@ -80,11 +80,13 @@ test("rejects missing/invalid bearer", async () => {
   assert.equal((await fetch(url, { method: "GET" })).status, 405);
 });
 
-test("exposes exactly the eight read-only tools", async () => {
+test("exposes the eight read-only tools and five write tools (annotated)", async () => {
   const c = await client("tok-bob");
   const { tools } = await c.listTools();
-  assert.deepEqual(tools.map(t => t.name).sort(), ["get_changes_since", "get_duties", "get_fixtures", "get_kit", "get_lineup", "get_messages_since", "get_roster", "list_teams"]);
-  for (const t of tools) assert.equal(t.annotations?.readOnlyHint, true);
+  const READ = ["get_changes_since", "get_duties", "get_fixtures", "get_kit", "get_lineup", "get_messages_since", "get_roster", "list_teams"];
+  const WRITE = ["post_chat_message", "update_duties", "update_kit", "update_next_fixture", "update_roster"];
+  assert.deepEqual(tools.map(t => t.name).sort(), [...READ, ...WRITE].sort());
+  for (const t of tools) assert.equal(t.annotations?.readOnlyHint, READ.includes(t.name), t.name);
   await c.close();
 });
 
@@ -190,7 +192,7 @@ test("input validation rejects path injection", async () => {
   await c.close();
 });
 
-test("server never issues writes; audit has no tokens or message text", () => {
+test("read tools never issue writes; audit has no tokens or message text", () => {
   for (const x of fake.calls) assert.ok(x.method === "GET" || x.url.endsWith(":runQuery"), `${x.method} ${x.url}`);
   assert.ok(audits.length > 0 && audits.every(a => a.kind === "mcp_audit" && a.uid));
   const s = JSON.stringify(audits);

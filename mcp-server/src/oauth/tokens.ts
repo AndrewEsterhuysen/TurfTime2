@@ -1,5 +1,8 @@
 import { SignJWT, jwtVerify } from "jose";
 export const SCOPE_READ = "turftimer.read";
+export const SCOPE_WRITE = "turftimer.write";
+export const SCOPE_ALL = `${SCOPE_READ} ${SCOPE_WRITE}`;
+export const hasScope = (scope: string, s: string) => scope.split(/\s+/).includes(s);
 export const ACCESS_TTL_SEC = Number(process.env.MCP_ACCESS_TTL_SEC ?? 900);      // 15 min
 export const REFRESH_TTL_MS = Number(process.env.MCP_REFRESH_TTL_DAYS ?? 30) * 86400_000; // sliding
 

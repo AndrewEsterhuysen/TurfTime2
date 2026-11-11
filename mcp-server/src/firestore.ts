@@ -1,14 +1,38 @@
 /**
  * Minimal Firestore REST client that acts AS THE CALLER: every request carries the user's
  * Firebase ID token, so firestore.rules decide what they can read (same path the mobile app
- * already uses in ChatService / TeamDetailsDocService). Read-only: only GET and :runQuery.
+ * already uses in ChatService / TeamDetailsDocService). Reads: GET and :runQuery. Writes (write tools
+ * only, scope turftimer.write): POST create and PATCH with an updateMask and a precondition, exactly
+ * like the app's REST writes, so production rules decide.
  */
 export type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) =>
   Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string> }>;
 
 export class FirestoreError extends Error {
-  constructor(public status: number, message: string) { super(message); }
+  constructor(public status: number, message: string, public body = "") { super(message); }
+  /** Precondition failed (document changed since we read it, or exists/doesn't exist). */
+  get conflict() { return this.status === 409 || this.status === 412 || /FAILED_PRECONDITION|ABORTED|ALREADY_EXISTS/.test(this.body); }
 }
+
+/** Marks a value to be written as a Firestore timestampValue (ISO-8601 string). */
+export class Ts { constructor(readonly iso: string) {} }
+export const ts = (d: Date | string = new Date()) => new Ts(typeof d === "string" ? d : d.toISOString());
+
+export function encodeValue(v: unknown): any {
+  if (v instanceof Ts) return { timestampValue: v.iso };
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === "string") return { stringValue: v };
+  if (typeof v === "boolean") return { booleanValue: v };
+  if (typeof v === "number") return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(encodeValue) } };
+  if (typeof v === "object") return { mapValue: { fields: encodeFields(v as Record<string, unknown>) } };
+  throw new Error("unsupported value");
+}
+export function encodeFields(o: Record<string, unknown>): Record<string, any> {
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, encodeValue(v)]));
+}
+
+export type Precondition = { updateTime: string } | { exists: boolean };
 
 export interface FsDoc { id: string; path: string; updateTime?: string; data: Record<string, unknown>; }
 
@@ -69,6 +93,27 @@ export class FirestoreUserClient {
     if (!res.ok) throw new FirestoreError(res.status, `query ${parentPath || "/"}: ${res.status}`);
     const rows: any[] = await res.json();
     return rows.filter(r => r.document).map(r => toDoc(r.document, this.root));
+  }
+
+  /** Create a document with an auto id under collectionPath (same as the app's chat POST). */
+  async createDoc(collectionPath: string, data: Record<string, unknown>): Promise<FsDoc> {
+    const res = await this.fetchImpl(`${this.base}/${encPath(collectionPath)}`, { method: "POST", headers: this.headers(), body: JSON.stringify({ fields: encodeFields(data) }) });
+    if (!res.ok) { const t = await res.text().catch(() => ""); throw new FirestoreError(res.status, `create in ${collectionPath}: ${res.status}`, t); }
+    return toDoc(await res.json(), this.root);
+  }
+
+  /**
+   * Update only the given top-level fields (updateMask), guarded by a precondition, via :commit
+   * (one write; same rules evaluation as the app's SDK writes). Returns nothing on success.
+   */
+  async patchDoc(path: string, data: Record<string, unknown>, pre: Precondition): Promise<void> {
+    const write = {
+      update: { name: `${this.root}/${path}`, fields: encodeFields(data) },
+      updateMask: { fieldPaths: Object.keys(data) },
+      currentDocument: pre,
+    };
+    const res = await this.fetchImpl(`${this.base}:commit`, { method: "POST", headers: this.headers(), body: JSON.stringify({ writes: [write] }) });
+    if (!res.ok) { const t = await res.text().catch(() => ""); throw new FirestoreError(res.status, `write ${path}: ${res.status}`, t); }
   }
 }
 

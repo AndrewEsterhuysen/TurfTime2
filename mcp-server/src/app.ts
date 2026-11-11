@@ -7,7 +7,8 @@ import { RateLimiter } from "./ratelimit.js";
 import { registerTools } from "./tools.js";
 import { oauthRouter } from "./oauth/router.js";
 import { Store } from "./oauth/store.js";
-import { TokenSigner, SCOPE_READ } from "./oauth/tokens.js";
+import { TokenSigner, SCOPE_READ, SCOPE_WRITE, SCOPE_ALL, hasScope } from "./oauth/tokens.js";
+import { registerWriteTools } from "./writes.js";
 import { IdTokenSource } from "./idtoken.js";
 
 export interface AppOptions {
@@ -20,8 +21,12 @@ export interface AppOptions {
   fetchImpl?: FetchLike;
   limiter?: RateLimiter;
   oauthLimiter?: RateLimiter;
+  ipLimiter?: RateLimiter;
+  linkLimiter?: RateLimiter;
   /** Dev only: also accept raw Firebase ID tokens on /mcp (ALLOW_FIREBASE_ID_TOKENS=1). */
   allowFirebaseIdTokens?: boolean;
+  /** Tests only: raw Firebase ID tokens also get write access. */
+  allowFirebaseIdTokenWrites?: boolean;
 }
 
 export function createApp(o: AppOptions) {
@@ -29,31 +34,35 @@ export function createApp(o: AppOptions) {
   app.set("trust proxy", 1); // Cloud Run front end
   app.use(express.json({ limit: "64kb" }));
   const limiter = o.limiter ?? new RateLimiter(Number(process.env.RATE_CAPACITY ?? 60), Number(process.env.RATE_PER_SEC ?? 1));
-  const ipLimiter = new RateLimiter(120, 2);
-  const grantSeen = new Map<string, number>(); // grantId -> checkedAt (30s cache so revocation applies within 30s)
+  const ipLimiter = o.ipLimiter ?? new RateLimiter(120, 2);
+  const grantSeen = new Map<string, { at: number; clientName: string }>(); // grantId -> checkedAt (30s cache so revocation applies within 30s)
 
   // Cloud Run's front end reserves /healthz, so /health is the public check; /healthz kept for local use.
   app.get(["/health", "/healthz"], (_q, r) => { r.json({ ok: true }); });
-  app.use(oauthRouter({ baseUrl: o.baseUrl, store: o.store, signer: o.signer, verifyFirebase: o.verifyFirebase, ipLimiter: o.oauthLimiter }));
+  app.use(oauthRouter({ baseUrl: o.baseUrl, store: o.store, signer: o.signer, verifyFirebase: o.verifyFirebase, ipLimiter: o.oauthLimiter, linkLimiter: o.linkLimiter }));
 
   const challenge = (extra = "") =>
-    `Bearer resource_metadata="${o.baseUrl}/.well-known/oauth-protected-resource", scope="${SCOPE_READ}"${extra}`;
+    `Bearer resource_metadata="${o.baseUrl}/.well-known/oauth-protected-resource", scope="${SCOPE_ALL}"${extra}`;
 
-  async function identify(token: string): Promise<{ uid: string; idToken: string } | "insufficient_scope" | null> {
+  type Who = { uid: string; idToken: string; canWrite: boolean; clientName: string };
+  async function identify(token: string): Promise<Who | "insufficient_scope" | null> {
     try {
       const c = await o.signer.verify(token);
-      if (!c.scope.split(" ").includes(SCOPE_READ)) return "insufficient_scope";
-      const seen = grantSeen.get(c.grantId);
-      if (!seen || Date.now() - seen > 30_000) {
+      if (!hasScope(c.scope, SCOPE_READ)) return "insufficient_scope";
+      let seen = grantSeen.get(c.grantId);
+      if (!seen || Date.now() - seen.at > 30_000) {
         const g = await o.store.get("grants", c.grantId);
         if (!g || g.uid !== c.uid) { grantSeen.delete(c.grantId); return null; }
-        grantSeen.set(c.grantId, Date.now());
+        // Write needs BOTH the token and the stored grant to carry it (old read-only grants never write).
+        if (hasScope(c.scope, SCOPE_WRITE) && !hasScope(String(g.scope ?? ""), SCOPE_WRITE)) return "insufficient_scope";
+        seen = { at: Date.now(), clientName: String(g.clientName ?? "AI assistant") };
+        grantSeen.set(c.grantId, seen);
         if (grantSeen.size > 10_000) grantSeen.delete(grantSeen.keys().next().value!);
       }
-      return { uid: c.uid, idToken: await o.idTokens.forUid(c.uid) };
+      return { uid: c.uid, idToken: await o.idTokens.forUid(c.uid), canWrite: hasScope(c.scope, SCOPE_WRITE), clientName: seen.clientName };
     } catch { /* not ours */ }
     if (o.allowFirebaseIdTokens) {
-      try { const { uid } = await o.verifyFirebase(token); return { uid, idToken: token }; } catch { /* fallthrough */ }
+      try { const { uid } = await o.verifyFirebase(token); return { uid, idToken: token, canWrite: !!o.allowFirebaseIdTokenWrites, clientName: "dev token" }; } catch { /* fallthrough */ }
     }
     return null;
   }
@@ -68,8 +77,10 @@ export function createApp(o: AppOptions) {
     if (!who) return void res.status(401).set("WWW-Authenticate", challenge(', error="invalid_token"')).json({ error: "invalid_token" });
     if (!limiter.take(who.uid)) return void res.status(429).set("Retry-After", "5").json({ error: "rate_limited" });
 
-    const server = new McpServer({ name: "turftimer", version: "0.2.0" });
-    registerTools(server, { uid: who.uid, fs: new FirestoreUserClient(who.idToken, o.projectId, o.fetchImpl) });
+    const server = new McpServer({ name: "turftimer", version: "0.3.0" });
+    const ctx = { uid: who.uid, fs: new FirestoreUserClient(who.idToken, o.projectId, o.fetchImpl), canWrite: who.canWrite, clientName: who.clientName };
+    registerTools(server, ctx);
+    registerWriteTools(server, ctx);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on("close", () => { transport.close(); server.close(); });
     try {

@@ -12,12 +12,12 @@ import express from "express";
 import { Store } from "./store.js";
 import { isAllowedRedirect, redirectMatches } from "./redirects.js";
 import { rand, sha256, safeEq, pkceS256, linkCode, normLinkCode } from "./crypto.js";
-import { TokenSigner, SCOPE_READ, ACCESS_TTL_SEC, REFRESH_TTL_MS } from "./tokens.js";
+import { TokenSigner, SCOPE_READ, SCOPE_WRITE, SCOPE_ALL, hasScope, ACCESS_TTL_SEC, REFRESH_TTL_MS } from "./tokens.js";
 import { RateLimiter } from "../ratelimit.js";
 import type { TokenVerifier } from "../auth.js";
 import { bearer } from "../auth.js";
 
-export interface OAuthOptions { baseUrl: string; store: Store; signer: TokenSigner; verifyFirebase: TokenVerifier; ipLimiter?: RateLimiter; }
+export interface OAuthOptions { baseUrl: string; store: Store; signer: TokenSigner; verifyFirebase: TokenVerifier; ipLimiter?: RateLimiter; linkLimiter?: RateLimiter; }
 
 const LINK_TTL_MS = 10 * 60_000, CODE_TTL_MS = 5 * 60_000, REQ_TTL_MS = 15 * 60_000, MAX_LINK_TRIES = 5;
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
@@ -33,10 +33,16 @@ function page(res: express.Response, title: string, body: string, status = 200) 
 input{font-size:22px;letter-spacing:3px;text-transform:uppercase;width:100%;padding:10px;box-sizing:border-box}button{font-size:17px;padding:10px 18px;margin:12px 8px 0 0;border-radius:8px;border:0;background:#1b6b35;color:#fff}button.no{background:#888}.err{color:#b00}small{color:#567}</style></head><body>${body}</body></html>`);
 }
 
+/**
+ * Requested scope -> normalized scope, or null if it names an unknown scope. Write implies read.
+ * No scope parameter = the client didn't say; treat as "may ask for write" and let the user choose
+ * on the consent page (read-only stays the safe default button).
+ */
 function parseScope(s: unknown): string | null {
-  const req = String(s ?? SCOPE_READ).split(/\s+/).filter(Boolean);
-  if (req.length === 0) return SCOPE_READ;
-  return req.every(x => x === SCOPE_READ) ? SCOPE_READ : null;
+  if (s === undefined || s === null || String(s).trim() === "") return SCOPE_ALL;
+  const req = String(s).split(/\s+/).filter(Boolean);
+  if (!req.every(x => x === SCOPE_READ || x === SCOPE_WRITE)) return null;
+  return req.includes(SCOPE_WRITE) ? SCOPE_ALL : SCOPE_READ;
 }
 
 function clientAuth(req: express.Request): { id?: string; secret?: string } {
@@ -56,7 +62,7 @@ export function oauthRouter(o: OAuthOptions) {
   r.use(express.urlencoded({ extended: false, limit: "16kb" }));
 
   // ---- Discovery -------------------------------------------------------------------------
-  const prm = { resource, authorization_servers: [o.baseUrl], scopes_supported: [SCOPE_READ], bearer_methods_supported: ["header"], resource_name: "TurfTimer (read-only)" };
+  const prm = { resource, authorization_servers: [o.baseUrl], scopes_supported: [SCOPE_READ, SCOPE_WRITE], bearer_methods_supported: ["header"], resource_name: "TurfTimer" };
   r.get(["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"], (_q, s) => void s.json(prm));
   const asm = {
     issuer: o.baseUrl,
@@ -69,7 +75,7 @@ export function oauthRouter(o: OAuthOptions) {
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
     revocation_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
-    scopes_supported: [SCOPE_READ],
+    scopes_supported: [SCOPE_READ, SCOPE_WRITE],
     service_documentation: "https://github.com/AndrewEsterhuysen/TurfTime2/blob/feature/mcp-api/docs/MCP-API.md",
   };
   r.get(["/.well-known/oauth-authorization-server", "/.well-known/openid-configuration"], (_q, s) => void s.json(asm));
@@ -97,7 +103,7 @@ export function oauthRouter(o: OAuthOptions) {
     res.status(201).set("Cache-Control", "no-store").json({
       client_id: id, client_id_issued_at: now, ...(secret ? { client_secret: secret, client_secret_expires_at: 0 } : {}),
       client_name: name, redirect_uris: uris, token_endpoint_auth_method: method,
-      grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], scope: SCOPE_READ,
+      grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], scope: SCOPE_ALL,
     });
   });
 
@@ -116,14 +122,14 @@ export function oauthRouter(o: OAuthOptions) {
     if (q.response_type !== "code") return back("unsupported_response_type", "only code");
     if (!q.code_challenge || q.code_challenge_method !== "S256") return back("invalid_request", "PKCE S256 required");
     const scope = parseScope(q.scope);
-    if (!scope) return back("invalid_scope", `only ${SCOPE_READ}`);
+    if (!scope) return back("invalid_scope", `only ${SCOPE_READ} and ${SCOPE_WRITE}`);
     if (q.resource && q.resource.replace(/\/$/, "") !== resource && q.resource.replace(/\/$/, "") !== o.baseUrl) return back("invalid_target", "unknown resource");
     const reqId = rand(24);
     await o.store.set("auth_requests", reqId, {
       clientId: q.client_id, redirectUri: q.redirect_uri, state: q.state ?? null, scope,
       challenge: q.code_challenge, tries: 0, expiresAt: Date.now() + REQ_TTL_MS,
     });
-    page(res, "Connect TurfTimer", consentHtml(reqId, client.name, q.redirect_uri));
+    page(res, "Connect TurfTimer", consentHtml(reqId, client.name, q.redirect_uri, hasScope(scope, SCOPE_WRITE)));
   });
 
   r.post("/oauth/authorize", async (req, res) => {
@@ -140,7 +146,10 @@ export function oauthRouter(o: OAuthOptions) {
       u.searchParams.set("iss", o.baseUrl);
       res.redirect(303, u.toString());
     };
-    if (req.body?.action !== "allow") { await o.store.delete("auth_requests", reqId); return finish({ error: "access_denied" }); }
+    const action = String(req.body?.action ?? "");
+    if (action !== "allow" && action !== "allow_write") { await o.store.delete("auth_requests", reqId); return finish({ error: "access_denied" }); }
+    // The user, not the client, decides: write only if requested AND the user pressed "Allow read and write".
+    const granted = action === "allow_write" && hasScope(ar.scope, SCOPE_WRITE) ? SCOPE_ALL : SCOPE_READ;
 
     const codeId = sha256(normLinkCode(String(req.body?.link_code ?? "")));
     const link = await o.store.take("link_codes", codeId);
@@ -148,12 +157,12 @@ export function oauthRouter(o: OAuthOptions) {
       ar.tries = (ar.tries ?? 0) + 1;
       if (ar.tries >= MAX_LINK_TRIES) { await o.store.delete("auth_requests", reqId); return finish({ error: "access_denied", error_description: "too many attempts" }); }
       await o.store.set("auth_requests", reqId, ar);
-      return page(res, "Connect TurfTimer", consentHtml(reqId, client.name, ar.redirectUri, "That code is wrong or has expired. Get a new one in the app."), 400);
+      return page(res, "Connect TurfTimer", consentHtml(reqId, client.name, ar.redirectUri, hasScope(ar.scope, SCOPE_WRITE), "That code is wrong or has expired. Get a new one in the app."), 400);
     }
     await o.store.delete("auth_requests", reqId);
     const code = rand(32);
     await o.store.set("auth_codes", sha256(code), {
-      uid: link.uid, clientId: ar.clientId, redirectUri: ar.redirectUri, scope: ar.scope, challenge: ar.challenge, expiresAt: Date.now() + CODE_TTL_MS,
+      uid: link.uid, clientId: ar.clientId, redirectUri: ar.redirectUri, scope: granted, challenge: ar.challenge, expiresAt: Date.now() + CODE_TTL_MS,
     });
     finish({ code });
   });
@@ -187,8 +196,13 @@ export function oauthRouter(o: OAuthOptions) {
       const h = sha256(rt);
       if (g.prevRtHash && safeEq(h, g.prevRtHash)) { await o.store.delete("grants", grantId); return oerr(res, 400, "invalid_grant", "refresh token reuse"); }
       if (!safeEq(h, g.rtHash)) return oerr(res, 400, "invalid_grant");
-      const scope = b.scope ? parseScope(b.scope) : g.scope;
-      if (!scope) return oerr(res, 400, "invalid_scope");
+      // Refresh can narrow but never widen: an existing read-only grant can't become read-write.
+      let scope: string = g.scope;
+      if (b.scope) {
+        const want = String(b.scope).split(/\s+/).filter(Boolean);
+        if (!want.length || !want.every(x => hasScope(g.scope, x))) return oerr(res, 400, "invalid_scope", "scope exceeds the original grant");
+        scope = want.includes(SCOPE_WRITE) ? SCOPE_ALL : SCOPE_READ;
+      }
       const next = rand(32);
       await o.store.set("grants", grantId, { ...g, rtHash: sha256(next), prevRtHash: h, lastUsedAt: Date.now(), expiresAt: Date.now() + REFRESH_TTL_MS });
       return issue(res, { uid: g.uid, scope, clientId: ca.id!, grantId }, `${grantId}.${next}`);
@@ -218,7 +232,7 @@ export function oauthRouter(o: OAuthOptions) {
 
   // ---- App-facing endpoints (Firebase ID token from the TurfTimer app) -------------------
   const appUid = async (req: express.Request) => { const t = bearer(req.header("authorization")); if (!t) throw new Error("no"); return (await o.verifyFirebase(t)).uid; };
-  const uidLimit = new RateLimiter(10, 0.05);
+  const uidLimit = o.linkLimiter ?? new RateLimiter(10, 0.05);
   r.post("/link/code", async (req, res) => {
     let uid: string; try { uid = await appUid(req); } catch { return void res.status(401).json({ error: "invalid_token" }); }
     if (!uidLimit.take(uid)) return void res.status(429).json({ error: "rate_limited" });
@@ -241,16 +255,25 @@ export function oauthRouter(o: OAuthOptions) {
   return r;
 }
 
-function consentHtml(reqId: string, clientName: string, redirectUri: string, error?: string) {
+function consentHtml(reqId: string, clientName: string, redirectUri: string, writeRequested: boolean, error?: string) {
   const host = (() => { try { return new URL(redirectUri).host; } catch { return "?"; } })();
+  const intro = writeRequested
+    ? `<div class="box"><b>${esc(clientName)}</b> <small>(returns to ${esc(host)})</small> is asking for <b>read and write</b> access to the teams you have joined in TurfTimer.
+<p><b>Read:</b> kit, duties, next match, roster and lineup, members and team chat messages.</p>
+<p><b>Write (as you):</b> post chat messages in your name; and, on teams where you are an admin, change kit, duties, the next match, and player names, positions and the pitch lineup. It cannot delete teams, members or messages.</p></div>
+<p>You can allow <b>read-only</b> instead.</p>`
+    : `<div class="box"><b>${esc(clientName)}</b> <small>(returns to ${esc(host)})</small> wants <b>read-only</b> access to the teams you have joined in TurfTimer:
+kit, duties, next match, roster and lineup, members and team chat messages. It cannot post, edit or delete anything.</div>`;
+  const buttons = writeRequested
+    ? `<button name="action" value="allow">Allow read-only</button><button name="action" value="allow_write" style="background:#a35200">Allow read and write</button><button class="no" name="action" value="deny">Cancel</button>`
+    : `<button name="action" value="allow">Allow</button><button class="no" name="action" value="deny">Cancel</button>`;
   return `<h1>Connect TurfTimer</h1>
-<div class="box"><b>${esc(clientName)}</b> <small>(returns to ${esc(host)})</small> wants <b>read-only</b> access to the teams you have joined in TurfTimer:
-kit, duties, next match, members and team chat messages. It cannot post, edit or delete anything.</div>
+${intro}
 <p>Open <b>TurfTimer → Settings → Connect AI assistant</b> on your phone and enter the code shown there.</p>
 ${error ? `<p class="err">${esc(error)}</p>` : ""}
 <form method="post" action="/oauth/authorize" autocomplete="off">
 <input type="hidden" name="request_id" value="${esc(reqId)}">
 <input name="link_code" placeholder="XXXX-XXXX" maxlength="12" autofocus>
-<button name="action" value="allow">Allow</button><button class="no" name="action" value="deny">Cancel</button>
+${buttons}
 </form><p><small>Only connect apps you trust. You can disconnect from the app or by revoking in the assistant.</small></p>`;
 }

@@ -15,6 +15,8 @@ const teamId = z.string().min(1).max(128).regex(/^[^/]+$/, "teamId must not cont
 const isoSince = z.string().datetime({ offset: true }).describe("ISO-8601 timestamp, e.g. 2026-11-01T00:00:00Z");
 
 export class AccessDenied extends Error {}
+/** A refusal whose message is safe and useful to show the assistant (validation, guards, scope). */
+export class ToolRefused extends Error {}
 
 export async function requireMember(ctx: ToolContext, t: string): Promise<FsDoc> {
   let m: FsDoc | null;
@@ -188,22 +190,26 @@ export async function getLineup(ctx: ToolContext, t: string) {
 
 type Handler = (args: any) => Promise<unknown>;
 
-export function registerTools(server: McpServer, ctx: ToolContext) {
-  const wrap = (tool: string, fn: Handler) => async (args: any) => {
+export function makeWrap(ctx: ToolContext) {
+  return (tool: string, fn: Handler, write = false) => async (args: any) => {
     const start = Date.now();
     try {
       const result: any = await fn(args);
       const count = result?.teams?.length ?? result?.messages?.length ?? result?.changes?.length ?? result?.players?.length ?? result?.onField?.length;
-      audit({ uid: ctx.uid, tool, teamId: args?.teamId, ok: true, count, ms: Date.now() - start });
+      audit({ uid: ctx.uid, tool, teamId: args?.teamId, ok: true, count, ms: Date.now() - start, ...(write ? { write: true } : {}) });
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }], structuredContent: result };
     } catch (e: any) {
-      const msg = e instanceof AccessDenied ? e.message
+      const msg = e instanceof AccessDenied || e instanceof ToolRefused ? e.message
         : e instanceof FirestoreError ? (e.status === 403 ? "Permission denied by TurfTimer rules" : `Firestore error ${e.status}`)
         : "Internal error";
-      audit({ uid: ctx.uid, tool, teamId: args?.teamId, ok: false, error: msg, ms: Date.now() - start });
+      audit({ uid: ctx.uid, tool, teamId: args?.teamId, ok: false, error: msg.slice(0, 120), ms: Date.now() - start, ...(write ? { write: true } : {}) });
       return { isError: true, content: [{ type: "text" as const, text: msg }] };
     }
   };
+}
+
+export function registerTools(server: McpServer, ctx: ToolContext) {
+  const wrap = makeWrap(ctx);
   const ro = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
   server.registerTool("list_teams", { title: "List my teams", description: "Teams the signed-in user belongs to, with their role (admin/member).", inputSchema: {}, annotations: ro },

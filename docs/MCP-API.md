@@ -7,7 +7,7 @@ Goal: let a user's own AI assistant (ChatGPT, Claude, Grok, Copilot, ...) read T
 |---|---|---|
 | 1 | Read-only tools, rate limit, audit-log stub | Done on `feature/mcp-api` |
 | 2 | MCP OAuth 2.1 (DCR, PKCE, link-code sign-in, refresh grants, revocation), tightened rules, Cloud Run script, app "Connect AI assistant" page | Done on `feature/mcp-api`; rules live 2026-11-10; server live 2026-11-11 (see Deployment) |
-| 3 | Write tools (post chat, edit kit/duties as admin) behind explicit confirmation, scope `turftimer.write` | Planned |
+| 3 | Write tools (chat, kit, duties, next match, roster/lineup), scope `turftimer.write` chosen by the user on the consent page | Done on `feature/mcp-api` (see Write tools) |
 | 4 | Season fixtures imported from a third-party site; change feed | Later (Andrew: no fixtures list yet) |
 
 ## Deployment (live)
@@ -62,7 +62,10 @@ Notes on C: the server's SA needs only `roles/datastore.user` (for its own `mcp_
 | `POST /oauth/revoke` | RFC 7009; revokes the whole grant; MCP access stops within 30 s |
 | `POST /link/code`, `GET /link/grants`, `DELETE /link/grants/{id}` | App-only (Firebase ID token). Used by the app's Connect AI assistant page |
 
-Scope: `turftimer.read` only (anything else -> `invalid_scope`). 401s carry `WWW-Authenticate: Bearer resource_metadata="<base>/.well-known/oauth-protected-resource", scope="turftimer.read"`.
+Scopes: `turftimer.read` and `turftimer.write` (write implies read; anything else -> `invalid_scope`). 401s carry `WWW-Authenticate: Bearer resource_metadata="<base>/.well-known/oauth-protected-resource", scope="turftimer.read turftimer.write"`.
+- **The user decides.** If the client asks for write (or sends no scope), the consent page explains read and write and offers **Allow read-only** (default-looking) or **Allow read and write**. If the client asks only for `turftimer.read`, the page offers read-only and a tampered `allow_write` still yields read-only.
+- **Grants never widen.** The granted scope is stored on the grant; refresh can narrow (`scope=turftimer.read`) but asking for more than the grant -> `invalid_scope`. Grants made before write existed are `turftimer.read` and stay read-only. `/mcp` also re-checks that the stored grant carries write before honouring a write token.
+- Write tools are listed for every connection; on a read-only connection each one returns an error telling the user to reconnect and choose *Allow read and write*.
 
 **Redirect URIs accepted at registration** (`src/oauth/redirects.ts`): `https://chatgpt.com/connector/oauth/<id>`, `https://chatgpt.com/connector_platform_oauth_redirect`, `https://claude.ai|claude.com/api/mcp/auth_callback`, `https://grok.com/connectors-oauth-exchange-code/`, `https://global.consent.azure-apim.net/redirect[/<id>]`, `https://vscode.dev/redirect`, and loopback `http://127.0.0.1|localhost|[::1]:<any port>/...` (port-agnostic match per RFC 8252). Add more with `MCP_EXTRA_REDIRECTS`. Not implemented: Client ID Metadata Documents (CIMD); all four clients fall back to DCR.
 
@@ -106,6 +109,24 @@ All tools are annotated `readOnlyHint: true`. The server only issues `GET` and `
 
 Not exposed: `sessions` (game reports), `logs`, `invite_codes`, `activeControllers` and club admin data. These are candidates for later phases. Sessions are past games, not fixtures.
 
+## Write tools (scope `turftimer.write`)
+All writes go to Firestore **as the signed-in user** (their Firebase ID token over REST; single-write `:commit` with an `updateMask` and a `currentDocument` precondition), so the live rules still decide. No Admin SDK / service-account write ever touches team data. The server additionally enforces the app's roles (rules alone let any member write `roster/data`).
+
+| Tool | Who | Args | Firestore write (app shape) |
+|---|---|---|---|
+| `post_chat_message` | any member | `teamId`, `text` (≤500 after trim), `replyToMessageId?` | POST `teams/{t}/messages` (auto id): `text`, `userId` = token uid, `senderName` = `members/{uid}.displayName` (≤40, "Someone" if blank), `timestamp` (timestampValue), `sentVia: "mcp:<client name>"`; reply adds `replyToMessageId`, `replyToText` (≤120) and `replyToSenderName` (≤40) copied from the real message. Creates trigger the usual `sendChatNotification` push. |
+| `update_kit` | admin | `teamId`, any of `arrive`, `warmUp`, `game`, `departure`, `nonPlaying`, `specialEvent` (≤1000; `""` clears) | `teams/{t}/details/kit`: given fields + `lastModifiedUtc` (timestamp), `updatedByUid`, `editedVia`, `editedViaAtUtc` |
+| `update_duties` | admin | `teamId`, any of `officer`, `canteen`, `groundsSetup`, `groundsPackup`, `other` | `teams/{t}/details/duties`: same pattern |
+| `update_next_fixture` | admin | `teamId`, any of `matchDate` (YYYY-MM-DD), `matchTime`/`arriveTime` (HH:mm -> stored `HH:mm:ss` like .NET `TimeSpan`), `locationName` (≤120), `latitude`/`longitude` (decimal strings), `mapsLink` (https) | `teams/{t}/details/location`: given fields + `schemaVersion: 1`, `lastModifiedUtc`, `updatedByUid`, `updatedByDisplayName`, `editedVia`, `editedViaAtUtc` (a new doc gets every field, empty strings) |
+| `update_roster` | admin | `teamId`, `changes[1..16]` of `{ player (name or slot number / "#4"), newName? (≤40), status? field/goalie/bench/inactive, cell? 1-16 }` | `teams/{t}/roster/data`: whole `players[]` (order and other per-player fields kept), `lastModifiedUtc`, `lastModified`, `editedVia`, `editedViaAtUtc`, and `nextFieldSlotIds`/`nextBenchSlotIds` only when a moved player was queued (set to 0). Never touches timers, scores or controller fields. Also bumps `metadata/info.lastActivityUtc` like the app. |
+
+- **Lineup rules = the app's** (`GameViewModel.SetPlayerPosition` / `PlaceOrSwapOnFieldCell`): one goalie (the old goalie goes to the bench); leaving Field clears the cell; field->occupied cell swaps cells; bench/goalie->occupied cell sends the occupant to the bench; `field` without a cell keeps the current cell or takes the first free one.
+- **Game guard:** `update_roster` is refused while `controllerUid` is set (an admin's phone is running the game and saves every ~2 s) or `timerRunning` is true. The app's free co-admins and members apply the newer snapshot (newer `lastModifiedUtc`).
+- **Lost updates:** every write carries the `updateTime` it read (or `exists:false` for a new doc); if the app saved in between, Firestore rejects it and the tool says "changed at the same moment ... retry".
+- **Provenance:** `editedVia` stays after a later app save (the app's updateMask doesn't touch it), so "last edit was by an assistant" = `editedViaAtUtc == lastModifiedUtc`.
+- **Limits:** per uid per instance: writes 20 burst / 1 per 5 s; chat 5 burst / 1 per 30 s (`WRITE_RATE_*`, `CHAT_RATE_*`). Audit lines carry `write: true`, never message text.
+- **App caveats:** chat shows assistant posts as normal messages from the user (no badge yet; the app ignores `sentVia`). Members' phones that are already showing a live mirror don't redraw for a cell-only move (the app's `RosterLayoutChanged` ignores `fieldCell`) until the next real change or reopening the Game screen.
+
 ## Safety
 - **Rate limits:** per uid on `/mcp` (60 burst, 1/s), per IP on `/mcp` and on OAuth endpoints (30 burst), per uid on `/link/code`. In-memory per instance (max 2 instances).
 - **Audit stub:** one JSON line per tool call (`kind: mcp_audit`, uid, tool, teamId, ok, count, ms); never tokens or message text.
@@ -115,8 +136,9 @@ Not exposed: `sessions` (game reports), `logs`, `invite_codes`, `activeControlle
 
 ## Run and test
 ```
-cd mcp-server && npm ci && npm test       # 23 tests: tools + full OAuth flow against fake Firestore
-cd firestore-tests && npm ci && npm test  # 10 rules tests on the Firestore emulator (needs Java 11+)
+cd mcp-server && npm ci && npm test       # 48 tests: read + write tools, scopes, full OAuth flow against fake Firestore
+npm run test:emulator                     # 5 write tests on the Firestore emulator with the real firestore.rules (Java 21+, firestore-tests deps installed)
+cd firestore-tests && npm ci && npm test  # 28 rules + app-flow tests on the Firestore emulator (Java 21+)
 cp deploy/env.example deploy/env.local    # fill in, then: set -a; . deploy/env.local; set +a; npm run build && npm start
 ```
 Deploy: `CONFIRM=deploy FIREBASE_WEB_API_KEY=... ./deploy/cloudrun.sh` (needs approval; see MCP-TESTING.md).
