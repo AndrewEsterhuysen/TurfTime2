@@ -6,7 +6,10 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createApp } from "../src/app.js";
 import { RateLimiter } from "../src/ratelimit.js";
 import { setAuditSink } from "../src/audit.js";
-import { setWriteLimiters } from "../src/writes.js";
+import { setWriteLimiters, WriteContext, WriteRefused } from "../src/writes.js";
+import { createClub, createTeam, setCreateCap, hashAdminCode } from "../src/creates.js";
+import { DailyCap } from "../src/ratelimit.js";
+import { FirestoreUserClient } from "../src/firestore.js";
 import { fakeFirestore } from "./fakeFirestore.js";
 import { MemoryStore } from "../src/oauth/store.js";
 import { TokenSigner } from "../src/oauth/tokens.js";
@@ -44,9 +47,9 @@ before(async () => {
   url = new URL(`http://127.0.0.1:${(server.address() as any).port}/mcp`);
 });
 after(() => server.close());
-beforeEach(() => { fake = fakeFirestore(seed(), tokens); setWriteLimiters(new RateLimiter(1000, 0), new RateLimiter(1000, 0)); });
+beforeEach(() => { fake = fakeFirestore(seed(), tokens); setWriteLimiters(new RateLimiter(1000, 0), new RateLimiter(1000, 0)); setCreateCap(new DailyCap(20)); });
 
-async function call(token: string, name: string, args: any) {
+async function call(token: string, name: string, args: any = {}) {
   const c = new Client({ name: "t", version: "1" });
   await c.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
   const r: any = await c.callTool({ name, arguments: args });
@@ -209,4 +212,124 @@ test("audit marks writes and never logs message text", async () => {
   await call("tok-mem", "post_chat_message", { teamId: "T1", text: "secret plan" });
   setAuditSink(() => {});
   assert.equal(seen[0].write, true); assert.equal(JSON.stringify(seen).includes("secret plan"), false);
+});
+
+// ---- create_club / create_team ----
+const wctx = (uid: string, canWrite = true): WriteContext =>
+  ({ uid, fs: new FirestoreUserClient(`tok-${uid}`, "turf-timer", (u, i) => fake.fetch(u, i)), canWrite, clientName: "Grok" });
+
+function metaOf(teamId: string) { return fake.docs[`teams/${teamId}/metadata/info`]; }
+function memberOf(teamId: string, uid = "admin") { return fake.docs[`teams/${teamId}/members/${uid}`]; }
+
+test("create_team: standalone nickname team matches the app (metadata, admin member, empty roster, invite index) and appears for the creator as admin", async () => {
+  const { data, err } = await call("tok-admin", "create_team", { name: "Hunter Hunters", creatorEmail: "andy@example.com" });
+  assert.equal(err, null, err!);
+  assert.match(data.teamId, /^hunter-hunters-[a-z0-9]{6}$/);
+  assert.equal(data.kind, "nickname");
+  assert.equal(data.role, "admin");
+  assert.equal(data.isOwner, true);
+  assert.match(data.inviteCode, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}$/);
+  assert.match(data.ownerRecoveryCode, /^([ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}-){3}[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{4}$/);
+  const t = data.teamId;
+  const m = metaOf(t);
+  assert.equal(m.teamName, "Hunter Hunters");
+  assert.equal(m.kind, "nickname");
+  assert.equal(m.createdBy, "admin");
+  assert.equal(m.isActive, true);
+  assert.equal(m.inviteCode, data.inviteCode);
+  assert.equal(m.adminCodeHash, hashAdminCode(data.ownerRecoveryCode));
+  assert.equal(m.creatorEmail, "andy@example.com");
+  assert.ok(m.createdAt); assert.ok(m.lastActivityUtc);
+  assert.equal("clubId" in m, false);
+  assert.deepEqual(memberOf(t), { role: "admin", displayName: "Coach Andy", uid: "admin" });
+  assert.deepEqual(fake.docs[`teams/${t}/roster/data`], { version: 2, players: [] });
+  const compact = data.inviteCode.replace("-", "");
+  const inv = fake.docs[`invite_codes/${compact}`];
+  assert.deepEqual(inv, { teamId: t, teamName: "Hunter Hunters", clubId: "", clubName: "", inviteCode: data.inviteCode, inviteCodeCompact: compact, createdBy: "admin" });
+  assert.deepEqual(fake.docs[`teams/${t}/public/invite`], inv);
+  const listed = (await call("tok-admin", "list_teams")).data.teams;
+  const row = listed.find((x: any) => x.teamId === t);
+  assert.deepEqual({ teamId: row.teamId, role: row.role, teamName: row.teamName, kind: row.kind, displayName: row.displayName },
+    { teamId: t, role: "admin", teamName: "Hunter Hunters", kind: "nickname", displayName: "Coach Andy" });
+});
+
+test("create_club then create_team under that club: docs match the app; club member (not admin) is refused; club Admin is allowed", async () => {
+  const club = (await call("tok-admin", "create_club", { clubName: "Cape Crusaders", displayName: "Coach Andy" })).data;
+  assert.equal(club.role, "owner"); assert.equal(club.isOwner, true);
+  assert.match(club.clubId, /^club-cape-crusaders-[a-z0-9]{6}$/);
+  const c = club.clubId;
+  const cm = fake.docs[`clubs/${c}/metadata/info`];
+  assert.equal(cm.clubName, "Cape Crusaders");
+  assert.equal(cm.createdBy, "admin");
+  assert.equal(cm.isActive, true);
+  assert.equal(cm.ownerRecoveryCodeHash, hashAdminCode(club.ownerRecoveryCode));
+  assert.deepEqual({ role: fake.docs[`clubs/${c}/members/admin`].role, displayName: fake.docs[`clubs/${c}/members/admin`].displayName },
+    { role: "owner", displayName: "Coach Andy" });
+
+  const team = (await call("tok-admin", "create_team", { name: "U13", clubId: c })).data;
+  assert.equal(team.kind, "clubbed");
+  assert.equal(team.clubId, c);
+  assert.equal(team.clubName, "Cape Crusaders");
+  assert.match(team.teamId, /^u13-cape-crusaders-[a-z0-9]{6}$/);
+  const tm = metaOf(team.teamId);
+  assert.equal(tm.kind, "clubbed"); assert.equal(tm.clubId, c); assert.equal(tm.clubName, "Cape Crusaders");
+  assert.equal(memberOf(team.teamId).role, "admin");
+  const listed = (await call("tok-admin", "list_teams")).data.teams.find((x: any) => x.teamId === team.teamId);
+  assert.equal(listed.role, "admin"); assert.equal(listed.clubId, c); assert.equal(listed.clubName, "Cape Crusaders");
+
+  // mem is not a club admin
+  assert.match((await call("tok-mem", "create_team", { name: "U14", clubId: c, displayName: "Mem Mem" })).err!, /Only the club Owner or a Club Admin/);
+  assert.equal(Object.keys(fake.docs).some(k => k.startsWith("teams/u14-")), false);
+
+  // promote mem to club admin (as the app's PromoteClubMemberToAdmin would)
+  fake.docs[`clubs/${c}/members/mem`] = { role: "admin", displayName: "Mem" };
+  const u14 = (await call("tok-mem", "create_team", { name: "U14", clubId: c })).data;
+  assert.equal(u14.kind, "clubbed");
+  assert.equal(memberOf(u14.teamId, "mem").role, "admin");
+  assert.equal(memberOf(u14.teamId, "mem").uid, "mem");
+});
+
+test("create_team: optional players seeds a 16-slot bench roster; update_roster can fill an empty one", async () => {
+  const { data, err } = await call("tok-admin", "create_team", { name: "Seeds", players: ["Ava", "Mia"] });
+  assert.equal(err, null, err!);
+  const players = fake.docs[`teams/${data.teamId}/roster/data`].players as any[];
+  assert.equal(players.length, 16);
+  assert.equal(players[0].name, "Ava"); assert.equal(players[0].bench, true); assert.equal(players[0].slotId, 1);
+  assert.equal(players[1].name, "Mia");
+  assert.equal(players[2].name, "#03 Player");
+  assert.equal(players[15].name, "#16 Player");
+  assert.equal(data.players.map((p: any) => p.name).join(","), "Ava,Mia");
+  assert.equal(data.unusedSlots, 14);
+
+  const empty = (await call("tok-admin", "create_team", { name: "EmptyRoster" })).data;
+  const { data: ro, err: e2 } = await call("tok-admin", "update_roster", { teamId: empty.teamId, changes: [{ player: 1, newName: "Lily" }, { player: 2, newName: "Zoe", status: "goalie" }] });
+  assert.equal(e2, null, e2!);
+  const rp = fake.docs[`teams/${empty.teamId}/roster/data`].players as any[];
+  assert.equal(rp.length, 16);
+  assert.equal(rp[0].name, "Lily"); assert.equal(rp[1].name, "Zoe"); assert.equal(rp[1].goalie, true);
+  assert.equal(rp[2].name, "#03 Player");
+});
+
+test("create_team: missing write scope, empty or bad name, unknown club — nothing written", async () => {
+  await assert.rejects(createTeam(wctx("admin", false), { name: "Nope" }), (e: any) => e instanceof WriteRefused && /read-only/.test(e.message));
+  await assert.rejects(createClub(wctx("admin", false), { clubName: "Nope" }), (e: any) => e instanceof WriteRefused && /read-only/.test(e.message));
+  assert.match((await call("tok-admin", "create_team", { name: "   " })).err!, /cannot be empty/);
+  assert.match((await call("tok-admin", "create_club", { clubName: "\t  " })).err!, /cannot be empty/);
+  assert.match((await call("tok-admin", "create_team", { name: "Ok", clubId: "no-such-club" })).err!, /not found/i);
+  const created = Object.keys(fake.docs).filter(k => k.includes("nope") || k.includes("no-such") || /teams\/(ok|n)-/.test(k));
+  assert.deepEqual(created, []);
+  // failed attempts did not consume the daily cap
+  setCreateCap(new DailyCap(1));
+  assert.equal((await call("tok-admin", "create_team", { name: "AfterFails" })).err, null);
+});
+
+test("create_club and create_team share the 20-per-day cap (per uid); another user is unaffected", async () => {
+  setCreateCap(new DailyCap(2));
+  assert.equal((await call("tok-admin", "create_club", { clubName: "A" })).err, null);
+  assert.equal((await call("tok-admin", "create_team", { name: "B" })).err, null);
+  assert.match((await call("tok-admin", "create_team", { name: "C" })).err!, /already created 2 clubs or teams today/);
+  assert.match((await call("tok-admin", "create_club", { clubName: "D" })).err!, /already created 2 clubs or teams today/);
+  const other = (await call("tok-mem", "create_team", { name: "Mems Team", displayName: "Mem Two" })).data;
+  assert.equal(other.kind, "nickname");
+  assert.equal(memberOf(other.teamId, "mem").uid, "mem");
 });

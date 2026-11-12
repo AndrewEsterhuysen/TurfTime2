@@ -13,7 +13,7 @@ MCP URL after deploy: `https://<cloud-run-url>/mcp` (call it `$MCP`; base `$BASE
    ```
 3. Build the app with `AiConnectConfig.BaseUrl = "$BASE"` (Services/AiConnectService.cs). This is a TestFlight or internal-track build only; the Settings card stays hidden in store builds until we decide.
 4. On the phone: join a test team. Then **Settings → Connect AI assistant → Get code** when a client asks for it (the code is valid once, for 10 minutes).
-5. Expected in every client: tools `list_teams`, `get_kit`, `get_duties`, `get_fixtures` (next match only), `get_messages_since`, `get_changes_since`, `get_roster`, `get_lineup` (read), plus `post_chat_message`, `update_kit`, `update_duties`, `update_next_fixture`, `update_roster` (need *Allow read and write*). Try: "What do I need to bring on Saturday, and who's on canteen?"
+5. Expected in every client: tools `list_teams`, `get_kit`, `get_duties`, `get_fixtures` (next match only), `get_messages_since`, `get_changes_since`, `get_roster`, `get_lineup` (read), plus `post_chat_message`, `update_kit`, `update_duties`, `update_next_fixture`, `update_roster`, `create_club`, `create_team` (need *Allow read and write*). Try: "What do I need to bring on Saturday, and who's on canteen?" For a club manager: "Create a club called Cape Crusaders, then a U13 and a U15 team from this spreadsheet, and add the players on each row."
 6. Negative test: ask about a team you have not joined (the result is "Not a member"). Disconnect from the app; within about 30 s the client gets 401 and must reconnect.
 
 ## 1. ChatGPT (developer mode)
@@ -79,7 +79,7 @@ Store the returned `client_secret` in the client only; it is shown once and stor
 
 ## 7. Known limits
 - No CIMD; DCR only. Redirects must be on the allowlist (`src/oauth/redirects.ts`, or `MCP_EXTRA_REDIRECTS`).
-- Write tools need a connection approved with *Allow read and write*; older connections are read-only until reconnected. `get_fixtures` returns the next match only (no season list yet).
+- Write tools need a connection approved with *Allow read and write*; older connections are read-only until reconnected. `get_fixtures` returns the next match only (no season list yet). `create_club` / `create_team` share a 20-per-day cap; save the Owner Recovery Codes they return (they are not shown again, and no reminder email is sent).
 - Rate limits and revocation cache are per instance (max 2 instances); revocation applies within 30 s.
 - Without deploying the tightened rules, the server still refuses non-members (tool-level `requireMember`). The app's own exposure (any signed-in user can read chat, sessions and roster) remains until the rules are deployed.
 

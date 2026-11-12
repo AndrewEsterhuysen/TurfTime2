@@ -209,7 +209,7 @@ test("scope: read-only consent has no write option; read-only token can read but
   const r = await chatTry(tok.access_token);
   assert.equal(r.isError, true); assert.match(r.content[0].text, /read-only/);
   const c = await mcp(tok.access_token);
-  for (const [name, args] of [["update_kit", { teamId: "T1", game: "x" }], ["update_duties", { teamId: "T1", canteen: "x" }], ["update_next_fixture", { teamId: "T1", matchTime: "09:00" }], ["update_roster", { teamId: "T1", changes: [{ player: 1, status: "bench" }] }]] as const) {
+  for (const [name, args] of [["update_kit", { teamId: "T1", game: "x" }], ["update_duties", { teamId: "T1", canteen: "x" }], ["update_next_fixture", { teamId: "T1", matchTime: "09:00" }], ["update_roster", { teamId: "T1", changes: [{ player: 1, status: "bench" }] }], ["create_club", { clubName: "X" }], ["create_team", { name: "X" }]] as const) {
     const x: any = await c.callTool({ name, arguments: args as any });
     assert.equal(x.isError, true, name); assert.match(x.content[0].text, /read-only/, name);
   }
