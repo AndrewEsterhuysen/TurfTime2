@@ -80,11 +80,11 @@ test("rejects missing/invalid bearer", async () => {
   assert.equal((await fetch(url, { method: "GET" })).status, 405);
 });
 
-test("exposes the eight read-only tools and five write tools (annotated)", async () => {
+test("exposes the eight read-only tools and seven write tools (annotated)", async () => {
   const c = await client("tok-bob");
   const { tools } = await c.listTools();
   const READ = ["get_changes_since", "get_duties", "get_fixtures", "get_kit", "get_lineup", "get_messages_since", "get_roster", "list_teams"];
-  const WRITE = ["post_chat_message", "update_duties", "update_kit", "update_next_fixture", "update_roster"];
+  const WRITE = ["create_club", "create_team", "post_chat_message", "update_duties", "update_kit", "update_next_fixture", "update_roster"];
   assert.deepEqual(tools.map(t => t.name).sort(), [...READ, ...WRITE].sort());
   for (const t of tools) assert.equal(t.annotations?.readOnlyHint, READ.includes(t.name), t.name);
   await c.close();

@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node build/src/index.js",
-    "test": "tsc -p tsconfig.json && node --test build/test/",
+    "test": "tsc -p tsconfig.json && node --test build/test/*.js",
     "smoke": "node scripts/smoke.mjs",
     "test:emulator": "tsc -p tsconfig.json && cd ../firestore-tests && npx firebase emulators:exec --only firestore --project demo-turftimer-mcp \"cd ../mcp-server && node --test build/test/emulator.test.js\""
   },
