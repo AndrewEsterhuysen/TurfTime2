@@ -230,6 +230,8 @@ public partial class GamePage : ContentPage
             _vm.ControlRequestReceived += OnControlRequestReceived;
         }
 
+        AttachTestApi();
+
         // Keep checking role while Game stays open so Promote takes effect without tab switching.
         StartRolePolling(teamId);
 
@@ -437,6 +439,15 @@ public partial class GamePage : ContentPage
     /// <summary>Live GameViewModel for Team Settings (e.g. Relinquish Match Control).</summary>
     public GameViewModel? ViewModel => _vm;
 
+    private void AttachTestApi()
+    {
+#if DEBUG
+        var services = Handler?.MauiContext?.Services
+            ?? Application.Current?.Handler?.MauiContext?.Services;
+        services?.GetService<ITestApi>()?.Attach(_vm);
+#endif
+    }
+
     private async Task CreateViewModelAsync(string teamId, string? userRole)
     {
         var services = Handler?.MauiContext?.Services
@@ -457,6 +468,7 @@ public partial class GamePage : ContentPage
         Preferences.Set("_gamepage_last_team", teamId);
         await _vm.InitialiseAsync(teamId, userRole);
         ApplyViewMode(_vm.ViewMode);
+        AttachTestApi();
 
         // Warm up the CollectionView's RecyclerView row handlers so that
         // the first Rotate doesn't pay the DragLayoutViewGroup inflation

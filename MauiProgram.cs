@@ -39,6 +39,10 @@ namespace TurfTime2
                 if (ex?.InnerException != null)
                     System.Diagnostics.Debug.WriteLine($"[CRASH] Inner: {ex.InnerException}");
                 System.Diagnostics.Debug.WriteLine("========================================");
+#if DEBUG
+                if (ex is not null)
+                    Services.TestApiService.RecordError("AppDomain.UnhandledException", ex);
+#endif
             };
 
             TaskScheduler.UnobservedTaskException += (sender, e) =>
@@ -50,6 +54,10 @@ namespace TurfTime2
                 System.Diagnostics.Debug.WriteLine("[CRASH] (Observed to prevent process tear-down in some hosts)");
                 e.SetObserved();
                 System.Diagnostics.Debug.WriteLine("========================================");
+#if DEBUG
+                if (e.Exception is not null)
+                    Services.TestApiService.RecordError("TaskScheduler.UnobservedTaskException", e.Exception);
+#endif
             };
 
             System.Diagnostics.Debug.WriteLine("[Diagnostics] Global exception handlers installed (AppDomain + TaskScheduler)");
@@ -108,6 +116,10 @@ namespace TurfTime2
             builder.Services.AddTransient<Services.IGameLoggerService,     Services.GameLoggerService>();
             builder.Services.AddTransient<ViewModels.GameViewModel>();
             builder.Services.AddTransient<GamePage>();
+#if DEBUG
+            // In-app test/automation API — compiled out of Release. Binds 127.0.0.1 only.
+            builder.Services.AddSingleton<Services.ITestApi, Services.TestApiService>();
+#endif
 
             // Initialize Firebase
             builder.ConfigureLifecycleEvents(events =>
@@ -201,7 +213,18 @@ namespace TurfTime2
             });
 #endif
 
-            return builder.Build();
+            var app = builder.Build();
+#if DEBUG
+            try
+            {
+                app.Services.GetRequiredService<Services.ITestApi>().Start();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TestApi] Failed to start: {ex}");
+            }
+#endif
+            return app;
         }
     }
 }
