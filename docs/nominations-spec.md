@@ -141,7 +141,6 @@ Firestore yet.
 
 Details → Nominations already exists as a “Coming soon” card and is only
 reachable on **shared** teams (the Details tab is hidden for local teams).
-Local teams use a device-only tally (§7) reached from End game and Reports.
 The scaffold points that card at a placeholder `NominationsPage`. End-game
 and Reports entry points are specified here but **not wired** in the first
 commit.
@@ -251,9 +250,7 @@ Today’s cascade only deletes the session documents themselves.
 
 `INominationService.SubmitNominationAsync`:
 
-1. Local teams (`local_` prefix or `team_mode=local`): skip Firestore and
-   record the vote in the device-only tally for that session (see §7).
-   Steps 2–3 apply to shared teams only.
+1. Reject local teams (`local_` prefix or `team_mode=local`) and fail soft.
 2. `EnsureSignedInAsync`; nominator is that uid.
 3. Run a Firestore transaction: read the session (must exist, `endTime` set),
    read `nominationsMeta/status` (must not be `closed`), confirm the window
@@ -327,18 +324,13 @@ orphan the result.
 
 ### Local teams
 
-**Device-only tally** in v1 (decided by Andrew, 20 Nov 2026). Local teams
-have no shared member list and no cloud session doc, so votes are collected
-on the coach’s device: the coach goes around and records each kid’s pick, and
-the tally is stored locally with that session (device Preferences, next to
-`roster.sessionHistory.v1`). Nothing is written to Firestore.
-
-- The one-vote-per-member-uid rule does not apply: each tap records one vote
-  on the device. The coach is trusted to collect one vote per kid.
-- Same eligibility (present players only), same window (Admin/coach close or
-  24 hours after `endTime`), same tie rule (joint winners).
-- The Details tab is hidden for local teams today, so local teams need their
-  own entry point (End-game prompt and Reports), not Details → Nominations.
+**Disabled** in v1. Local teams have no shared member list and no cloud
+session doc to hang a live tally on. The Details tab (the Nominations
+entry) is already hidden. A single-device Preferences tally would be
+misleading on a family phone, so we will not add one. Confirmed by Andrew
+(20 Nov 2026): nominations stay a **shared-team-only** feature. Shared-team
+features may later become paid under a subscription model, so local-team
+users would get nominations by moving to a (possibly paid) shared team.
 
 ### Ties
 
@@ -379,8 +371,6 @@ offline for local play (existing freemium rule).
 - Deploying or even patching `firestore.rules` (snippet + this doc only).
 - Adding `SlotId` to `PlayerStats`.
 - Parent–child member links.
-- The local-team device-only tally (in v1 scope, §10 Q9; follows the
-  scaffold).
 - MCP tools or push notifications.
 - Adding the result to the match report. This **is in v1 scope** (§10 Q7);
   it is only left out of this first scaffold commit and follows once the
@@ -394,8 +384,7 @@ offline for local play (existing freemium rule).
 - No Plugin.Firebase types in Pages or ViewModels (`AGENTS.md`).
 - Register `INominationService` in `MauiProgram` DI; pages resolve via the
   existing `Handler.MauiContext.Services` pattern.
-- Fail soft; local-only play must keep working. Local teams keep their
-  nominations tally on the device only.
+- Fail soft; local-only play must keep working.
 - iOS and Android share `NominationsPage`.
 - Feature remains free; `TeamNominations` stays in the catalog. Monetization,
   if any, would be later via entitlements like other shared-team features.
@@ -429,8 +418,9 @@ offline for local play (existing freemium rule).
    the team, the tally shows names and counts only, and nothing is published
    outside the team.
 9. ~~**Nominations on local (offline) teams?**~~ **Answered (20 Nov 2026):**
-   device-only tally in v1 (not disabled). The coach goes around and collects
-   votes from different kids on the device; the tally is kept locally.
+   disabled in v1. Andrew wants value-adding features to stay shared-team
+   only, because shared-team features may later become paid under a
+   subscription model.
 
 ---
 
