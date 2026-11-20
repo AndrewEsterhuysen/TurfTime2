@@ -37,6 +37,12 @@ public sealed class GameSession
     public int ScoreUs { get; set; }
     public int ScoreThem { get; set; }
     public string? TeamName { get; set; }
+
+    /// <summary>
+    /// Team the game was played for (from 3.6.0). Lets local history be filtered by team;
+    /// older sessions leave it null.
+    /// </summary>
+    public string? TeamId { get; set; }
 }
 
 /// <summary>Lightweight listing record used by ReportsPage and SessionLoadHelper.</summary>

@@ -48,7 +48,8 @@ public partial class NominationsPage : ContentPage
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[NominationsPage] Load: {ex.Message}");
-            ShowNotice("Couldn't load matches. Check your connection and try again.");
+            HideAll();
+            ShowNotice("Couldn't load matches. Check your connection and try again.", retry: true);
         }
     }
 
@@ -90,8 +91,12 @@ public partial class NominationsPage : ContentPage
         WindowLabel.Text = "Loading matches...";
         MatchCard.IsVisible = true;
 
-        var list = await _sessions.LoadSessionSummariesAsync(_teamId, isLocalTeam: false);
-        _matches = list.Where(s => s.EndTime is not null).OrderByDescending(s => s.StartTime).ToList();
+        // Cloud sessions (SDK, then REST list) merged with this team's games in local
+        // history, so a game that is on the phone but not yet listed from the cloud shows.
+        var result = await _sessions.LoadCompletedSessionsAsync(_teamId, Preferences.Get("team_name", string.Empty));
+        _matches = result.Sessions.ToList();
+        if (result.CloudFailed)
+            System.Diagnostics.Debug.WriteLine($"[NominationsPage] Cloud list failed: {result.CloudError}");
 
         // Deep link to a match that isn't in the list yet (e.g. just archived).
         if (!string.IsNullOrWhiteSpace(SessionId) && _matches.All(m => m.SessionId != SessionId))
@@ -100,7 +105,10 @@ public partial class NominationsPage : ContentPage
         if (_matches.Count == 0)
         {
             HideAll();
-            ShowNotice("No completed matches yet. Finish a game to nominate a player of the match.");
+            if (result.CloudFailed)
+                ShowNotice("Couldn't load matches. Check your connection and try again.", retry: true);
+            else
+                ShowNotice("No completed matches yet. Finish a game to nominate a player of the match.");
             return;
         }
 
@@ -349,10 +357,30 @@ public partial class NominationsPage : ContentPage
         CloseVotingButton.IsVisible = false;
     }
 
-    private void ShowNotice(string text)
+    private void ShowNotice(string text, bool retry = false)
     {
         NoticeLabel.Text = text;
+        RetryButton.IsVisible = retry;
         NoticeCard.IsVisible = true;
+    }
+
+    private async void OnRetryClicked(object? sender, EventArgs e)
+    {
+        RetryButton.IsEnabled = false;
+        try
+        {
+            NoticeCard.IsVisible = false;
+            await LoadMatchesAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[NominationsPage] Retry: {ex.Message}");
+            ShowNotice("Couldn't load matches. Check your connection and try again.", retry: true);
+        }
+        finally
+        {
+            RetryButton.IsEnabled = true;
+        }
     }
 
     private Style? StyleOf(string key)

@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Plugin.Firebase.Firestore;
@@ -16,6 +18,11 @@ public sealed class SessionStorageService : ISessionStorageService
     /// for nominations). v1 sessions still load; nominations fall back to the current roster.
     /// </summary>
     public const int SessionSchemaVersion = 2;
+
+    private const string FirebaseProjectId = "turf-timer";
+    private const int RestPageSize = 100;
+    private const int RestMaxPages = 10;
+    private static readonly HttpClient RestHttp = new() { Timeout = TimeSpan.FromSeconds(20) };
 
     private readonly IFirebaseAuthService _auth;
     private readonly IFirebaseFirestore _db;
@@ -95,6 +102,148 @@ public sealed class SessionStorageService : ISessionStorageService
             return LoadLocalSummaries(teamId);
 
         return await LoadCloudSummariesAsync(teamId).ConfigureAwait(false);
+    }
+
+    public async Task<SessionListResult> LoadCompletedSessionsAsync(string teamId, string? teamName)
+    {
+        if (string.IsNullOrWhiteSpace(teamId)) return new SessionListResult();
+
+        var local = LoadLocalTeamSessions(teamId, teamName);
+        if (IsLocalOnlyTeam(teamId))
+            return new SessionListResult { Sessions = SessionListMerger.MergeCompleted([], local) };
+
+        var (cloud, cloudError) = await LoadCloudSummariesWithFallbackAsync(teamId).ConfigureAwait(false);
+        var merged = SessionListMerger.MergeCompleted(cloud ?? [], local);
+        Log($"Matches for {teamId}: cloud={(cloud is null ? "failed" : cloud.Count.ToString())}, " +
+            $"local={local.Count}, completed={merged.Count}");
+        return new SessionListResult
+        {
+            Sessions = merged,
+            CloudFailed = cloud is null,
+            CloudError = cloudError
+        };
+    }
+
+    /// <summary>
+    /// Cloud summaries: SDK query first; if it throws or yields nothing usable (Plugin.Firebase
+    /// Dictionary reads can come back empty on device), list the collection over REST.
+    /// Returns null when both fail.
+    /// </summary>
+    private async Task<(List<SessionSummary>? Items, string? Error)> LoadCloudSummariesWithFallbackAsync(string teamId)
+    {
+        string? error = null;
+        List<SessionSummary>? sdkItems = null;
+        var sdkDocCount = 0;
+
+        if (await _auth.EnsureSignedInAsync().ConfigureAwait(false) is null)
+            return (null, "Not signed in");
+
+        try
+        {
+            var querySnap = await _db.GetCollection($"teams/{teamId}/sessions")
+                .GetDocumentsAsync<Dictionary<string, object>>()
+                .ConfigureAwait(false);
+            FirestoreUsageMeter.RecordSdk("Query", "Session");
+
+            sdkItems = [];
+            foreach (var doc in querySnap?.Documents ?? [])
+            {
+                sdkDocCount++;
+                var data = doc.Data;
+                var parsed = ParseSessionData(data);
+                var summary = SessionListMerger.FromSdkDocument(doc.Reference?.Id, data, parsed);
+                if (summary is not null) sdkItems.Add(summary);
+            }
+            Log($"SDK sessions query: docs={sdkDocCount}, usable={sdkItems.Count}");
+        }
+        catch (Exception ex)
+        {
+            error = $"SDK: {ex.GetType().Name}: {ex.Message}";
+            Log($"SDK sessions query failed: {error}");
+        }
+
+        // Good SDK result: every doc usable.
+        if (sdkItems is { Count: > 0 } && sdkItems.Count == sdkDocCount)
+            return (sdkItems, null);
+
+        try
+        {
+            var restItems = await ListSummariesViaRestAsync(teamId).ConfigureAwait(false);
+            Log($"REST sessions list: {restItems.Count}");
+            // REST first so its fields win; the final merge de-duplicates by SessionId.
+            return (sdkItems is { Count: > 0 } ? restItems.Concat(sdkItems).ToList() : restItems, null);
+        }
+        catch (Exception ex)
+        {
+            var restError = $"REST: {ex.GetType().Name}: {ex.Message}";
+            Log($"REST sessions list failed: {restError}");
+            error = error is null ? restError : $"{error}; {restError}";
+            // SDK worked partly — use what it gave; otherwise the cloud list failed.
+            return (sdkItems is { Count: > 0 } ? sdkItems : null, error);
+        }
+    }
+
+    /// <summary>Firestore REST documents.list on teams/{teamId}/sessions (summary fields only, paged).</summary>
+    private async Task<List<SessionSummary>> ListSummariesViaRestAsync(string teamId)
+    {
+        var token = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(token))
+            token = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(token))
+            throw new InvalidOperationException("No Firebase id token");
+
+        var baseUrl = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/teams/"
+                      + $"{Uri.EscapeDataString(teamId)}/sessions?pageSize={RestPageSize}"
+                      + string.Concat(SessionListMerger.SummaryFieldPaths.Select(f => $"&mask.fieldPaths={f}"));
+
+        var result = new List<SessionSummary>();
+        string? pageToken = null;
+        for (var page = 0; page < RestMaxPages; page++)
+        {
+            var url = pageToken is null ? baseUrl : $"{baseUrl}&pageToken={Uri.EscapeDataString(pageToken)}";
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var resp = await RestHttp.SendAsync(req).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            FirestoreUsageMeter.RecordRestBody("GET", url, body);
+            if (resp.StatusCode == HttpStatusCode.NotFound) break;
+            if (!resp.IsSuccessStatusCode)
+                throw new HttpRequestException(
+                    $"sessions list {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}", null, resp.StatusCode);
+
+            var (items, next) = SessionListMerger.ParseRestListPage(body);
+            result.AddRange(items);
+            if (next is null) break;
+            pageToken = next;
+        }
+        return result;
+    }
+
+    /// <summary>This team's games from the device's local history (roster.sessionHistory.v1).</summary>
+    private static List<SessionSummary> LoadLocalTeamSessions(string teamId, string? teamName)
+    {
+        try
+        {
+            var raw = Preferences.Get("roster.sessionHistory.v1", string.Empty);
+            if (string.IsNullOrEmpty(raw)) return [];
+            var history = JsonSerializer.Deserialize<List<GameSession>>(raw, SessionJsonOptions) ?? [];
+            return history
+                .Where(s => SessionListMerger.BelongsToTeam(s, teamId, teamName))
+                .Select(SessionListMerger.FromSession)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Log($"Local history read failed: {ex.GetType().Name}: {ex.Message}");
+            return [];
+        }
+    }
+
+    private static void Log(string message)
+    {
+        var line = $"[SessionStorage] {message}";
+        System.Diagnostics.Debug.WriteLine(line);
+        Console.WriteLine(line);
     }
 
     public async Task<GameSession?> LoadSessionAsync(string teamId, string sessionId)
@@ -206,7 +355,7 @@ public sealed class SessionStorageService : ISessionStorageService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[SessionStorage] LoadCloudSummaries: {ex.Message}");
+            Log($"LoadCloudSummaries failed: {ex.GetType().Name}: {ex.Message}");
             return [];
         }
     }
@@ -224,7 +373,7 @@ public sealed class SessionStorageService : ISessionStorageService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[SessionStorage] ParseSessionData: {ex.Message}");
+            Log($"ParseSessionData failed: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
     }

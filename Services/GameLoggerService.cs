@@ -39,7 +39,8 @@ public sealed class GameLoggerService : IGameLoggerService
         {
             MatchDurationSeconds      = matchDurationSeconds,
             RotationIntervalSeconds   = rotationIntervalSeconds,
-            Location                  = location
+            Location                  = location,
+            TeamId                    = NullIfEmpty(Preferences.Get("team_id", string.Empty))
         };
 
         Log(GameEventType.GameStarted,
@@ -84,6 +85,7 @@ public sealed class GameLoggerService : IGameLoggerService
         CurrentSession.ScoreUs = scoreUs;
         CurrentSession.ScoreThem = scoreThem;
         CurrentSession.TeamName = teamName ?? Preferences.Get("team_name", string.Empty);
+        CurrentSession.TeamId ??= NullIfEmpty(Preferences.Get("team_id", string.Empty));
 
         Log(GameEventType.GameEnded,
             $"Match ended",
@@ -180,6 +182,8 @@ public sealed class GameLoggerService : IGameLoggerService
             System.Diagnostics.Debug.WriteLine($"[GameLogger] Cloud save failed: {ex.Message}");
         }
     }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
     private void PersistCurrentSession()
     {

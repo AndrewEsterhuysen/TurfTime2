@@ -15,8 +15,12 @@
 
             <!-- Shown for local teams, no matches, or load errors -->
             <Border x:Name="NoticeCard" Style="{StaticResource PvCardWarning}" Padding="12,8" IsVisible="False">
-                <Label x:Name="NoticeLabel" Style="{StaticResource PvWarningText}" FontFamily="InterSemiBold"
-                       HorizontalTextAlignment="Center" />
+                <VerticalStackLayout Spacing="8">
+                    <Label x:Name="NoticeLabel" Style="{StaticResource PvWarningText}" FontFamily="InterSemiBold"
+                           HorizontalTextAlignment="Center" />
+                    <Button x:Name="RetryButton" Style="{StaticResource PvButtonOutline}" Text="Try again"
+                            IsVisible="False" Clicked="OnRetryClicked" />
+                </VerticalStackLayout>
             </Border>
 
             <!-- 1. Match -->
