@@ -284,7 +284,7 @@ Decision (Andrew, 20 Nov 2026): **parents may vote for their own child.** A
 parent’s child may legitimately be player of the match.
 
 - v1 has **no block** of any kind: no uid ↔ slot check, no `displayName`
-  comparison, no “this is my child” tick. Any member may nominate any player
+  comparison, no “this is my child” tick. Any member may nominate any present player
   in the session squad.
 - The parent–child link table is deferred. If it is added later, whether to
   restrict own-child votes will be a separate decision; the default remains
@@ -390,7 +390,7 @@ offline for local play (existing freemium rule).
    their child (Option A mechanics). The parent–child link table (full
    Option C) is deferred to a later version.
 2. ~~**May a parent vote for their own child?**~~ **Answered (20 Nov 2026):**
-   yes. No restriction in v1; parents can vote for any player in the squad.
+   yes. No restriction in v1; parents can vote for any present player in the squad.
 3. ~~**Voting window:**~~ **Answered (20 Nov 2026):** both triggers. Voting
    auto-closes 24 hours after the session’s `endTime`, and an Admin may close
    it early. Whichever comes first wins.
