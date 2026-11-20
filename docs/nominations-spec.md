@@ -46,7 +46,7 @@ teams/{teamId}/sessions/{sessionId}/nominationsMeta/status
 
 ---
 
-## 2. Who nominates? (open question — recommended default below)
+## 2. Who nominates? (decided for v1)
 
 The product line “players nominate another player” does not map cleanly onto
 the current data model.
@@ -67,11 +67,22 @@ the current data model.
 | **C. Linked parent → child** | Member account is linked to one (or more) roster slots. The parent votes “as” that player. One nomination per linked child, and optionally block voting for your own child. | Closer to a player ballot while keeping adults as the account holders. | Link table does not exist. Needs a UI to attach children to members. |
 | **D. Admin records a single official POTM** | No vote; the coach picks the winner. | Simple. | Not a nomination from the team. |
 
-**Recommendation for v1: Option A.** Optionally add Option C later if clubs want
-a true “one vote per player” ballot. Please confirm (see §10).
+**Decision for v1 (Andrew, 20 Nov 2026): kids nominate through their parents’
+accounts.** Parents vote on behalf of their children using their own signed-in
+member account. In practice this is Option C *without* the parent–child link
+table, delivered on the Option A mechanics:
 
-Self-nomination in Option A is not a direct “uid votes for uid” case, because
-the nominee is a slot, not an account. See §7.
+- Each signed-in Admin or Member casts **one** vote per session for a roster
+  player (`nominatorId` = member uid). The parent is voting for their child.
+- There is **no** link between a member and a roster slot in v1. The
+  parent–child link table (full Option C) is **deferred** to a later version.
+- Because there is no link, the app does **not** restrict who a parent can
+  nominate: any player in the session squad may be chosen, including the
+  parent’s own child (see §7).
+- A household that shares one phone still shares one vote; families with more
+  than one child on the team get one vote per member account, not per child.
+
+Option B (player accounts) and Option D (admin-only pick) are not planned.
 
 ---
 
@@ -259,17 +270,17 @@ Firestore.
 
 ## 7. Edge cases
 
-### Self-nomination — block when we can identify “self”
+### Self-nomination / parents voting for their own child — allowed in v1
 
-Under Option A there is usually no uid ↔ slot link, so a hard block is not
-always possible. Decision:
+Decision (Andrew, 20 Nov 2026): **parents may vote for their own child.** A
+parent’s child may legitimately be player of the match.
 
-- If a parent–child link exists (Option C, later), **block** nominating a
-  linked slot.
-- Do **not** block by comparing `displayName` to a player name (too fragile).
-- If Andrew wants “parents may not vote for their own child” in v1, we need
-  Option C (or a simpler “this is my child” tick) before that rule can be
-  enforced.
+- v1 has **no block** of any kind: no uid ↔ slot check, no `displayName`
+  comparison, no “this is my child” tick. Any member may nominate any player
+  in the session squad.
+- The parent–child link table is deferred. If it is added later, whether to
+  restrict own-child votes will be a separate decision; the default remains
+  allowed.
 
 ### Late joins and players who were absent / not on the field
 
@@ -364,11 +375,12 @@ offline for local play (existing freemium rule).
 
 ## 10. Open questions for Andrew
 
-1. **Who nominates?** Recommend Option A (signed-in team members vote for a
-   roster player). Do you want Option C (link a parent to a child so it is
-   “one vote per player”) in v1, later, or not at all?
-2. **May a parent vote for their own child?** Only enforceable once a link
-   exists. Default if we stay on Option A: yes, they may.
+1. ~~**Who nominates?**~~ **Answered (20 Nov 2026):** kids nominate through
+   their parents’ accounts. Each signed-in member casts one vote on behalf of
+   their child (Option A mechanics). The parent–child link table (full
+   Option C) is deferred to a later version.
+2. ~~**May a parent vote for their own child?**~~ **Answered (20 Nov 2026):**
+   yes. No restriction in v1; parents can vote for any player in the squad.
 3. **Voting window:** 24 hours after End, or Admin close, whichever first —
    OK? Prefer a different duration, or close only when an Admin says so?
 4. **May members who joined the team after the game still vote** while the
@@ -387,7 +399,9 @@ offline for local play (existing freemium rule).
 
 ## 11. Next steps (after this scaffold)
 
-1. Andrew answers the questions in §10, especially who nominates.
+1. Andrew answers the remaining questions in §10 (3–9). Who nominates and
+   own-child voting are decided (§2, §7): no self-nomination check is needed
+   in the service or rules for v1.
 2. Add `SlotId` to the session player stats / squad snapshot.
 3. Implement `NominationService` (transactional submit + tally listener) and
    emulator rules tests.
@@ -397,3 +411,5 @@ offline for local play (existing freemium rule).
    nominations subcollections.
 7. Show Andrew the rules diff; **deploy only with his approval**.
 8. TestFlight on a shared team; merge only after he is happy.
+9. Later version: parent–child link table (full Option C), if clubs want
+   one vote per player.
