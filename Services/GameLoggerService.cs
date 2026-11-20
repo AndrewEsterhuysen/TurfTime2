@@ -37,7 +37,8 @@ public sealed class GameLoggerService : IGameLoggerService
         {
             MatchDurationSeconds      = matchDurationSeconds,
             RotationIntervalSeconds   = rotationIntervalSeconds,
-            Location                  = location
+            Location                  = location,
+            ScorerAssistEnabled       = GoalScoringOptions.IsScorerAssistEnabled()
         };
 
         Log(GameEventType.GameStarted,

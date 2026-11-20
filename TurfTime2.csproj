@@ -140,6 +140,8 @@
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 		<!-- wwwroot (legacy JS Firebase) is not packaged — cloud uses native Plugin.Firebase; Help/Reports use inline HTML. -->
+		<Compile Remove="tests\**" />
+		<None Remove="tests\**" />
 		<Content Remove="wwwroot\**" />
 		<None Remove="wwwroot\**" />
 		<EmbeddedResource Remove="wwwroot\**" />
