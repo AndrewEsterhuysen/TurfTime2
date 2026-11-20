@@ -299,7 +299,7 @@ parent’s child may legitimately be player of the match.
 - **Nominators:** any **current** team member may vote while the window is
   open, including members who joined the team after the game. We do not
   store membership history, so “must have been a member at kick-off” is not
-  enforceable today. Confirm if that is acceptable.
+  enforceable today. Confirmed by Andrew (20 Nov 2026).
 
 ### Changing a vote — allowed until close
 
@@ -392,8 +392,9 @@ offline for local play (existing freemium rule).
 3. ~~**Voting window:**~~ **Answered (20 Nov 2026):** both triggers. Voting
    auto-closes 24 hours after the session’s `endTime`, and an Admin may close
    it early. Whichever comes first wins.
-4. **May members who joined the team after the game still vote** while the
-   window is open?
+4. ~~**May members who joined the team after the game still vote?**~~
+   **Answered (20 Nov 2026):** yes. Any current member may vote while voting
+   is open, including members who joined after the match.
 5. **Are absent / inactive players eligible**, or only those who recorded
    field time?
 6. **Ties:** joint winners (recommended) or an Admin tie-break?
