@@ -174,10 +174,12 @@ them.
    player changes the vote until the window closes. There is no
    self-nomination or own-child block in v1: any member may nominate any
    present player, including their own child (see §7).
-5. **Live tally.** Visible to every team member while the page is open:
-   nominee name + vote count, leaders marked, ties shown as joint leaders.
-   Individual voters are **not** listed. When the window is closed, the page
-   becomes view-only and shows the result (or joint winners).
+5. **Live tally.** Admins only while voting is open (Andrew, 20 Nov 2026: a
+   visible leader board could influence voters): nominee name + vote count,
+   leaders marked, ties shown as joint leaders. Members see only their own
+   vote ("Your vote is in for …"). Individual voters are **not** listed. When
+   the window is closed, the page becomes view-only and everyone sees the
+   result (or joint winners).
 6. **Admin close.** An Admin can close voting early from this page
    (“Close voting now”, with a confirmation).
 
@@ -286,7 +288,8 @@ create, bad payloads denied, second vote replaces the first (same id is an
 update), another user cannot edit or delete someone’s vote, withdraw / Admin
 remove, vote after 24h denied, vote just inside 24h allowed, no `endTime` or
 missing session denied, vote after Admin close denied, Admin-only status
-writes, members and late joiners can read the tally, and the owner cascade.
+writes, members and late joiners can read the tally after close, members
+can read only their own vote while open (Admins read all), and the owner cascade.
 
 When `DeleteTeamAsOwner` (and any future “delete this session”) runs, it must
 also delete `sessions/{sessionId}/nominations/*` and `nominationsMeta/status`.
@@ -327,9 +330,14 @@ to the device console.
 
 `INominationService.WatchTallyAsync`:
 
-- Snapshot-listen on `teams/{teamId}/sessions/{sessionId}/nominations`
-  and the `nominationsMeta/status` doc for closed state; a timer re-emits at
-  the 24-hour close so the page turns view-only on its own.
+- Admin role comes from the caller's `members/{uid}.role` (same as the rules);
+  if it can't be read the caller is treated as a member.
+- Admins, or anyone once voting is closed: snapshot-listen on
+  `teams/{teamId}/sessions/{sessionId}/nominations`. Members while open:
+  listen to their own vote doc only (`CountsHidden`; no counts or leaders);
+  when voting closes the watch reads all votes once and shows the result.
+- Also listen to the `nominationsMeta/status` doc for closed state; a timer
+  re-emits at the 24-hour close so the page turns view-only on its own.
 - Aggregate counts by `nomineeSlotId`, keeping the latest `nomineeName`.
 - Include the current user’s pick so the UI can highlight it.
 - Do **not** return a voter list to the UI.
@@ -417,7 +425,8 @@ remain usable offline for local play (existing freemium rule).
 ### Privacy for juniors
 
 - Votes are **team-internal** (same audience as roster, chat, and reports).
-- The live tally shows **player names and counts only**, not who voted.
+- The live tally shows **player names and counts only**, not who voted, and
+  only to Admins while voting is open (rules and app).
 - `nominatorId` / `nominatorDisplayName` are stored for rules and optional
   admin audit, not for a public roll.
 - Do not publish nominations outside the team. The match report includes

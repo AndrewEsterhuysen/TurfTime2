@@ -330,7 +330,15 @@ service cloud.firestore {
     }
 
     match /teams/{teamId}/sessions/{sessionId}/nominations/{nominatorId} {
-      allow read: if canReadTeam(teamId);
+      // The live tally is Admin-only while voting is open (it could sway voters):
+      // a member may read only their own vote until voting closes; Admins (and the
+      // team owner, for the delete cascade) can read all; everyone can read all after close.
+      allow read: if canReadTeam(teamId) && (
+          nominatorId == request.auth.uid
+          || isTeamAdmin(teamId)
+          || isTeamOwner(teamId)
+          || !nominationsOpen(teamId, sessionId)
+        );
 
       allow create: if isTeamMember(teamId)
         && nominatorId == request.auth.uid

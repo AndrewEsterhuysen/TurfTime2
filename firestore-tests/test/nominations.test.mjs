@@ -70,9 +70,11 @@ test('nominations: second vote replaces the first (same doc id, update)', async 
   const db = as('mem');
   await assertSucceeds(setDoc(doc(db, `${NOM}/mem`), vote('mem', 3, 'Cat')));
   await assertSucceeds(setDoc(doc(db, `${NOM}/mem`), vote('mem', 5, 'Eve')));
-  const all = await getDocs(collection(db, NOM));
+  const all = await getDocs(collection(as('owner'), NOM));
   const mine = all.docs.filter((d) => d.data().nominatorId === 'mem');
   if (mine.length !== 1 || mine[0].data().nomineeSlotId !== 5) throw new Error('expected exactly one ballot with the new pick');
+  const own = await assertSucceeds(getDoc(doc(db, `${NOM}/mem`)));
+  if (own.data().nomineeSlotId !== 5) throw new Error('member should read their own new pick');
 });
 
 test('nominations: another user cannot edit or delete someone else\'s vote', async () => {
@@ -127,16 +129,52 @@ test('nominations: only Admins write the close status; members can read it', asy
   await assertSucceeds(getDoc(doc(as('mem'), META)));
 });
 
-test('nominations: members (and late joiners) can read the tally', async () => {
-  await seed(async (db) => {
-    await setDoc(doc(db, `${NOM}/mem`), vote('mem'));
-    await setDoc(doc(db, `${NOM}/mem2`), vote('mem2', 1, 'Ann'));
-    await setDoc(doc(db, `teams/${T}/members/late`), { uid: 'late', role: 'member' });
-  });
+const seedTwoVotes = () => seed(async (db) => {
+  await setDoc(doc(db, `${NOM}/mem`), vote('mem'));
+  await setDoc(doc(db, `${NOM}/mem2`), vote('mem2', 1, 'Ann'));
+  await setDoc(doc(db, `teams/${T}/members/late`), { uid: 'late', role: 'member' });
+});
+
+test('nominations: while open, a member reads only their own vote (live tally is Admin-only)', async () => {
+  await seedTwoVotes();
+  const mem = as('mem');
+  await assertSucceeds(getDoc(doc(mem, `${NOM}/mem`)));
+  await assertFails(getDoc(doc(mem, `${NOM}/mem2`)));
+  await assertFails(getDocs(collection(mem, NOM)));
+  // Reading your own not-yet-cast vote is allowed (returns "missing").
+  await assertSucceeds(getDoc(doc(as('late'), `${NOM}/late`)));
+  await assertFails(getDocs(collection(as('late'), NOM)));
+  await assertSucceeds(setDoc(doc(as('late'), `${NOM}/late`), vote('late')));
+});
+
+test('nominations: while open, Admins read the whole tally', async () => {
+  await seedTwoVotes();
+  const snap = await assertSucceeds(getDocs(collection(as('owner'), NOM)));
+  if (snap.size !== 2) throw new Error(`expected 2 votes, got ${snap.size}`);
+  await assertSucceeds(getDoc(doc(as('owner'), `${NOM}/mem2`)));
+});
+
+test('nominations: after an Admin closes voting, members (and late joiners) read the result', async () => {
+  await seedTwoVotes();
+  await seed((db) => setDoc(doc(db, META), { closed: true, closedAt: Timestamp.now(), closedBy: 'owner' }));
   const snap = await assertSucceeds(getDocs(collection(as('mem'), NOM)));
   if (snap.size !== 2) throw new Error(`expected 2 votes, got ${snap.size}`);
+  await assertSucceeds(getDoc(doc(as('mem'), `${NOM}/mem2`)));
   await assertSucceeds(getDocs(collection(as('late'), NOM)));
-  await assertSucceeds(setDoc(doc(as('late'), `${NOM}/late`), vote('late')));
+});
+
+test('nominations: 24 hours after the match, members read the result', async () => {
+  await seedTwoVotes();
+  await seed((db) => setDoc(doc(db, `teams/${T}/sessions/${S}`), { sessionId: S, endTime: hoursAgo(25) }));
+  const snap = await assertSucceeds(getDocs(collection(as('mem2'), NOM)));
+  if (snap.size !== 2) throw new Error(`expected 2 votes, got ${snap.size}`);
+});
+
+test('nominations: non-members cannot read votes even after close', async () => {
+  await seedTwoVotes();
+  await seed((db) => setDoc(doc(db, META), { closed: true }));
+  await assertFails(getDocs(collection(as('stranger'), NOM)));
+  await assertFails(getDoc(doc(as('stranger'), `${NOM}/mem`)));
 });
 
 test('nominations: owner cascade can clear votes and status after members are gone', async () => {

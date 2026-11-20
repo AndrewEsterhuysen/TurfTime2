@@ -69,6 +69,19 @@ public sealed class NominationTally
     /// <summary>Joint leaders (empty when there are no votes). No tie-break.</summary>
     public IReadOnlyList<NominationTallyEntry> Leaders { get; set; } = [];
 
+    /// <summary>
+    /// The viewer is an Admin of the team (from their members/{uid} role). Only Admins
+    /// see the live tally while voting is open.
+    /// </summary>
+    public bool ViewerIsAdmin { get; set; }
+
+    /// <summary>
+    /// Counts and leaders are withheld: voting is open and the viewer is not an Admin,
+    /// or the full vote list has not been read yet. Entries/Leaders are empty and
+    /// TotalVotes is 0; only the viewer's own pick is set.
+    /// </summary>
+    public bool CountsHidden { get; set; }
+
     /// <summary>Final result: the leaders once voting has closed; empty while open.</summary>
     public IReadOnlyList<NominationTallyEntry> Winners => IsOpen ? [] : Leaders;
 }
@@ -96,7 +109,9 @@ public static class NominationTallyCalculator
         string? myUid,
         DateTimeOffset? endTime,
         bool closedByAdmin,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        bool viewerIsAdmin = true,
+        bool votesComplete = true)
     {
         var list = votes
             .Where(v => v.NomineeSlotId >= 1 && !string.IsNullOrEmpty(v.NominatorId))
@@ -129,6 +144,11 @@ public static class NominationTallyCalculator
             : list.FindIndex(v => string.Equals(v.NominatorId, myUid, StringComparison.Ordinal));
         NominationVote? mine = mineIdx >= 0 ? list[mineIdx] : null;
 
+        // The live tally is Admin-only while open (it could sway voters).
+        var open = IsOpen(endTime, closedByAdmin, now);
+        var hidden = (open && !viewerIsAdmin) || !votesComplete;
+        if (hidden) entries = [];
+
         return new NominationTally
         {
             TeamId = teamId,
@@ -136,10 +156,12 @@ public static class NominationTallyCalculator
             EndTime = endTime,
             ClosesAt = endTime + VotingWindow,
             ClosedByAdmin = closedByAdmin,
-            IsOpen = IsOpen(endTime, closedByAdmin, now),
+            IsOpen = open,
+            ViewerIsAdmin = viewerIsAdmin,
+            CountsHidden = hidden,
             MyNomineeSlotId = mine?.NomineeSlotId,
             MyNomineeName = mine?.NomineeName,
-            TotalVotes = list.Count,
+            TotalVotes = hidden ? 0 : list.Count,
             Entries = entries,
             Leaders = entries.Where(e => e.IsLeader).ToList()
         };

@@ -410,8 +410,16 @@ public sealed class NominationService : INominationService
             var session = await ReadSessionStateAsync(teamId, sessionId, cancellationToken).ConfigureAwait(false);
             if (session is null || !session.Exists) return null;
             var closed = await ReadClosedAsync(teamId, sessionId, cancellationToken).ConfigureAwait(false);
-            var votes = await ListVotesViaRestAsync(teamId, sessionId, cancellationToken).ConfigureAwait(false);
-            return NominationTallyCalculator.Build(teamId, sessionId, votes, uid, session.EndTime, closed, DateTimeOffset.UtcNow);
+            var isAdmin = await IsViewerAdminAsync(teamId, uid, cancellationToken).ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
+            var open = NominationTallyCalculator.IsOpen(session.EndTime, closed, now);
+
+            // Members never read other members' votes while voting is open.
+            var votes = open && !isAdmin
+                ? await ReadMyVoteAsync(teamId, sessionId, uid, cancellationToken).ConfigureAwait(false)
+                : await ListVotesViaRestAsync(teamId, sessionId, cancellationToken).ConfigureAwait(false);
+            return NominationTallyCalculator.Build(teamId, sessionId, votes, uid, session.EndTime, closed, now,
+                viewerIsAdmin: isAdmin);
         }
         catch (Exception ex)
         {
@@ -454,12 +462,18 @@ public sealed class NominationService : INominationService
     }
 
     /// <summary>
-    /// Listens to the nominations collection and the close-status doc. Each change
-    /// re-aggregates the tally; a timer re-emits at the 24-hour close so the page
-    /// flips to view-only without a new snapshot.
+    /// Live tally. Admins (and everyone once voting has closed) listen to the whole
+    /// nominations collection. Members, while voting is open, listen only to their own
+    /// vote doc: the live tally is Admin-only so it can't sway voters, and members don't
+    /// download other votes. When voting closes (Admin close or the 24-hour timer) a
+    /// member's watch reads all votes once and shows the result. The close-status doc is
+    /// watched in both modes.
     /// </summary>
     private sealed class TallyWatch : IDisposable
     {
+        private static readonly TimeSpan[] ResultRetryDelays =
+            [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(45), TimeSpan.FromMinutes(2)];
+
         private readonly NominationService _svc;
         private readonly string _teamId, _sessionId, _uid;
         private readonly Action<NominationTally> _onTally;
@@ -471,6 +485,9 @@ public sealed class NominationService : INominationService
         private bool _closed;
         private DateTimeOffset? _endTime;
         private bool _disposed;
+        private bool _isAdmin;
+        private bool _allVotes;       // _votes holds every vote (admin, or result loaded after close)
+        private bool _loadingResult;
 
         public TallyWatch(NominationService svc, string teamId, string sessionId, string uid,
             Action<NominationTally> onTally, Action<Exception>? onError)
@@ -483,17 +500,33 @@ public sealed class NominationService : INominationService
         {
             var session = await _svc.ReadSessionStateAsync(_teamId, _sessionId, default).ConfigureAwait(false);
             _endTime = session?.EndTime;
+            _isAdmin = await _svc.IsViewerAdminAsync(_teamId, _uid, default).ConfigureAwait(false);
+
+            try { _closed = await _svc.ReadClosedAsync(_teamId, _sessionId, default).ConfigureAwait(false); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[NominationService] Initial close flag: {ex.Message}"); }
+
+            var open = NominationTallyCalculator.IsOpen(_endTime, _closed, DateTimeOffset.UtcNow);
+            _allVotes = _isAdmin || !open;
 
             // Initial REST load so the UI is right even if SDK listener data is empty.
             try
             {
-                _closed = await _svc.ReadClosedAsync(_teamId, _sessionId, default).ConfigureAwait(false);
-                _votes = await _svc.ListVotesViaRestAsync(_teamId, _sessionId, default).ConfigureAwait(false);
+                _votes = _allVotes
+                    ? await _svc.ListVotesViaRestAsync(_teamId, _sessionId, default).ConfigureAwait(false)
+                    : await _svc.ReadMyVoteAsync(_teamId, _sessionId, _uid, default).ConfigureAwait(false);
                 Emit();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[NominationService] Initial tally: {ex.Message}");
+                if (_allVotes && !_isAdmin)
+                {
+                    // Closed for this member but the list failed — show own pick, retry the result.
+                    _allVotes = false;
+                    try { _votes = await _svc.ReadMyVoteAsync(_teamId, _sessionId, _uid, default).ConfigureAwait(false); }
+                    catch { /* best effort */ }
+                    Emit();
+                }
             }
 
             if (_endTime is { } end)
@@ -504,14 +537,10 @@ public sealed class NominationService : INominationService
             }
 
             FirestoreUsageMeter.SetFlag("watchingNominations", true);
-            _votesReg = _svc._db.GetCollection(NominationsCollectionPath(_teamId, _sessionId))
-                .AddSnapshotListener<Dictionary<string, object>>(
-                    snapshot => _ = Task.Run(() => OnVotesSnapshotAsync(snapshot)),
-                    ex =>
-                    {
-                        FirestoreUsageMeter.RecordListenerError("Nominations");
-                        _onError?.Invoke(ex);
-                    });
+            if (_allVotes)
+                StartAllVotesListener();
+            else
+                StartMyVoteListener();
 
             _metaReg = _svc._db.GetDocument(NominationsMetaPath(_teamId, _sessionId))
                 .AddSnapshotListener<Dictionary<string, object>>(
@@ -522,6 +551,63 @@ public sealed class NominationService : INominationService
                         Emit();
                     },
                     ex => System.Diagnostics.Debug.WriteLine($"[NominationService] Meta listener: {ex.Message}"));
+        }
+
+        private void StartAllVotesListener()
+        {
+            _votesReg = _svc._db.GetCollection(NominationsCollectionPath(_teamId, _sessionId))
+                .AddSnapshotListener<Dictionary<string, object>>(
+                    snapshot => _ = Task.Run(() => OnVotesSnapshotAsync(snapshot)),
+                    ex =>
+                    {
+                        FirestoreUsageMeter.RecordListenerError("Nominations");
+                        _onError?.Invoke(ex);
+                    });
+        }
+
+        private void StartMyVoteListener()
+        {
+            _votesReg = _svc._db.GetDocument(NominationPath(_teamId, _sessionId, _uid))
+                .AddSnapshotListener<Dictionary<string, object>>(
+                    snapshot => _ = Task.Run(() => OnMyVoteSnapshotAsync(snapshot)),
+                    ex =>
+                    {
+                        FirestoreUsageMeter.RecordListenerError("Nominations");
+                        _onError?.Invoke(ex);
+                    });
+        }
+
+        private async Task OnMyVoteSnapshotAsync(IDocumentSnapshot<Dictionary<string, object>>? snapshot)
+        {
+            try
+            {
+                FirestoreUsageMeter.RecordListener("Nominations");
+                List<NominationVote> mine;
+                if (snapshot?.Data is { Count: > 0 } data)
+                {
+                    mine = [new NominationVote(_uid, ReadSdkInt(data, "nomineeSlotId"),
+                        ReadSdkString(data, "nomineeName"), ReadSdkTimestamp(data, "timestamp"))];
+                    if (mine[0].NomineeSlotId < 1)
+                        mine = await _svc.ReadMyVoteAsync(_teamId, _sessionId, _uid, default).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Empty SDK data can mean "no vote" or an unreadable snapshot — REST decides.
+                    mine = await _svc.ReadMyVoteAsync(_teamId, _sessionId, _uid, default).ConfigureAwait(false);
+                }
+
+                lock (_gate)
+                {
+                    if (_allVotes) return; // result already loaded
+                    _votes = mine;
+                }
+                Emit();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NominationService] My vote snapshot: {ex.Message}");
+                _onError?.Invoke(ex);
+            }
         }
 
         private async Task OnVotesSnapshotAsync(IQuerySnapshot<Dictionary<string, object>>? snapshot)
@@ -553,15 +639,64 @@ public sealed class NominationService : INominationService
             }
         }
 
+        /// <summary>Voting has closed for a member: read every vote once, then show the result.</summary>
+        private async Task LoadResultAsync()
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                lock (_gate) if (_disposed) return;
+                try
+                {
+                    var all = await _svc.ListVotesViaRestAsync(_teamId, _sessionId, default).ConfigureAwait(false);
+                    IDisposable? myReg;
+                    lock (_gate)
+                    {
+                        if (_disposed) return;
+                        _votes = all;
+                        _allVotes = true;
+                        _loadingResult = false;
+                        myReg = _votesReg;
+                        _votesReg = null;
+                    }
+                    try { myReg?.Dispose(); } catch { /* ignore */ }
+                    Emit();
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    // e.g. the rules still consider voting open for a few seconds (clock skew).
+                    System.Diagnostics.Debug.WriteLine($"[NominationService] Result load {attempt + 1}: {ex.Message}");
+                    if (attempt >= ResultRetryDelays.Length)
+                    {
+                        lock (_gate) _loadingResult = false;
+                        _onError?.Invoke(ex);
+                        return;
+                    }
+                    await Task.Delay(ResultRetryDelays[attempt]).ConfigureAwait(false);
+                }
+            }
+        }
+
         private void Emit()
         {
             NominationTally tally;
+            var startResultLoad = false;
             lock (_gate)
             {
                 if (_disposed) return;
+                var now = DateTimeOffset.UtcNow;
+                var open = NominationTallyCalculator.IsOpen(_endTime, _closed, now);
+                if (!open && !_allVotes && !_loadingResult)
+                {
+                    _loadingResult = true;
+                    startResultLoad = true;
+                }
                 tally = NominationTallyCalculator.Build(
-                    _teamId, _sessionId, _votes, _uid, _endTime, _closed, DateTimeOffset.UtcNow);
+                    _teamId, _sessionId, _votes, _uid, _endTime, _closed, now,
+                    viewerIsAdmin: _isAdmin, votesComplete: _allVotes);
             }
+            if (startResultLoad)
+                _ = Task.Run(LoadResultAsync);
             try { _onTally(tally); }
             catch (Exception ex)
             {
@@ -655,6 +790,67 @@ public sealed class NominationService : INominationService
         }
         var snap = await _db.GetDocument(path).GetDocumentSnapshotAsync<Dictionary<string, object>>().ConfigureAwait(false);
         return ReadSdkBool(snap?.Data, "closed");
+    }
+
+    /// <summary>
+    /// The caller's own vote (0 or 1 items): REST primary, SDK fallback. Members use this
+    /// while voting is open instead of listing every vote.
+    /// </summary>
+    private async Task<List<NominationVote>> ReadMyVoteAsync(
+        string teamId, string sessionId, string uid, CancellationToken ct)
+    {
+        var path = NominationPath(teamId, sessionId, uid);
+        try
+        {
+            var (found, doc) = await GetDocViaRestAsync(path, ct).ConfigureAwait(false);
+            if (!found || doc is not { } d || !d.TryGetProperty("fields", out var f)) return [];
+            return [new NominationVote(uid, ReadRestInt(f, "nomineeSlotId"),
+                ReadRestString(f, "nomineeName"), ReadRestTimestamp(f, "timestamp"))];
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[NominationService] My vote REST: {ex.Message}");
+        }
+
+        var snap = await _db.GetDocument(path).GetDocumentSnapshotAsync<Dictionary<string, object>>().ConfigureAwait(false);
+        FirestoreUsageMeter.RecordSdk("Get", "Nominations");
+        if (snap?.Data is not { Count: > 0 } data) return [];
+        return [new NominationVote(uid, ReadSdkInt(data, "nomineeSlotId"),
+            ReadSdkString(data, "nomineeName"), ReadSdkTimestamp(data, "timestamp"))];
+    }
+
+    /// <summary>
+    /// Authoritative Admin check: the caller's members/{uid} doc has role "admin" (the same
+    /// test the Firestore rules use). If it can't be read, treat the caller as a member so
+    /// the live tally is never shown by mistake.
+    /// </summary>
+    private async Task<bool> IsViewerAdminAsync(string teamId, string uid, CancellationToken ct)
+    {
+        try
+        {
+            var (found, doc) = await GetDocViaRestAsync($"teams/{teamId}/members/{uid}", ct).ConfigureAwait(false);
+            if (!found) return false;
+            var fields = doc is { } d && d.TryGetProperty("fields", out var f) ? f : default;
+            return fields.ValueKind == JsonValueKind.Object
+                   && string.Equals(ReadRestString(fields, "role"), "admin", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Log($"Role REST failed: {ex.Message}");
+        }
+
+        try
+        {
+            var snap = await _db.GetDocument($"teams/{teamId}/members/{uid}")
+                .GetDocumentSnapshotAsync<Dictionary<string, object>>().ConfigureAwait(false);
+            FirestoreUsageMeter.RecordSdk("Get", "Member");
+            return string.Equals(ReadSdkString(snap?.Data, "role"), "admin", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Log($"Role SDK failed: {ex.Message}; treating as member");
+            return false;
+        }
     }
 
     private async Task<List<NominationVote>> ListVotesViaRestAsync(string teamId, string sessionId, CancellationToken ct)

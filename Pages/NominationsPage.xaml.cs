@@ -67,9 +67,6 @@ public partial class NominationsPage : ContentPage
         || teamId.StartsWith("local_", StringComparison.Ordinal)
         || string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal);
 
-    private static bool IsAdmin() =>
-        !string.Equals(Preferences.Get("user_role", "admin"), "member", StringComparison.OrdinalIgnoreCase);
-
     private async Task LoadMatchesAsync()
     {
         _teamId = Preferences.Get("team_id", string.Empty);
@@ -217,7 +214,8 @@ public partial class NominationsPage : ContentPage
         }
 
         RenderTally(tally, open);
-        CloseVotingButton.IsVisible = open && tally is not null && IsAdmin();
+        // Admin role comes from the member doc (tally.ViewerIsAdmin); rules enforce it too.
+        CloseVotingButton.IsVisible = open && tally is { ViewerIsAdmin: true };
     }
 
     private Button BuildNomineeButton(NominationCandidate c, bool isMine)
@@ -237,8 +235,22 @@ public partial class NominationsPage : ContentPage
         TallyCard.IsVisible = tally is not null;
         if (tally is null) return;
 
-        TallyHeader.Text = open ? "Live tally" : "Result";
+        TallyHeader.Text = open ? (tally.CountsHidden ? "Your vote" : "Live tally (Admins only)") : "Result";
         TallyList.Children.Clear();
+
+        // Members don't see counts or leaders while voting is open (it could sway votes).
+        if (tally.CountsHidden)
+        {
+            TallyEmptyLabel.IsVisible = true;
+            TallyEmptyLabel.Text = open
+                ? (string.IsNullOrWhiteSpace(tally.MyNomineeName)
+                    ? "You haven't voted yet."
+                    : $"Your vote is in for {tally.MyNomineeName}. You can change it until voting closes.")
+                  + " The result is shown to everyone when voting closes."
+                : "Loading the result...";
+            return;
+        }
+
         TallyEmptyLabel.IsVisible = tally.Entries.Count == 0;
         TallyEmptyLabel.Text = open ? "No votes yet." : "No votes were cast.";
         var joint = tally.Leaders.Count > 1;
