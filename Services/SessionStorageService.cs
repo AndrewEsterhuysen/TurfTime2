@@ -209,7 +209,7 @@ public sealed class SessionStorageService : ISessionStorageService
         }
     }
 
-    private static GameSession? ParseSessionData(IDictionary<string, object>? fields)
+    internal static GameSession? ParseSessionData(IDictionary<string, object>? fields)
     {
         if (fields is null) return null;
         try

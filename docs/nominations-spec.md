@@ -133,13 +133,16 @@ roster slots, and a player counts as present if they logged any field, bench or
 goalie time (absent players were recorded with zero time). Players added to
 the roster after the match never match, so they stay ineligible.
 
-### 3.4 Client types (scaffold)
+### 3.4 Client types
 
-`Models/Nomination.cs` — `Nomination`, `NominationTally`,
-`NominationTallyEntry`, `NominationSubmitResult`.
-`Services/INominationService` — `SubmitNominationAsync` (transactional write
-when wired) and `WatchTallyAsync` (snapshot listener). Stubs do not write to
-Firestore yet.
+`Models/Nomination.cs` — `Nomination`, `NominationTally` (+ `Winners`),
+`NominationTallyEntry` (+ `IsLeader`), `NominationTallyCalculator` (pure
+tally maths: one ballot per uid, counts by slot, latest name, joint leaders,
+open/closed), `NominationBallot`, `NominationSubmitResult`.
+`Models/NominationSquad.cs` — eligible (present) nominees for a session.
+`Services/INominationService` — `LoadBallotAsync`, `SubmitNominationAsync`
+(transaction), `CloseVotingAsync` (Admin), `WatchTallyAsync` (snapshot
+listener) and `GetTallyAsync` (one-shot, used by the match report).
 
 ---
 
@@ -252,7 +255,7 @@ Today’s cascade only deletes the session documents themselves.
 
 ---
 
-## 6. Service behaviour (when wired)
+## 6. Service behaviour
 
 `INominationService.SubmitNominationAsync`:
 
@@ -260,23 +263,32 @@ Today’s cascade only deletes the session documents themselves.
 2. `EnsureSignedInAsync`; nominator is that uid.
 3. Run a Firestore transaction: read the session (must exist, `endTime` set),
    read `nominationsMeta/status` (must not be `closed`), confirm the window
-   (`now <= endTime + 24h`), confirm the nominee is on the session squad,
-   apply self-nomination policy, then `Set` the nomination doc (merge /
-   overwrite). The document id is the nominator uid, so a second vote replaces
-   the first rather than creating a second ballot.
+   (`now <= endTime + 24h`), confirm the nominee was **present / active** in
+   the session squad (§3.3), then `Set` the nomination doc (overwrite). There
+   is **no** self-nomination or own-child check in v1 (§7). The document id is
+   the nominator uid, so a second vote replaces the first rather than creating
+   a second ballot.
 4. Fail soft on network errors; do not crash the app.
+
+The transaction runs over authenticated Firestore REST first
+(`beginTransaction` → `batchGet` → `commit`), like chat and Details, because
+Plugin.Firebase `SetDataAsync` has written empty documents on device. If REST
+cannot be reached, the Plugin.Firebase `RunTransactionAsync` path runs the
+same checks. Rules (§5) enforce the same window server-side.
 
 `INominationService.WatchTallyAsync`:
 
 - Snapshot-listen on `teams/{teamId}/sessions/{sessionId}/nominations`
-  (and the meta doc for closed state).
+  and the `nominationsMeta/status` doc for closed state; a timer re-emits at
+  the 24-hour close so the page turns view-only on its own.
 - Aggregate counts by `nomineeSlotId`, keeping the latest `nomineeName`.
 - Include the current user’s pick so the UI can highlight it.
 - Do **not** return a voter list to the UI.
 - Return `IDisposable` to stop the listener, same pattern as `IChatService.SubscribeAsync`.
 
-The first scaffold commit registers this service but does not write to
-Firestore.
+`INominationService.CloseVotingAsync` (Admin) writes `nominationsMeta/status`
+(`closed`, `closedAt`, `closedBy`). `GetTallyAsync` is a one-shot read for the
+match report.
 
 ---
 
@@ -439,7 +451,7 @@ offline for local play (existing freemium rule).
    `PlayerStats.SlotId` + `WasPresent`, session schema v2, roster fallback for
    older sessions; §3.3).
 3. Implement `NominationService` (transactional submit + tally listener) and
-   emulator rules tests.
+   emulator rules tests. ✅ Service done (§6).
 4. Build the real `NominationsPage` (session picker, nominee list, live tally).
 5. Add End-game prompt and a Reports entry, behind the same page.
    Include the nomination result (winner or joint winners) in the match
