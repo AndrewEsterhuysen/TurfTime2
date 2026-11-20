@@ -299,7 +299,7 @@ also delete `sessions/{sessionId}/nominations/*` and `nominationsMeta/status`.
 
 1. Reject local teams (`local_` prefix or `team_mode=local`) and fail soft.
 2. `EnsureSignedInAsync`; nominator is that uid.
-3. Run a Firestore transaction: read the session (must exist, `endTime` set),
+3. Read the session (must exist, `endTime` set),
    read `nominationsMeta/status` (must not be `closed`), confirm the window
    (`now <= endTime + 24h`), confirm the nominee was **present / active** in
    the session squad (§3.3), then `Set` the nomination doc (overwrite). There
@@ -308,11 +308,22 @@ also delete `sessions/{sessionId}/nominations/*` and `nominationsMeta/status`.
    a second ballot.
 4. Fail soft on network errors; do not crash the app.
 
-The transaction runs over authenticated Firestore REST first
-(`beginTransaction` → `batchGet` → `commit`), like chat and Details, because
-Plugin.Firebase `SetDataAsync` has written empty documents on device. If REST
-cannot be reached, the Plugin.Firebase `RunTransactionAsync` path runs the
-same checks. Rules (§5) enforce the same window server-side.
+The vote goes over authenticated Firestore REST first (`batchGet` → validate →
+one `commit`), like chat and Details, because Plugin.Firebase `SetDataAsync`
+has written empty documents on device. It does **not** use REST
+`beginTransaction`: production refuses read-write transactions started with an
+end-user ID token (403 PERMISSION_DENIED) although the emulator allows them,
+which broke voting in TestFlight build 58 (20 Nov 2026). No transaction is
+needed: the doc id is the voter's uid, and the rules (§5) re-check membership,
+the 24-hour window and the close flag atomically at write time. If REST cannot
+be reached, the Plugin.Firebase `RunTransactionAsync` path (optimistic, allowed
+for clients) runs the same checks.
+
+On PERMISSION_DENIED the service re-reads what the rules check and reports the
+cause: not a member (no `members/{uid}` doc), voting closed / past 24 hours /
+`endTime` not a Firestore timestamp, or an unexplained refusal. Offline and
+other server errors get their own messages, and the underlying error is logged
+to the device console.
 
 `INominationService.WatchTallyAsync`:
 
@@ -397,8 +408,8 @@ player nomination, so the team’s votes decide.
 
 ### Offline writes
 
-A vote is a Firestore transaction, and transactions need the server, so a
-vote cannot be queued offline. When the device is offline the service fails
+A vote is written straight to the server (REST, or an SDK transaction as a
+fallback), so it cannot be queued offline. When the device is offline the service fails
 soft and the page says the vote wasn’t saved, so the member can tap again when
 back online. The live tally keeps showing the last known counts. The app must
 remain usable offline for local play (existing freemium rule).
