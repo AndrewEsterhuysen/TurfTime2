@@ -79,8 +79,8 @@ table, delivered on the Option A mechanics:
 - There is **no** link between a member and a roster slot in v1. The
   parent–child link table (full Option C) is **deferred** to a later version.
 - Because there is no link, the app does **not** restrict who a parent can
-  nominate: any player in the session squad may be chosen, including the
-  parent’s own child (see §7).
+  nominate: any present / active player in the session squad may be chosen,
+  including the parent’s own child (see §7).
 - A household that shares one phone still shares one vote; families with more
   than one child on the team get one vote per member account, not per child.
 
@@ -292,10 +292,12 @@ parent’s child may legitimately be player of the match.
 
 ### Late joins and players who were absent / not on the field
 
-- **Nominees:** every player on that **session’s squad**, including
-  Inactive / absent (they may have been injured or arrived late and still
-  been part of the day). Do not require `FieldSeconds > 0`. Players added to
-  the roster *after* the match are not eligible for that session.
+- **Nominees:** only players who were **present / active** in that
+  **session’s squad** (decided by Andrew, 20 Nov 2026). Players marked absent
+  or inactive for the match cannot be nominated. Players added to the roster
+  *after* the match are not eligible for that session either. The session
+  snapshot must therefore record each player’s active/absent status for the
+  match (alongside `SlotId`, see §3.3).
 - **Nominators:** any **current** team member may vote while the window is
   open, including members who joined the team after the game. We do not
   store membership history, so “must have been a member at kick-off” is not
@@ -395,8 +397,9 @@ offline for local play (existing freemium rule).
 4. ~~**May members who joined the team after the game still vote?**~~
    **Answered (20 Nov 2026):** yes. Any current member may vote while voting
    is open, including members who joined after the match.
-5. **Are absent / inactive players eligible**, or only those who recorded
-   field time?
+5. ~~**Are absent / inactive players eligible?**~~ **Answered (20 Nov 2026):**
+   no. Only players who were present / active in that match’s squad can be
+   nominated.
 6. **Ties:** joint winners (recommended) or an Admin tie-break?
 7. **Should the match report / email include the POTM result?** Default: not
    in v1.
