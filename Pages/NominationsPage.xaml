@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.NominationsPage"
+             Title="Nominations">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
+    <ScrollView>
+        <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="16">
+            <Border Style="{StaticResource PvCardWarning}" Padding="12,8">
+                <Label Style="{StaticResource PvWarningText}" FontFamily="InterSemiBold"
+                       Text="Scaffold — voting is not wired to the cloud yet"
+                       HorizontalTextAlignment="Center" />
+            </Border>
+
+            <Label Style="{StaticResource PvTitle}" Text="Player of the match" Margin="4,0,0,0" />
+            <Label Style="{StaticResource PvCaption}"
+                   Text="After a shared-team game, each team member will nominate one player. The live tally will appear here for everyone on the team." />
+
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="1. Choose a match" />
+                    <Label Style="{StaticResource PvBody}"
+                           Text="Recent games from Reports will be listed here. You will also be able to open this page straight after End, or from a match report." />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="2. Nominate a player" />
+                    <Label Style="{StaticResource PvBody}"
+                           Text="Pick one player from that match’s squad. You can change your vote until an Admin closes voting, or 24 hours after the game ends." />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="3. Live tally" />
+                    <Label Style="{StaticResource PvBody}"
+                           Text="Vote counts will update live. Ties stand as joint winners. Individual votes stay private — only the totals are shown." />
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

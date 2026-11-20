@@ -46,7 +46,7 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 | `TeamChat` | Chat tab for shared teams | Free (candidate paid) | **Tab unlocked** for shared mode. Identity: user-entered **display name** stored on `teams/{{id}}/members/{{uid}}.displayName` + local `user_name`; messages denormalize `senderName` for UI/push |
 | `TeamKit` | Kit under Details (arrive / warm-up / game / departure / non-playing / special event) | Free | Admin edit; members view-only; team-scoped Preferences (same pattern as Location) |
 | `TeamDuties` | Match-day duties under Details (duty officer, canteen, grounds setup/pack-up, other) | Free | Admin edit; members view-only; team-scoped Preferences |
-| `TeamNominations` | Nominations under Details | Not shipped | Placeholder “Coming soon…” under Details |
+| `TeamNominations` | Player of the match nominations on shared teams | Not shipped | Scaffold on `feature/nominations`: Details → Nominations placeholder page, spec in `docs/nominations-spec.md`. Cloud vote / tally not wired yet. Local teams disabled. |
 
 ---
 

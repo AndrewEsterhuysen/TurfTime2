@@ -1,0 +1,57 @@
+// Proposed Firestore rules for player-of-the-match nominations.
+// DO NOT deploy until Andrew approves.
+// Intended insertion point: firestore.rules, immediately after the
+// existing match /teams/{teamId}/sessions/{sessionId} block.
+// Canonical write-up: docs/nominations-spec.md §5.
+//
+// match /teams/{teamId}/sessions/{sessionId}/nominations/{nominatorId} {
+//   allow read: if canReadTeam(teamId);
+//
+//   function nominationPayloadOk() {
+//     return request.resource.data.keys().hasAll([
+//              'nominatorId', 'nomineeSlotId', 'nomineeName', 'timestamp'])
+//         && request.resource.data.nominatorId == request.auth.uid
+//         && request.resource.data.nominatorId == nominatorId
+//         && request.resource.data.nomineeSlotId is int
+//         && request.resource.data.nomineeSlotId >= 1
+//         && request.resource.data.nomineeName is string
+//         && request.resource.data.nomineeName.size() > 0
+//         && request.resource.data.nomineeName.size() <= 80;
+//   }
+//
+//   function sessionEnded(teamId, sessionId) {
+//     return exists(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId))
+//         && 'endTime' in get(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)).data;
+//   }
+//
+//   function nominationsOpen(teamId, sessionId) {
+//     return sessionEnded(teamId, sessionId)
+//         && request.time <= get(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)).data.endTime
+//                            + duration.value(24, 'h')
+//         && (
+//           !exists(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)/nominationsMeta/status)
+//           || get(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)/nominationsMeta/status).data.closed != true
+//         );
+//   }
+//
+//   allow create: if isTeamMember(teamId)
+//       && nominatorId == request.auth.uid
+//       && nominationPayloadOk()
+//       && nominationsOpen(teamId, sessionId);
+//
+//   allow update: if isTeamMember(teamId)
+//       && resource.data.nominatorId == request.auth.uid
+//       && nominatorId == request.auth.uid
+//       && nominationPayloadOk()
+//       && nominationsOpen(teamId, sessionId);
+//
+//   allow delete: if (isTeamMember(teamId)
+//         && resource.data.nominatorId == request.auth.uid
+//         && nominationsOpen(teamId, sessionId))
+//       || isTeamAdmin(teamId);
+// }
+//
+// match /teams/{teamId}/sessions/{sessionId}/nominationsMeta/status {
+//   allow read: if canReadTeam(teamId);
+//   allow create, update, delete: if isTeamAdmin(teamId);
+// }
