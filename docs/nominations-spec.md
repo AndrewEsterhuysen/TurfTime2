@@ -411,7 +411,7 @@ remain usable offline for local play (existing freemium rule).
   admin audit, not for a public roll.
 - Do not publish nominations outside the team. The match report includes
   the result (winner names only, no voters) in v1, per Andrew (20 Nov 2026).
-- The public privacy policy gets a short sentence before this ships
+- ✅ Done (20 Nov 2026): the public privacy policy gets a short sentence before this ships
   (“shared teams may store player-of-the-match votes, visible only to the
   team”) in `StoreAssets/PRIVACY_POLICY.md` / `docs/privacy.html` (approved by
   Andrew, 20 Nov 2026, §10 Q8).
