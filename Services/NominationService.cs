@@ -11,11 +11,13 @@ namespace TurfTime2.Services;
 /// <summary>
 /// Player-of-the-match nominations (docs/nominations-spec.md §6).
 /// <para>
-/// Writes use a Firestore transaction over authenticated REST as primary
-/// (beginTransaction → batchGet → commit), matching the rest of the app where
-/// Plugin.Firebase <c>SetDataAsync</c> has been seen to "succeed" with empty
-/// documents on device. If REST cannot be reached, the Plugin.Firebase
-/// <c>RunTransactionAsync</c> path runs the same checks. The snapshot listener
+/// Votes are written over authenticated REST as primary (batchGet → validate →
+/// single commit), matching the rest of the app where Plugin.Firebase
+/// <c>SetDataAsync</c> has been seen to "succeed" with empty documents on device.
+/// No REST <c>beginTransaction</c>: production refuses read-write transactions for
+/// end-user tokens; the rules enforce membership and the voting window at write time.
+/// If REST cannot be reached, the Plugin.Firebase <c>RunTransactionAsync</c> path
+/// (optimistic, allowed for clients) runs the same checks. The snapshot listener
 /// is the change signal for the tally; empty SDK data falls back to REST.
 /// </para>
 /// </summary>
@@ -24,7 +26,6 @@ public sealed class NominationService : INominationService
     public const int DefaultWindowHours = 24;
     private const string FirebaseProjectId = "turf-timer";
     private const int MaxNameLength = 80;
-    private const int MaxTransactionAttempts = 3;
     private static readonly HttpClient RestHttp = new();
 
     private readonly IFirebaseAuthService _auth;
@@ -99,7 +100,7 @@ public sealed class NominationService : INominationService
         return ballot;
     }
 
-    // ── Submit (transaction) ──────────────────────────────────────────────
+    // ── Submit ──────────────────────────────────────────────
 
     public async Task<NominationSubmitResult> SubmitNominationAsync(
         string teamId,
@@ -147,24 +148,35 @@ public sealed class NominationService : INominationService
 
         try
         {
-            return await SubmitViaRestTransactionAsync(teamId, sessionId, vote, roster, cancellationToken)
+            return await SubmitViaRestAsync(teamId, sessionId, vote, roster, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return NominationSubmitResult.From(NominationSubmitStatus.Failed, "Cancelled.");
         }
-        catch (HttpRequestException restEx) when (restEx.StatusCode == HttpStatusCode.Forbidden)
+        catch (FirestoreRestException restEx) when (restEx.StatusCode == HttpStatusCode.Forbidden)
         {
-            // Rules refused the reads: not (or no longer) a member of this team.
-            System.Diagnostics.Debug.WriteLine($"[NominationService] REST transaction denied: {restEx.Message}");
-            return NominationSubmitResult.From(NominationSubmitStatus.NotAllowed,
-                "Your vote wasn't accepted. You may no longer be on this team.");
+            // The server refused a read or the write. Work out why before telling the user.
+            Log($"REST submit denied: {restEx.Message}");
+            return await ExplainDeniedAsync(teamId, sessionId, uid, restEx, cancellationToken).ConfigureAwait(false);
+        }
+        catch (FirestoreRestException restEx)
+        {
+            // The server answered with another error (not a rules refusal): don't retry via the SDK.
+            Log($"REST submit failed: {restEx.Message}");
+            return NominationSubmitResult.From(NominationSubmitStatus.Failed,
+                $"Couldn't save your vote ({restEx.Code}). Please try again.");
+        }
+        catch (Exception restEx) when (LooksOffline(restEx))
+        {
+            Log($"REST submit offline: {restEx.GetType().Name}: {restEx.Message}");
+            return NominationSubmitResult.From(NominationSubmitStatus.Offline,
+                "You're offline. Your vote wasn't saved. Try again when you're back online.");
         }
         catch (Exception restEx)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[NominationService] REST transaction failed, trying SDK: {restEx.GetType().Name}: {restEx.Message}");
+            Log($"REST submit failed, trying SDK: {restEx.GetType().Name}: {restEx.Message}");
         }
 
         try
@@ -173,14 +185,67 @@ public sealed class NominationService : INominationService
         }
         catch (Exception sdkEx)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"[NominationService] SDK transaction failed: {sdkEx.GetType().Name}: {sdkEx.Message}");
-            return LooksOffline(sdkEx)
-                ? NominationSubmitResult.From(NominationSubmitStatus.Offline,
-                    "You're offline. Your vote wasn't saved — try again when you're back online.")
-                : NominationSubmitResult.From(NominationSubmitStatus.Failed,
-                    "Couldn't save your vote. Please try again.");
+            Log($"SDK transaction failed: {sdkEx.GetType().Name}: {sdkEx.Message}");
+            if (LooksOffline(sdkEx))
+                return NominationSubmitResult.From(NominationSubmitStatus.Offline,
+                    "You're offline. Your vote wasn't saved. Try again when you're back online.");
+            if (LooksPermissionDenied(sdkEx))
+                return await ExplainDeniedAsync(teamId, sessionId, uid, sdkEx, cancellationToken).ConfigureAwait(false);
+            return NominationSubmitResult.From(NominationSubmitStatus.Failed,
+                "Couldn't save your vote. Please try again.");
         }
+    }
+
+    /// <summary>
+    /// After a PERMISSION_DENIED: re-read what the rules check so the message says why.
+    /// Not a member (no members/{uid} doc) → <see cref="NominationSubmitStatus.NotMember"/>;
+    /// closed, past 24 h, or no Firestore-timestamp endTime → <see cref="NominationSubmitStatus.WindowClosed"/>;
+    /// anything else → <see cref="NominationSubmitStatus.PermissionDenied"/> (logged with the server error).
+    /// </summary>
+    private async Task<NominationSubmitResult> ExplainDeniedAsync(
+        string teamId, string sessionId, string uid, Exception denied, CancellationToken ct)
+    {
+        try
+        {
+            var (isMember, _) = await GetDocViaRestAsync($"teams/{teamId}/members/{uid}", ct).ConfigureAwait(false);
+            if (!isMember)
+            {
+                Log($"Denied: no members/{uid} doc in team {teamId}");
+                return NominationSubmitResult.From(NominationSubmitStatus.NotMember,
+                    "Your vote wasn't accepted because this device isn't a member of the team any more. Rejoin the team, then vote again.");
+            }
+
+            var (found, doc) = await GetDocViaRestAsync(SessionPath(teamId, sessionId), ct).ConfigureAwait(false);
+            if (!found)
+                return NominationSubmitResult.From(NominationSubmitStatus.SessionNotFound, "That match could not be found.");
+            var fields = doc is { } d && d.TryGetProperty("fields", out var f) ? f : default;
+            var hasTimestampEnd = fields.ValueKind == JsonValueKind.Object
+                                  && fields.TryGetProperty("endTime", out var et)
+                                  && et.TryGetProperty("timestampValue", out _);
+            if (!hasTimestampEnd)
+            {
+                Log($"Denied: session {sessionId} endTime is missing or not a Firestore timestamp");
+                return NominationSubmitResult.From(NominationSubmitStatus.WindowClosed,
+                    "Voting isn't open for this match (its end time wasn't saved).");
+            }
+            var state = SessionState.FromRest(doc);
+            var closed = await ReadClosedAsync(teamId, sessionId, ct).ConfigureAwait(false);
+            if (closed)
+                return NominationSubmitResult.From(NominationSubmitStatus.WindowClosed, "An Admin has closed voting for this match.");
+            if (!NominationTallyCalculator.IsOpen(state.EndTime, closedByAdmin: false, DateTimeOffset.UtcNow))
+                return NominationSubmitResult.From(NominationSubmitStatus.WindowClosed, "Voting closed 24 hours after the match.");
+        }
+        catch (Exception ex)
+        {
+            Log($"Denied: follow-up checks failed: {ex.GetType().Name}: {ex.Message}");
+            if (LooksOffline(ex))
+                return NominationSubmitResult.From(NominationSubmitStatus.Offline,
+                    "You're offline. Your vote wasn't saved. Try again when you're back online.");
+        }
+
+        Log($"Denied for an unknown reason (member, voting open): {denied.Message}");
+        return NominationSubmitResult.From(NominationSubmitStatus.PermissionDenied,
+            "The server refused your vote (permission denied). Please try again, and tell your team Admin if it keeps happening.");
     }
 
     private sealed record PendingVote(string Uid, string DisplayName, int SlotId, string NomineeName);
@@ -204,55 +269,36 @@ public sealed class NominationService : INominationService
         return null;
     }
 
-    private async Task<NominationSubmitResult> SubmitViaRestTransactionAsync(
+    /// <summary>
+    /// Read the session and close status, validate, then write the vote with one commit.
+    /// <para>
+    /// No <c>beginTransaction</c>: production Firestore refuses read-write transactions
+    /// started over REST with an end-user ID token (403 PERMISSION_DENIED), although the
+    /// emulator allows them. That refusal was the "no longer on this team" error in build 58.
+    /// A transaction adds nothing here: the vote doc id is the voter's uid (no contention)
+    /// and the security rules re-check membership, endTime + 24 h and the close flag
+    /// atomically at write time.
+    /// </para>
+    /// </summary>
+    private async Task<NominationSubmitResult> SubmitViaRestAsync(
         string teamId, string sessionId, PendingVote vote,
         IReadOnlyList<PlayerSnapshot>? roster, CancellationToken ct)
     {
         var token = await GetTokenAsync().ConfigureAwait(false)
                     ?? throw new InvalidOperationException("No Firebase id token");
 
-        for (var attempt = 1; ; attempt++)
-        {
-            ct.ThrowIfCancellationRequested();
-            var tx = await BeginTransactionAsync(token, ct).ConfigureAwait(false);
-            var committed = false;
-            try
-            {
-                var docs = await BatchGetAsync(token, tx,
-                    [SessionPath(teamId, sessionId), NominationsMetaPath(teamId, sessionId)], ct).ConfigureAwait(false);
+        var docs = await BatchGetAsync(token,
+            [SessionPath(teamId, sessionId), NominationsMetaPath(teamId, sessionId)], ct).ConfigureAwait(false);
 
-                var session = SessionState.FromRest(docs.GetValueOrDefault(SessionPath(teamId, sessionId)));
-                var closed = ReadRestBool(docs.GetValueOrDefault(NominationsMetaPath(teamId, sessionId)), "closed");
-                var invalid = Validate(session, closed, vote, roster, DateTimeOffset.UtcNow);
-                if (invalid is not null)
-                    return invalid;
+        var session = SessionState.FromRest(docs.GetValueOrDefault(SessionPath(teamId, sessionId)));
+        var closed = ReadRestBool(docs.GetValueOrDefault(NominationsMetaPath(teamId, sessionId)), "closed");
+        var invalid = Validate(session, closed, vote, roster, DateTimeOffset.UtcNow);
+        if (invalid is not null)
+            return invalid;
 
-                var status = await CommitAsync(token, tx, NominationPath(teamId, sessionId, vote.Uid), vote, ct)
-                    .ConfigureAwait(false);
-                committed = true;
-
-                switch (status)
-                {
-                    case HttpStatusCode.OK:
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[NominationService] ✅ REST vote saved team={teamId} session={sessionId} slot={vote.SlotId}");
-                        return NominationSubmitResult.From(NominationSubmitStatus.Ok);
-                    case HttpStatusCode.Forbidden:
-                        // Rules: not a member, or the server clock says the window closed.
-                        return NominationSubmitResult.From(NominationSubmitStatus.NotAllowed,
-                            "Your vote wasn't accepted. Voting may have closed, or you're no longer on this team.");
-                    case HttpStatusCode.Conflict when attempt < MaxTransactionAttempts:
-                        continue; // ABORTED: contention — retry the whole transaction.
-                    default:
-                        throw new HttpRequestException($"Commit failed: {(int)status}", null, status);
-                }
-            }
-            finally
-            {
-                if (!committed)
-                    await RollbackQuietlyAsync(token, tx).ConfigureAwait(false);
-            }
-        }
+        await CommitAsync(token, NominationPath(teamId, sessionId, vote.Uid), vote, ct).ConfigureAwait(false);
+        Log($"✅ REST vote saved team={teamId} session={sessionId} slot={vote.SlotId}");
+        return NominationSubmitResult.From(NominationSubmitStatus.Ok);
     }
 
     private async Task<NominationSubmitResult> SubmitViaSdkTransactionAsync(
@@ -682,35 +728,17 @@ public sealed class NominationService : INominationService
         var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         FirestoreUsageMeter.RecordRestBody("GET", url, body);
         if (!resp.IsSuccessStatusCode)
-            throw new HttpRequestException($"GET {path} {(int)resp.StatusCode}", null, resp.StatusCode);
+            throw FirestoreRestException.From($"GET {path}", resp.StatusCode, body);
         using var json = JsonDocument.Parse(body);
         return (true, json.RootElement.Clone());
     }
 
-    private static async Task<string> BeginTransactionAsync(string token, CancellationToken ct)
-    {
-        var url = $"{RestBase}:beginTransaction";
-        using var req = new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new StringContent("""{"options":{"readWrite":{}}}""", Encoding.UTF8, "application/json")
-        };
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        using var resp = await RestHttp.SendAsync(req, ct).ConfigureAwait(false);
-        var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        FirestoreUsageMeter.RecordRestBody("POST", url, body);
-        if (!resp.IsSuccessStatusCode)
-            throw new HttpRequestException($"beginTransaction {(int)resp.StatusCode}", null, resp.StatusCode);
-        using var json = JsonDocument.Parse(body);
-        return json.RootElement.GetProperty("transaction").GetString()
-               ?? throw new HttpRequestException("beginTransaction: no id");
-    }
-
-    /// <summary>Transactional batchGet. Missing docs map to null; found docs to the document JSON.</summary>
+    /// <summary>batchGet. Missing docs map to null; found docs to the document JSON.</summary>
     private static async Task<Dictionary<string, JsonElement?>> BatchGetAsync(
-        string token, string tx, IReadOnlyList<string> paths, CancellationToken ct)
+        string token, IReadOnlyList<string> paths, CancellationToken ct)
     {
         var url = $"{RestBase}:batchGet";
-        var payload = JsonSerializer.Serialize(new { documents = paths.Select(FullName).ToArray(), transaction = tx });
+        var payload = JsonSerializer.Serialize(new { documents = paths.Select(FullName).ToArray() });
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = new StringContent(payload, Encoding.UTF8, "application/json")
@@ -720,7 +748,7 @@ public sealed class NominationService : INominationService
         var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         FirestoreUsageMeter.RecordRestBody("POST", url, body);
         if (!resp.IsSuccessStatusCode)
-            throw new HttpRequestException($"batchGet {(int)resp.StatusCode}", null, resp.StatusCode);
+            throw FirestoreRestException.From("batchGet", resp.StatusCode, body);
 
         var result = paths.ToDictionary(p => p, _ => (JsonElement?)null, StringComparer.Ordinal);
         using var json = JsonDocument.Parse(body);
@@ -737,8 +765,7 @@ public sealed class NominationService : INominationService
         return result;
     }
 
-    private static async Task<HttpStatusCode> CommitAsync(
-        string token, string tx, string votePath, PendingVote vote, CancellationToken ct)
+    private static async Task CommitAsync(string token, string votePath, PendingVote vote, CancellationToken ct)
     {
         var url = $"{RestBase}:commit";
         var fields = new Dictionary<string, object>
@@ -752,8 +779,7 @@ public sealed class NominationService : INominationService
         // Full-document update (no mask): overwrites the member's previous vote.
         var payload = JsonSerializer.Serialize(new
         {
-            writes = new object[] { new { update = new { name = FullName(votePath), fields } } },
-            transaction = tx
+            writes = new object[] { new { update = new { name = FullName(votePath), fields } } }
         });
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
@@ -764,23 +790,54 @@ public sealed class NominationService : INominationService
         var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         FirestoreUsageMeter.RecordRestBody("POST", url, body);
         if (!resp.IsSuccessStatusCode)
-            System.Diagnostics.Debug.WriteLine(
-                $"[NominationService] commit {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
-        return resp.IsSuccessStatusCode ? HttpStatusCode.OK : resp.StatusCode;
+            throw FirestoreRestException.From("commit", resp.StatusCode, body);
     }
 
-    private static async Task RollbackQuietlyAsync(string token, string tx)
+    /// <summary>A Firestore REST error with the HTTP status and the server's status/message.</summary>
+    private sealed class FirestoreRestException : HttpRequestException
     {
-        try
+        public string Code { get; }
+
+        private FirestoreRestException(string message, HttpStatusCode status, string code)
+            : base(message, null, status) => Code = code;
+
+        public static FirestoreRestException From(string op, HttpStatusCode status, string body)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, $"{RestBase}:rollback")
+            var code = ((int)status).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var detail = "";
+            try
             {
-                Content = new StringContent(JsonSerializer.Serialize(new { transaction = tx }), Encoding.UTF8, "application/json")
-            };
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            using var _ = await RestHttp.SendAsync(req).ConfigureAwait(false);
+                using var json = JsonDocument.Parse(body);
+                var err = json.RootElement.ValueKind == JsonValueKind.Array && json.RootElement.GetArrayLength() > 0
+                    ? json.RootElement[0].GetProperty("error")
+                    : json.RootElement.GetProperty("error");
+                if (err.TryGetProperty("status", out var st)) code = st.GetString() ?? code;
+                if (err.TryGetProperty("message", out var m)) detail = m.GetString() ?? "";
+            }
+            catch { detail = body.Length > 200 ? body[..200] : body; }
+            return new FirestoreRestException($"{op} {(int)status} {code}: {detail}", status, code);
         }
-        catch { /* best effort: the transaction expires on its own */ }
+    }
+
+    /// <summary>Debug output plus the device log (Console), so TestFlight issues show in Xcode/Console.app.</summary>
+    private static void Log(string message)
+    {
+        var line = $"[NominationService] {message}";
+        System.Diagnostics.Debug.WriteLine(line);
+        Console.WriteLine(line);
+    }
+
+    private static bool LooksPermissionDenied(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            var msg = e.Message ?? "";
+            if (msg.Contains("PERMISSION_DENIED", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("permission", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("insufficient", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     // ── Value helpers ─────────────────────────────────────────────────────

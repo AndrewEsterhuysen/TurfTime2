@@ -170,8 +170,10 @@ public enum NominationSubmitStatus
     SessionNotFound,
     InvalidNominee,
     WindowClosed,
-    /// <summary>Rules refused the write (e.g. no longer a team member).</summary>
-    NotAllowed,
+    /// <summary>Rules refused the vote and this account has no members/{uid} doc in the team.</summary>
+    NotMember,
+    /// <summary>Rules refused the vote for another reason (member, voting open); details are logged.</summary>
+    PermissionDenied,
     /// <summary>Network unavailable; nothing was saved.</summary>
     Offline,
     Failed

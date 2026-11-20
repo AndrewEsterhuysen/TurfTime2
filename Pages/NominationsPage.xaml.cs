@@ -295,7 +295,7 @@ public partial class NominationsPage : ContentPage
                 : result.Message ?? "Couldn't save your vote.";
 
             // Refresh the window state when the server says voting has closed.
-            if (result.Status is NominationSubmitStatus.WindowClosed or NominationSubmitStatus.NotAllowed)
+            if (result.Status is NominationSubmitStatus.WindowClosed or NominationSubmitStatus.PermissionDenied)
             {
                 var fresh = await _nominations.GetTallyAsync(_teamId, _ballot.SessionId);
                 if (fresh is not null) _tally = fresh;
