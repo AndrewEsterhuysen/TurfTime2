@@ -333,8 +333,10 @@ misleading on a family phone, so we will not add one unless Andrew asks.
 
 ### Ties
 
-Ties stand. The UI shows all joint leaders as player of the match. No
-automatic tie-break (e.g. by minutes played) unless Andrew wants one later.
+Ties stand as joint winners (decided by Andrew, 20 Nov 2026). The UI shows
+all joint leaders as player of the match. There is no automatic tie-break
+(e.g. by minutes played) and no Admin override or deciding vote: it is a
+player nomination, so the team’s votes decide.
 
 ### Offline writes
 
@@ -400,7 +402,8 @@ offline for local play (existing freemium rule).
 5. ~~**Are absent / inactive players eligible?**~~ **Answered (20 Nov 2026):**
    no. Only players who were present / active in that match’s squad can be
    nominated.
-6. **Ties:** joint winners (recommended) or an Admin tie-break?
+6. ~~**Ties:**~~ **Answered (20 Nov 2026):** ties stand as joint winners. No
+   Admin tie-break or deciding vote, because this is a player nomination.
 7. **Should the match report / email include the POTM result?** Default: not
    in v1.
 8. **Privacy policy wording** — OK to add a sentence about team-internal
