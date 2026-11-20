@@ -1,8 +1,9 @@
 # Player of the match nominations — specification
 
-Status: **scaffold only**. This document is the design for `feature/nominations`.
-Nothing in this spec has been deployed. **Production Firestore rules must not be
-deployed until Andrew approves.**
+Status: **built on `feature/nominations`, not shipped**. Service, page, entry
+points and Firestore rules (with emulator tests) are on the branch. **The
+production Firestore rules have not been deployed and must not be deployed
+until Andrew approves.**
 
 Feature id: `TeamNominations` (already in [`FEATURES.md`](FEATURES.md)).
 
@@ -25,7 +26,9 @@ Completed matches are **sessions**, already used by Reports:
 
 Firestore rules already grant team members read, and members create/update, on
 `teams/{teamId}/sessions/{sessionId}`. Deleting a team (`DeleteTeamAsOwner`)
-wipes `sessions` documents but **does not recurse into subcollections**.
+wipes `sessions` documents; Firestore does not recurse into subcollections, so
+it now deletes each session’s `nominations/*` and `nominationsMeta/status`
+explicitly first.
 
 **Chosen path**
 
@@ -394,10 +397,11 @@ player nomination, so the team’s votes decide.
 
 ### Offline writes
 
-When wired, rely on Firestore’s offline persistence: a vote queues and the
-listener catches up when the device is back online. Until then, the stub
-fails soft and shows that voting is not wired. The app must remain usable
-offline for local play (existing freemium rule).
+A vote is a Firestore transaction, and transactions need the server, so a
+vote cannot be queued offline. When the device is offline the service fails
+soft and the page says the vote wasn’t saved, so the member can tap again when
+back online. The live tally keeps showing the last known counts. The app must
+remain usable offline for local play (existing freemium rule).
 
 ### Privacy for juniors
 
@@ -479,7 +483,7 @@ offline for local play (existing freemium rule).
 
 ## 11. Next steps (after this scaffold)
 
-1. Andrew answers the remaining questions in §10 (3–9). Who nominates and
+1. ✅ Andrew answers the remaining questions in §10 (3–9). Who nominates and
    own-child voting are decided (§2, §7): no self-nomination check is needed
    in the service or rules for v1.
 2. ✅ Add `SlotId` to the session player stats / squad snapshot (done:
@@ -493,8 +497,10 @@ offline for local play (existing freemium rule).
 5. ✅ Add End-game prompt and a Reports entry, behind the same page.
    Include the nomination result (winner or joint winners) in the match
    report once voting has closed.
-6. Extend `DeleteTeamAsOwner` (and session delete, if added) to clear
-   nominations subcollections.
+6. ✅ Extend `DeleteTeamAsOwner` (and session delete, if added) to clear
+   nominations subcollections (`CloudTeamService.DeleteSessionNominationsAsync`
+   runs before members are removed; there is no single-session delete today —
+   call the per-session overload from one if it is added).
 7. Show Andrew the rules diff; **deploy only with his approval**.
 8. TestFlight on a shared team; merge only after he is happy.
 9. Later version: parent–child link table (full Option C), if clubs want
