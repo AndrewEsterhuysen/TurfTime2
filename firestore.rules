@@ -278,10 +278,12 @@ service cloud.firestore {
     }
 
     // Game sessions (reports)
+    // Delete: Admins, or the team owner during the DeleteTeamAsOwner cascade
+    // (which removes members/* before sessions, so the owner is no longer an Admin).
     match /teams/{teamId}/sessions/{sessionId} {
       allow read: if canReadTeam(teamId);
       allow create, update: if isTeamMember(teamId);
-      allow delete: if isTeamAdmin(teamId);
+      allow delete: if isTeamAdmin(teamId) || isTeamOwner(teamId);
     }
 
     // Player of the match nominations (docs/nominations-spec.md §5).

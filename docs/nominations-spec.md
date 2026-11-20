@@ -198,7 +198,7 @@ until Andrew approves.**
 Differences from the first proposal: the payload must also have only the
 known fields (`hasOnly`) and a real `timestamp`; `endTime` must be a
 timestamp; the team owner may delete votes and the status doc during the
-`DeleteTeamAsOwner` cascade (when they are no longer a member); and the
+`DeleteTeamAsOwner` cascade (when they are no longer a member) — the session docs themselves now allow owner delete too, for the same reason; and the
 status doc must carry a boolean `closed`.
 
 ```
