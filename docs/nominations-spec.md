@@ -52,8 +52,6 @@ The product line “players nominate another player” does not map cleanly onto
 the current data model.
 
 - **Players** are junior roster records (`SlotId` + name). They have no login.
-  The privacy policy states the app is for **coaches and parents** and does not
-  knowingly collect information from children.
 - **Team members** are the only signed-in people: the coach/admin and parents
   who joined the shared team. Auth is a durable anonymous Firebase uid on the
   device; the name teammates see is `members/{uid}.displayName`.
@@ -351,13 +349,15 @@ offline for local play (existing freemium rule).
 - The live tally shows **player names and counts only**, not who voted.
 - `nominatorId` / `nominatorDisplayName` are stored for rules and optional
   admin audit, not for a public roll.
-- No new data is collected from children; only the roster name the team
-  already entered is stored on the vote.
 - Do not publish nominations outside the team. The match report includes
   the result (winner names only, no voters) in v1, per Andrew (20 Nov 2026).
-- The public privacy policy may need a short update before this ships
-  (“shared teams may store player-of-the-match votes”) — ask Andrew before
-  changing `StoreAssets/PRIVACY_POLICY.md` / `docs/privacy.html`.
+- The public privacy policy gets a short sentence before this ships
+  (“shared teams may store player-of-the-match votes, visible only to the
+  team”) in `StoreAssets/PRIVACY_POLICY.md` / `docs/privacy.html` (approved by
+  Andrew, 20 Nov 2026, §10 Q8).
+- Rationale (Andrew): the vote is the team’s players nominating their peers,
+  whether cast through a parent’s account or directly, so the spec does not
+  frame it as “no data from children.”
 
 ---
 
@@ -410,8 +410,10 @@ offline for local play (existing freemium rule).
 7. ~~**Should the match report / email include the POTM result?**~~
    **Answered (20 Nov 2026):** yes, in v1. The match report includes the
    nomination result (winner or joint winners) once voting has closed.
-8. **Privacy policy wording** — OK to add a sentence about team-internal
-   votes before this ships?
+8. ~~**Privacy policy wording**~~ **Answered (20 Nov 2026):** yes, add a
+   sentence about team-internal votes before this ships: votes stay inside
+   the team, the tally shows names and counts only, and nothing is published
+   outside the team.
 9. **Nominations on local (offline) teams:** disabled (recommended). Or a
    device-only tally?
 
