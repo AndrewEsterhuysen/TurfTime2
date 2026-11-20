@@ -118,14 +118,20 @@ Voting closes at whichever comes first: an Admin closes it (this doc,
 24-hour auto-close is enforced from `endTime` in rules (see §5); no extra
 field is required for that.
 
-### 3.3 Session squad (follow-up, not in this scaffold)
+### 3.3 Session squad (done)
 
-`GameSession.Summary.PlayerStats` today stores `PlayerName` and times, **not**
-`SlotId`. To list eligible nominees reliably after the roster changes, a later
-commit should persist slot ids on the session (add `SlotId` to `PlayerStats`,
-or a `Squad` snapshot on `GameSession`). Until then the nominate screen can
-fall back to the current shared roster, which is good enough only if the squad
-has not been edited since the match.
+Session schema v2 (`SessionStorageService.SessionSchemaVersion = 2`) adds
+`SlotId` and `WasPresent` to each `GameSession.Summary.PlayerStats` entry, so
+every new session keeps its own squad snapshot. `WasPresent` is true when the
+player was not Absent at full time, or played some minutes before being moved
+to Absent (e.g. injury). `Models/NominationSquad.cs` turns the snapshot into
+the eligible nominee list (present players only).
+
+Older (v1) sessions have no slot ids. For those, `NominationSquad` falls back
+to the current shared roster: session player names are matched to current
+roster slots, and a player counts as present if they logged any field, bench or
+goalie time (absent players were recorded with zero time). Players added to
+the roster after the match never match, so they stay ineligible.
 
 ### 3.4 Client types (scaffold)
 
@@ -429,7 +435,9 @@ offline for local play (existing freemium rule).
 1. Andrew answers the remaining questions in §10 (3–9). Who nominates and
    own-child voting are decided (§2, §7): no self-nomination check is needed
    in the service or rules for v1.
-2. Add `SlotId` to the session player stats / squad snapshot.
+2. ✅ Add `SlotId` to the session player stats / squad snapshot (done:
+   `PlayerStats.SlotId` + `WasPresent`, session schema v2, roster fallback for
+   older sessions; §3.3).
 3. Implement `NominationService` (transactional submit + tally listener) and
    emulator rules tests.
 4. Build the real `NominationsPage` (session picker, nominee list, live tally).

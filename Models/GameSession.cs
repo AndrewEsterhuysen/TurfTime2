@@ -1,13 +1,21 @@
 namespace TurfTime2.Models;
 
 /// <summary>Per-player statistics accumulated during a session.</summary>
+/// <remarks>
+/// Session schema v2 adds <see cref="SlotId"/> and <see cref="WasPresent"/> so the
+/// session keeps a squad snapshot (used by player-of-the-match nominations).
+/// Older sessions deserialize with <c>SlotId = 0</c> and <c>WasPresent = null</c>;
+/// see <see cref="NominationSquad"/> for the fallback to the current roster.
+/// </remarks>
 public sealed record PlayerStats(
     string PlayerName,
     int FieldSeconds,
     int BenchSeconds,
     int GoalieSeconds,
     int RotationsIn,
-    int RotationsOut);
+    int RotationsOut,
+    int SlotId = 0,
+    bool? WasPresent = null);
 
 /// <summary>Summary computed at the end of a game session (statistics/analytics).</summary>
 public sealed record GameSessionSummary(

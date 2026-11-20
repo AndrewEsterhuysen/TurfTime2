@@ -11,7 +11,11 @@ namespace TurfTime2.Services;
 /// </summary>
 public sealed class SessionStorageService : ISessionStorageService
 {
-    public const int SessionSchemaVersion = 1;
+    /// <summary>
+    /// v2: <see cref="PlayerStats"/> carries <c>SlotId</c> + <c>WasPresent</c> (squad snapshot
+    /// for nominations). v1 sessions still load; nominations fall back to the current roster.
+    /// </summary>
+    public const int SessionSchemaVersion = 2;
 
     private readonly IFirebaseAuthService _auth;
     private readonly IFirebaseFirestore _db;

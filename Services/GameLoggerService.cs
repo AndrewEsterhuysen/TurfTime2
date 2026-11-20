@@ -247,7 +247,11 @@ public sealed class GameLoggerService : IGameLoggerService
                 BenchSeconds:   benchSeconds,
                 GoalieSeconds:  p.Position == PlayerPosition.Goalie ? p.FieldSeconds : 0,
                 RotationsIn:    rots.rotIn,
-                RotationsOut:   rots.rotOut);
+                RotationsOut:   rots.rotOut,
+                SlotId:         p.SlotId,
+                // Present = in the match-day squad (not Absent at full time), or
+                // played some minutes before being moved to Absent (e.g. injury).
+                WasPresent:     p.Position != PlayerPosition.Inactive || p.FieldSeconds > 0);
         }).ToList();
 
         return new GameSessionSummary(totalRotations, durationSeconds, playerStats);
