@@ -336,6 +336,7 @@ public partial class NominationsPage : ContentPage
     private async void OnCloseVotingClicked(object? sender, EventArgs e)
     {
         if (_nominations is null || _ballot is null) return;
+        var sessionId = _ballot.SessionId;
         try
         {
             var confirm = await DisplayAlertAsync(
@@ -345,17 +346,30 @@ public partial class NominationsPage : ContentPage
             if (!confirm) return;
 
             CloseVotingButton.IsEnabled = false;
-            var ok = await _nominations.CloseVotingAsync(_teamId, _ballot.SessionId);
-            if (!ok)
-                await DisplayAlertAsync("Nominations", "Couldn't close voting. Only Admins can close it.", "OK");
+            CloseVotingButton.Text = "Closing voting...";
+            var result = await _nominations.CloseVotingAsync(_teamId, sessionId);
+            if (!result.Succeeded)
+            {
+                await DisplayAlertAsync("Couldn't close voting", result.Message ?? "Please try again.", "OK");
+                return;
+            }
+
+            // The service already pushed the closed state to the live watch; also re-read once
+            // so the result shows even if the watch isn't connected.
+            var fresh = await _nominations.GetTallyAsync(_teamId, sessionId);
+            if (fresh is not null && _ballot?.SessionId == sessionId && (_tally is null || _tally.IsOpen))
+                _tally = fresh;
+            Render();
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[NominationsPage] Close: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[NominationsPage] Close: {ex}");
+            await DisplayAlertAsync("Couldn't close voting", ex.Message, "OK");
         }
         finally
         {
             CloseVotingButton.IsEnabled = true;
+            CloseVotingButton.Text = "Close voting now";
         }
     }
 

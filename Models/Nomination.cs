@@ -201,6 +201,14 @@ public enum NominationSubmitStatus
     Failed
 }
 
+public sealed class NominationCloseResult
+{
+    public bool Succeeded { get; init; }
+    public string? Message { get; init; }
+    public static NominationCloseResult Ok() => new() { Succeeded = true };
+    public static NominationCloseResult Fail(string message) => new() { Succeeded = false, Message = message };
+}
+
 public sealed class NominationSubmitResult
 {
     public NominationSubmitStatus Status { get; init; }

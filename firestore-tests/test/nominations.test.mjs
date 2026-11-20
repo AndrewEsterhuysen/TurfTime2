@@ -177,6 +177,31 @@ test('nominations: non-members cannot read votes even after close', async () => 
   await assertFails(getDoc(doc(as('stranger'), `${NOM}/mem`)));
 });
 
+test('nominations: team creator can close voting even if their member role is not admin', async () => {
+  await seed(async (db) => {
+    await setDoc(doc(db, `teams/${T}/members/owner`), { uid: 'owner', role: 'member', displayName: 'Coach' });
+    await setDoc(doc(db, `${NOM}/owner`), vote('owner'));
+  });
+  await assertSucceeds(setDoc(doc(as('owner'), META), { closed: true, closedAt: Timestamp.now(), closedBy: 'owner' }));
+  await assertFails(setDoc(doc(as('mem'), `${NOM}/mem`), vote('mem')));
+  const snap = await assertSucceeds(getDocs(collection(as('mem'), NOM)));
+  if (snap.size !== 1) throw new Error(`expected 1 vote, got ${snap.size}`);
+});
+
+test('nominations: admin closes voting with a single vote; everyone then reads it', async () => {
+  await seed((db) => setDoc(doc(db, `${NOM}/owner`), vote('owner', 5, 'Eve')));
+  await assertSucceeds(setDoc(doc(as('owner'), META), { closed: true, closedAt: Timestamp.now(), closedBy: 'owner' }));
+  const m = await assertSucceeds(getDoc(doc(as('mem'), META)));
+  if (m.data().closed !== true) throw new Error('closed flag not set');
+  const snap = await assertSucceeds(getDocs(collection(as('mem2'), NOM)));
+  if (snap.size !== 1) throw new Error(`expected 1 vote, got ${snap.size}`);
+});
+
+test('nominations: a creator who has left the team cannot close voting', async () => {
+  await seed((db) => deleteDoc(doc(db, `teams/${T}/members/owner`)));
+  await assertFails(setDoc(doc(as('owner'), META), { closed: true }));
+});
+
 test('nominations: owner cascade can clear votes and status after members are gone', async () => {
   await seed(async (db) => {
     await setDoc(doc(db, `${NOM}/mem`), vote('mem'));

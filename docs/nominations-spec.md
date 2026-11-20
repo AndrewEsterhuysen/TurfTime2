@@ -343,8 +343,11 @@ to the device console.
 - Do **not** return a voter list to the UI.
 - Return `IDisposable` to stop the listener, same pattern as `IChatService.SubscribeAsync`.
 
-`INominationService.CloseVotingAsync` (Admin) writes `nominationsMeta/status`
-(`closed`, `closedAt`, `closedBy`). `GetTallyAsync` is a one-shot read for the
+`INominationService.CloseVotingAsync` (Admin, or the team creator) writes
+`nominationsMeta/status` (`closed`, `closedAt`, `closedBy`) over REST, updates
+open watches on the device straight away, and returns a user-facing message on
+failure. The meta listener treats a snapshot without a readable `closed` field
+(empty SDK Data on device) as a change signal and re-reads the flag over REST. `GetTallyAsync` is a one-shot read for the
 match report.
 
 ---

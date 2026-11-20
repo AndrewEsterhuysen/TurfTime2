@@ -362,11 +362,12 @@ service cloud.firestore {
         || isTeamOwner(teamId);
     }
 
-    // Admin-only close flag for a session's nominations.
+    // Admin-only close flag for a session's nominations. The team creator counts as an
+    // Admin here (as in the app), even if their members doc role isn't 'admin'.
     match /teams/{teamId}/sessions/{sessionId}/nominationsMeta/{docId} {
       allow read: if docId == 'status' && canReadTeam(teamId);
       allow create, update: if docId == 'status'
-        && isTeamAdmin(teamId)
+        && (isTeamAdmin(teamId) || (isTeamMember(teamId) && isTeamOwner(teamId)))
         && request.resource.data.closed is bool;
       allow delete: if docId == 'status' && (isTeamAdmin(teamId) || isTeamOwner(teamId));
     }

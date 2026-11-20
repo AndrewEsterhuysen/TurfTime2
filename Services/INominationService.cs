@@ -36,10 +36,11 @@ public interface INominationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Admin only (enforced by Firestore rules): close voting early by writing
-    /// <c>nominationsMeta/status</c>. Returns false on failure.
+    /// Admin (or team creator) only, enforced by Firestore rules: close voting early by
+    /// writing <c>nominationsMeta/status</c>. On success, open tally watches on this device
+    /// switch to the result straight away. On failure the result carries a user-facing message.
     /// </summary>
-    Task<bool> CloseVotingAsync(
+    Task<NominationCloseResult> CloseVotingAsync(
         string teamId,
         string sessionId,
         CancellationToken cancellationToken = default);

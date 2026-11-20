@@ -31,6 +31,7 @@ public sealed class NominationService : INominationService
     private readonly IFirebaseAuthService _auth;
     private readonly IFirebaseFirestore _db;
     private readonly ICloudRosterService _roster;
+    private readonly List<TallyWatch> _watches = [];
 
     public NominationService(IFirebaseAuthService auth, IFirebaseFirestore db, ICloudRosterService roster)
     {
@@ -337,19 +338,21 @@ public sealed class NominationService : INominationService
 
     // ── Admin close ───────────────────────────────────────────────────────
 
-    public async Task<bool> CloseVotingAsync(
+    public async Task<NominationCloseResult> CloseVotingAsync(
         string teamId, string sessionId, CancellationToken cancellationToken = default)
     {
         if (IsLocalOnlyTeam(teamId) || string.IsNullOrWhiteSpace(sessionId))
-            return false;
+            return NominationCloseResult.Fail("Nominations are available on shared teams only.");
 
         string? uid;
         try { uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false); }
         catch { uid = null; }
-        if (uid is null) return false;
+        if (uid is null)
+            return NominationCloseResult.Fail("You're not signed in. Check your connection and try again.");
 
         var now = DateTimeOffset.UtcNow;
         var path = NominationsMetaPath(teamId, sessionId);
+        Exception? restError = null;
         try
         {
             var token = await GetTokenAsync().ConfigureAwait(false)
@@ -368,15 +371,32 @@ public sealed class NominationService : INominationService
             using var resp = await RestHttp.SendAsync(req, cancellationToken).ConfigureAwait(false);
             var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             FirestoreUsageMeter.RecordRestBody("PATCH", req.RequestUri?.ToString(), body);
-            if (resp.IsSuccessStatusCode) return true;
-            if (resp.StatusCode == HttpStatusCode.Forbidden) return false; // not an Admin
-            System.Diagnostics.Debug.WriteLine($"[NominationService] Close REST {(int)resp.StatusCode}");
+            if (resp.IsSuccessStatusCode)
+            {
+                Log($"✅ Voting closed team={teamId} session={sessionId}");
+                NotifyClosed(teamId, sessionId);
+                return NominationCloseResult.Ok();
+            }
+
+            var error = FirestoreRestException.From($"PATCH {path}", resp.StatusCode, body);
+            Log($"Close refused: {error.Message}");
+            if (resp.StatusCode == HttpStatusCode.Forbidden)
+            {
+                var isAdmin = await IsViewerAdminAsync(teamId, uid, cancellationToken).ConfigureAwait(false);
+                return NominationCloseResult.Fail(isAdmin
+                    ? $"The server refused to close voting ({error.Code}). Please try again; if it keeps happening, tell the developer: {error.Message}"
+                    : "Only team Admins can close voting, and this account isn't an Admin of this team.");
+            }
+            return NominationCloseResult.Fail($"Couldn't close voting: {error.Message}");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            System.Diagnostics.Debug.WriteLine($"[NominationService] Close REST: {ex.Message}");
+            restError = ex;
+            Log($"Close REST: {ex.GetType().Name}: {ex.Message}");
         }
 
+        // REST unreachable: try the SDK, then confirm the flag really is set (the SDK has
+        // been seen to "succeed" without writing on device).
         try
         {
             await _db.GetDocument(path).SetDataAsync(new (object, object)[]
@@ -386,12 +406,32 @@ public sealed class NominationService : INominationService
                 ("closedBy", uid)
             }).ConfigureAwait(false);
             FirestoreUsageMeter.RecordSdk("Set", "NominationsMeta");
-            return true;
+            if (await ReadClosedAsync(teamId, sessionId, cancellationToken).ConfigureAwait(false))
+            {
+                NotifyClosed(teamId, sessionId);
+                return NominationCloseResult.Ok();
+            }
+            Log("Close SDK write did not stick");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[NominationService] Close SDK: {ex.Message}");
-            return false;
+            Log($"Close SDK: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        return NominationCloseResult.Fail(restError is not null && LooksOffline(restError)
+            ? "Couldn't close voting: you appear to be offline. Check your connection and try again."
+            : $"Couldn't close voting: {restError?.Message ?? "unknown error"}");
+    }
+
+    /// <summary>Update open watches on this device straight away (don't wait for the listener).</summary>
+    private void NotifyClosed(string teamId, string sessionId)
+    {
+        List<TallyWatch> watches;
+        lock (_watches) watches = _watches.Where(w => w.Matches(teamId, sessionId)).ToList();
+        foreach (var w in watches)
+        {
+            try { w.SetClosed(true); }
+            catch (Exception ex) { Log($"NotifyClosed: {ex.Message}"); }
         }
     }
 
@@ -450,6 +490,7 @@ public sealed class NominationService : INominationService
         try
         {
             await watch.StartAsync().ConfigureAwait(false);
+            lock (_watches) _watches.Add(watch);
             return watch;
         }
         catch (Exception ex)
@@ -544,14 +585,51 @@ public sealed class NominationService : INominationService
 
             _metaReg = _svc._db.GetDocument(NominationsMetaPath(_teamId, _sessionId))
                 .AddSnapshotListener<Dictionary<string, object>>(
-                    snapshot =>
-                    {
-                        FirestoreUsageMeter.RecordListener("NominationsMeta");
-                        lock (_gate) _closed = ReadSdkBool(snapshot?.Data, "closed");
-                        Emit();
-                    },
+                    snapshot => _ = Task.Run(() => OnMetaSnapshotAsync(snapshot)),
                     ex => System.Diagnostics.Debug.WriteLine($"[NominationService] Meta listener: {ex.Message}"));
         }
+
+        /// <summary>
+        /// Close-flag change. On device the SDK snapshot Data can be empty even when the
+        /// doc says closed=true, so a snapshot without a readable "closed" field is only a
+        /// change signal and REST decides. (Build 61 read empty Data as "open", so Close
+        /// voting appeared to do nothing and a reopened page showed voting as open.)
+        /// </summary>
+        private async Task OnMetaSnapshotAsync(IDocumentSnapshot<Dictionary<string, object>>? snapshot)
+        {
+            try
+            {
+                FirestoreUsageMeter.RecordListener("NominationsMeta");
+                bool closed;
+                if (snapshot?.Data is { } data && data.ContainsKey("closed"))
+                    closed = ReadSdkBool(data, "closed");
+                else
+                    closed = await _svc.ReadClosedAsync(_teamId, _sessionId, default).ConfigureAwait(false);
+                SetClosed(closed);
+            }
+            catch (Exception ex)
+            {
+                // Keep the last known state rather than guessing "open".
+                Log($"Meta snapshot: {ex.Message}");
+            }
+        }
+
+        /// <summary>Called by the service after this device closed voting, and by the meta listener.</summary>
+        public void SetClosed(bool closed)
+        {
+            lock (_gate)
+            {
+                if (_disposed) return;
+                _closed = closed;
+                // Admins hold every vote already; make sure the result is complete.
+                if (closed && _isAdmin) _allVotes = true;
+            }
+            Emit();
+        }
+
+        public bool Matches(string teamId, string sessionId)
+            => string.Equals(_teamId, teamId, StringComparison.Ordinal)
+               && string.Equals(_sessionId, sessionId, StringComparison.Ordinal);
 
         private void StartAllVotesListener()
         {
@@ -626,7 +704,8 @@ public sealed class NominationService : INominationService
                 }
 
                 // Empty / partial SDK data → REST is the source of truth for this event.
-                if (docs.Count > 0 && parsed.Count < docs.Count)
+                // (An empty snapshot can also be the device bug, so confirm it over REST.)
+                if (parsed.Count == 0 || parsed.Count < docs.Count)
                     parsed = await _svc.ListVotesViaRestAsync(_teamId, _sessionId, default).ConfigureAwait(false);
 
                 lock (_gate) _votes = parsed;
@@ -708,6 +787,7 @@ public sealed class NominationService : INominationService
         public void Dispose()
         {
             lock (_gate) _disposed = true;
+            lock (_svc._watches) _svc._watches.Remove(this);
             try { _votesReg?.Dispose(); } catch { /* ignore */ }
             try { _metaReg?.Dispose(); } catch { /* ignore */ }
             try { _closeTimer?.Dispose(); } catch { /* ignore */ }
@@ -820,8 +900,8 @@ public sealed class NominationService : INominationService
     }
 
     /// <summary>
-    /// Authoritative Admin check: the caller's members/{uid} doc has role "admin" (the same
-    /// test the Firestore rules use). If it can't be read, treat the caller as a member so
+    /// Authoritative Admin check: the caller's members/{uid} doc has role "admin", or the
+    /// caller created the team (metadata/info.createdBy) — the same test the rules use. If it can't be read, treat the caller as a member so
     /// the live tally is never shown by mistake.
     /// </summary>
     private async Task<bool> IsViewerAdminAsync(string teamId, string uid, CancellationToken ct)
@@ -829,10 +909,16 @@ public sealed class NominationService : INominationService
         try
         {
             var (found, doc) = await GetDocViaRestAsync($"teams/{teamId}/members/{uid}", ct).ConfigureAwait(false);
-            if (!found) return false;
-            var fields = doc is { } d && d.TryGetProperty("fields", out var f) ? f : default;
-            return fields.ValueKind == JsonValueKind.Object
-                   && string.Equals(ReadRestString(fields, "role"), "admin", StringComparison.OrdinalIgnoreCase);
+            var fields = found && doc is { } d && d.TryGetProperty("fields", out var f) ? f : default;
+            if (fields.ValueKind == JsonValueKind.Object
+                && string.Equals(ReadRestString(fields, "role"), "admin", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // The team creator (metadata/info.createdBy) counts as an Admin, as in the rules.
+            var (hasMeta, meta) = await GetDocViaRestAsync($"teams/{teamId}/metadata/info", ct).ConfigureAwait(false);
+            var metaFields = hasMeta && meta is { } m && m.TryGetProperty("fields", out var mf) ? mf : default;
+            return metaFields.ValueKind == JsonValueKind.Object
+                   && string.Equals(ReadRestString(metaFields, "createdBy"), uid, StringComparison.Ordinal);
         }
         catch (Exception ex)
         {
