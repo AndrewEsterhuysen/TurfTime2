@@ -353,8 +353,8 @@ offline for local play (existing freemium rule).
   admin audit, not for a public roll.
 - No new data is collected from children; only the roster name the team
   already entered is stored on the vote.
-- Do not publish nominations outside the team (email report inclusion should
-  be an explicit later decision).
+- Do not publish nominations outside the team. The match report includes
+  the result (winner names only, no voters) in v1, per Andrew (20 Nov 2026).
 - The public privacy policy may need a short update before this ships
   (“shared teams may store player-of-the-match votes”) — ask Andrew before
   changing `StoreAssets/PRIVACY_POLICY.md` / `docs/privacy.html`.
@@ -368,7 +368,10 @@ offline for local play (existing freemium rule).
 - Deploying or even patching `firestore.rules` (snippet + this doc only).
 - Adding `SlotId` to `PlayerStats`.
 - Parent–child member links.
-- MCP tools, push notifications, or emailing the result.
+- MCP tools or push notifications.
+- Adding the result to the match report. This **is in v1 scope** (§10 Q7);
+  it is only left out of this first scaffold commit and follows once the
+  service is wired.
 - Changing maximum squad size (separate branch).
 
 ---
@@ -404,8 +407,9 @@ offline for local play (existing freemium rule).
    nominated.
 6. ~~**Ties:**~~ **Answered (20 Nov 2026):** ties stand as joint winners. No
    Admin tie-break or deciding vote, because this is a player nomination.
-7. **Should the match report / email include the POTM result?** Default: not
-   in v1.
+7. ~~**Should the match report / email include the POTM result?**~~
+   **Answered (20 Nov 2026):** yes, in v1. The match report includes the
+   nomination result (winner or joint winners) once voting has closed.
 8. **Privacy policy wording** — OK to add a sentence about team-internal
    votes before this ships?
 9. **Nominations on local (offline) teams:** disabled (recommended). Or a
@@ -423,6 +427,8 @@ offline for local play (existing freemium rule).
    emulator rules tests.
 4. Build the real `NominationsPage` (session picker, nominee list, live tally).
 5. Add End-game prompt and a Reports entry, behind the same page.
+   Include the nomination result (winner or joint winners) in the match
+   report once voting has closed.
 6. Extend `DeleteTeamAsOwner` (and session delete, if added) to clear
    nominations subcollections.
 7. Show Andrew the rules diff; **deploy only with his approval**.
