@@ -19,6 +19,8 @@ public sealed class GameLoggerService : IGameLoggerService
 
     public GameSession? CurrentSession { get; private set; }
 
+    public event EventHandler<(string TeamId, string SessionId)>? SessionSavedToCloud;
+
     public GameLoggerService(ISessionStorageService storage)
     {
         _storage = storage;
@@ -167,7 +169,11 @@ public sealed class GameLoggerService : IGameLoggerService
                 $"[GameLogger] Saving session {session.SessionId} to cloud " +
                 $"(events={session.Events.Count}, score={session.ScoreUs}-{session.ScoreThem})");
 
-            await _storage.SaveSessionAsync(teamId, session).ConfigureAwait(false);
+            if (await _storage.SaveSessionAsync(teamId, session).ConfigureAwait(false))
+            {
+                try { SessionSavedToCloud?.Invoke(this, (teamId, session.SessionId)); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[GameLogger] SessionSavedToCloud handler: {ex.Message}"); }
+            }
         }
         catch (Exception ex)
         {

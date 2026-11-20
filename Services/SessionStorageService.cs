@@ -39,16 +39,16 @@ public sealed class SessionStorageService : ISessionStorageService
         System.Diagnostics.Debug.WriteLine("[SessionStorage] SetAuthToken ignored (SDK auth)");
     }
 
-    public async Task SaveSessionAsync(string teamId, GameSession session)
+    public async Task<bool> SaveSessionAsync(string teamId, GameSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
-        if (string.IsNullOrWhiteSpace(teamId)) return;
-        if (IsLocalOnlyTeam(teamId)) return;
+        if (string.IsNullOrWhiteSpace(teamId)) return false;
+        if (IsLocalOnlyTeam(teamId)) return false;
 
         if (await _auth.EnsureSignedInAsync().ConfigureAwait(false) is null)
         {
             System.Diagnostics.Debug.WriteLine("[SessionStorage] Auth failed — session not saved to cloud");
-            return;
+            return false;
         }
 
         try
@@ -78,10 +78,12 @@ public sealed class SessionStorageService : ISessionStorageService
 
             System.Diagnostics.Debug.WriteLine(
                 $"[SessionStorage] Session {session.SessionId} saved (schema v{SessionSchemaVersion})");
+            return true;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[SessionStorage] Save failed: {ex.Message}");
+            return false;
         }
     }
 

@@ -228,6 +228,7 @@ public partial class GamePage : ContentPage
         {
             _vm.PropertyChanged += OnViewModelPropertyChanged;
             _vm.ControlRequestReceived += OnControlRequestReceived;
+            _vm.NominationsPromptRequested += OnNominationsPromptRequested;
         }
 
         // Keep checking role while Game stays open so Promote takes effect without tab switching.
@@ -253,6 +254,7 @@ public partial class GamePage : ContentPage
         {
             _vm.PropertyChanged -= OnViewModelPropertyChanged;
             _vm.ControlRequestReceived -= OnControlRequestReceived;
+            _vm.NominationsPromptRequested -= OnNominationsPromptRequested;
         }
         RotationStylePage.RotationStyleChanged -= OnRotationStyleChanged;
         DragState.NativeSwipeReleased -= OnNativeSwipeReleased;
@@ -453,6 +455,7 @@ public partial class GamePage : ContentPage
         BindingContext = _vm;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
         _vm.ControlRequestReceived += OnControlRequestReceived;
+        _vm.NominationsPromptRequested += OnNominationsPromptRequested;
 
         Preferences.Set("_gamepage_last_team", teamId);
         await _vm.InitialiseAsync(teamId, userRole);
@@ -1213,6 +1216,28 @@ public partial class GamePage : ContentPage
         {
             System.Diagnostics.Debug.WriteLine($"[GamePage] Banner control action: {ex.Message}");
             await DisplayAlertAsync("Error", "Could not complete control action.", "OK");
+        }
+    }
+
+    /// <summary>
+    /// After End game on a shared team (session saved to the cloud): offer
+    /// player-of-the-match nominations for that session. Local teams never get here.
+    /// </summary>
+    private async void OnNominationsPromptRequested(object? sender, string sessionId)
+    {
+        try
+        {
+            var go = await DisplayAlertAsync(
+                "Player of the match",
+                "Match saved. Nominate a player of the match? Everyone on the team can vote for 24 hours.",
+                "Nominate",
+                "Not now");
+            if (go)
+                await Shell.Current.GoToAsync($"details/nominations?sessionId={Uri.EscapeDataString(sessionId)}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GamePage] Nominations prompt: {ex.Message}");
         }
     }
 

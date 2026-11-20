@@ -7,8 +7,11 @@ namespace TurfTime2.Services;
 /// </summary>
 public interface ISessionStorageService
 {
-    /// <summary>Save a completed session to Firestore (cloud teams) and local history.</summary>
-    Task SaveSessionAsync(string teamId, GameSession session);
+    /// <summary>
+    /// Save a completed session to Firestore (cloud teams). Returns true when the
+    /// cloud document was written; false for local teams or on failure (fail soft).
+    /// </summary>
+    Task<bool> SaveSessionAsync(string teamId, GameSession session);
 
     /// <summary>Load session summaries for a given team (Firestore for cloud, local for local teams).</summary>
     Task<IReadOnlyList<SessionSummary>> LoadSessionSummariesAsync(string teamId, bool isLocalTeam);

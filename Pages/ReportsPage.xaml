@@ -41,6 +41,10 @@
                 </Button>
             </Grid>
 
+            <Button Style="{StaticResource PvButtonOutline}" x:Name="NominationsButton"
+                    Text="Player of the match" Padding="8,10" IsVisible="False"
+                    Clicked="OnNominationsClicked" />
+
             <Label Style="{StaticResource PvCaption}" x:Name="StatusLabel" Text="" HorizontalOptions="Center" IsVisible="False"/>
         </VerticalStackLayout>
 

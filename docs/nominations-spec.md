@@ -148,19 +148,22 @@ listener) and `GetTallyAsync` (one-shot, used by the match report).
 
 ## 4. UI flow (iOS and Android — same pages)
 
-Details → Nominations already exists as a “Coming soon” card and is only
-reachable on **shared** teams (the Details tab is hidden for local teams).
-The scaffold points that card at a placeholder `NominationsPage`. End-game
-and Reports entry points are specified here but **not wired** in the first
-commit.
+Nominations are reachable only on **shared** teams: the Details tab is hidden
+for local teams, and the End-game prompt and Reports button are not shown for
+them.
 
-1. **After End game (future).** When a shared-team match is archived to
-   `sessions/{sessionId}`, the controller (and other members on the team)
-   can be offered “Nominate player of the match.” That opens `NominationsPage`
-   with `sessionId` set. The Game tab stays as it is if they dismiss.
-2. **From Reports (future).** A “Nominations” action on the selected session
-   opens the same page for that report.
-3. **From Details → Nominations (scaffold entry).** The page lists recent
+1. **After End game.** When a shared-team match is archived and saved to
+   `sessions/{sessionId}`, the device that ended the match is offered
+   “Nominate player of the match?”. That opens `NominationsPage` with
+   `sessionId` set. The Game tab stays as it is if they choose “Not now”.
+   Other members reach the same match from Reports or Details (a push
+   notification to every member is out of scope for v1, §8).
+2. **From Reports.** A “Player of the match” button on the selected session
+   (shared teams) opens the same page for that report. Once voting has
+   closed, the report itself (and the emailed copy) includes a “Player of the
+   Match” section with the winner or joint winners and vote counts, never
+   who voted.
+3. **From Details → Nominations.** The page lists recent
    sessions for the current shared team (same source as Reports). The user
    picks a match, or lands directly on one if `sessionId` was passed.
 4. **Nominate screen.** Eligible (present / active) players from that
@@ -487,7 +490,7 @@ offline for local play (existing freemium rule).
    and emulator tests passing (§5). Not deployed.
 4. ✅ Build the real `NominationsPage` (session picker, nominee list, live
    tally, view-only result after close, Admin close button).
-5. Add End-game prompt and a Reports entry, behind the same page.
+5. ✅ Add End-game prompt and a Reports entry, behind the same page.
    Include the nomination result (winner or joint winners) in the match
    report once voting has closed.
 6. Extend `DeleteTeamAsOwner` (and session delete, if added) to clear
