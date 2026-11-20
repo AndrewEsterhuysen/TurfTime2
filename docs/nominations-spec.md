@@ -74,6 +74,8 @@ table, delivered on the Option A mechanics:
 
 - Each signed-in Admin or Member casts **one** vote per session for a roster
   player (`nominatorId` = member uid). The parent is voting for their child.
+- Voting is open from End game until an Admin closes it or 24 hours after the
+  session’s end time, whichever comes first (see §3.2, §5, §7).
 - There is **no** link between a member and a roster slot in v1. The
   parent–child link table (full Option C) is **deferred** to a later version.
 - Because there is no link, the app does **not** restrict who a parent can
@@ -113,8 +115,10 @@ Path: `teams/{teamId}/sessions/{sessionId}/nominationsMeta/status`
 | `closedAt` | timestamp | When it was closed. |
 | `closedBy` | string | Admin uid. |
 
-The 24-hour auto-close is enforced from `sessions/{sessionId}.endTime` in
-rules (see §5). No extra field is required for that.
+Voting closes at whichever comes first: an Admin closes it (this doc,
+`closed: true`), or 24 hours after `sessions/{sessionId}.endTime`. The
+24-hour auto-close is enforced from `endTime` in rules (see §5); no extra
+field is required for that.
 
 ### 3.3 Session squad (follow-up, not in this scaffold)
 
@@ -165,6 +169,10 @@ commit.
 ---
 
 ## 5. Proposed Firestore rules (do not deploy without Andrew’s OK)
+
+`nominationsOpen` below implements both close triggers: writes are denied
+once 24 hours have passed since `endTime` **or** an Admin has set
+`nominationsMeta/status.closed`, whichever happens first.
 
 Add these matches **next to** the existing `teams/{teamId}/sessions/{sessionId}`
 block in `firestore.rules`. This is a proposed diff only. **Do not run
@@ -303,7 +311,7 @@ a locked-in first tap would feel harsh. Once closed, the result is frozen.
 ### Voting window
 
 - **Opens** when the session is saved with an `endTime` (End game).
-- **Closes** at the earlier of: an Admin closes it, or **24 hours after
+- **Closes** at whichever comes first (decided 20 Nov 2026): an Admin closes it, or **24 hours after
   `endTime`**.
 - 24 hours covers the trip home and evening chat without leaving last
   weekend’s vote open all season.
@@ -381,8 +389,9 @@ offline for local play (existing freemium rule).
    Option C) is deferred to a later version.
 2. ~~**May a parent vote for their own child?**~~ **Answered (20 Nov 2026):**
    yes. No restriction in v1; parents can vote for any player in the squad.
-3. **Voting window:** 24 hours after End, or Admin close, whichever first —
-   OK? Prefer a different duration, or close only when an Admin says so?
+3. ~~**Voting window:**~~ **Answered (20 Nov 2026):** both triggers. Voting
+   auto-closes 24 hours after the session’s `endTime`, and an Admin may close
+   it early. Whichever comes first wins.
 4. **May members who joined the team after the game still vote** while the
    window is open?
 5. **Are absent / inactive players eligible**, or only those who recorded
