@@ -11,39 +11,52 @@
     </ContentPage.Style>
     <ScrollView>
         <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="16">
-            <Border Style="{StaticResource PvCardWarning}" Padding="12,8">
-                <Label Style="{StaticResource PvWarningText}" FontFamily="InterSemiBold"
-                       Text="Scaffold — voting is not wired to the cloud yet"
+            <Label Style="{StaticResource PvTitle}" Text="Player of the match" Margin="4,0,0,0" />
+
+            <!-- Shown for local teams, no matches, or load errors -->
+            <Border x:Name="NoticeCard" Style="{StaticResource PvCardWarning}" Padding="12,8" IsVisible="False">
+                <Label x:Name="NoticeLabel" Style="{StaticResource PvWarningText}" FontFamily="InterSemiBold"
                        HorizontalTextAlignment="Center" />
             </Border>
 
-            <Label Style="{StaticResource PvTitle}" Text="Player of the match" Margin="4,0,0,0" />
-            <Label Style="{StaticResource PvCaption}"
-                   Text="After a shared-team game, each team member will nominate one player. The live tally will appear here for everyone on the team." />
-
-            <Border Style="{StaticResource PvCard}">
+            <!-- 1. Match -->
+            <Border x:Name="MatchCard" Style="{StaticResource PvCard}" IsVisible="False">
                 <VerticalStackLayout Spacing="8">
-                    <Label Style="{StaticResource PvSectionHeader}" Text="1. Choose a match" />
-                    <Label Style="{StaticResource PvBody}"
-                           Text="Recent games from Reports will be listed here. You will also be able to open this page straight after End, or from a match report." />
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Match" />
+                    <Picker x:Name="SessionPicker" Style="{StaticResource PvPicker}"
+                            Title="Choose a completed game..."
+                            SelectedIndexChanged="OnSessionSelected" />
+                    <Label x:Name="WindowLabel" Style="{StaticResource PvCaption}" />
                 </VerticalStackLayout>
             </Border>
 
-            <Border Style="{StaticResource PvCard}">
+            <!-- 2. Nominate (hidden once voting has closed) -->
+            <Border x:Name="NominateCard" Style="{StaticResource PvCard}" IsVisible="False">
                 <VerticalStackLayout Spacing="8">
-                    <Label Style="{StaticResource PvSectionHeader}" Text="2. Nominate a player" />
-                    <Label Style="{StaticResource PvBody}"
-                           Text="Pick one player from that match’s squad. You can change your vote until an Admin closes voting, or 24 hours after the game ends." />
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Your nomination" />
+                    <Label Style="{StaticResource PvCaption}"
+                           Text="Tap a player who played in this match. Tap another player to change your vote until voting closes." />
+                    <Label x:Name="FallbackLabel" Style="{StaticResource PvCaption}" IsVisible="False"
+                           Text="This older match didn't save its squad, so players come from the current roster." />
+                    <VerticalStackLayout x:Name="NomineeList" Spacing="6" />
+                    <Label x:Name="SubmitStatusLabel" Style="{StaticResource PvCaption}" IsVisible="False" />
                 </VerticalStackLayout>
             </Border>
 
-            <Border Style="{StaticResource PvCard}">
+            <!-- 3. Live tally / result -->
+            <Border x:Name="TallyCard" Style="{StaticResource PvCard}" IsVisible="False">
                 <VerticalStackLayout Spacing="8">
-                    <Label Style="{StaticResource PvSectionHeader}" Text="3. Live tally" />
-                    <Label Style="{StaticResource PvBody}"
-                           Text="Vote counts will update live. Ties stand as joint winners. Individual votes stay private — only the totals are shown." />
+                    <Label x:Name="TallyHeader" Style="{StaticResource PvSectionHeader}" Text="Live tally" />
+                    <VerticalStackLayout x:Name="TallyList" Spacing="6" />
+                    <Label x:Name="TallyEmptyLabel" Style="{StaticResource PvCaption}" Text="No votes yet." />
+                    <Label Style="{StaticResource PvCaption}"
+                           Text="Votes are private. Only totals are shown, never who voted. Ties stand as joint winners." />
                 </VerticalStackLayout>
             </Border>
+
+            <!-- Admin: close voting early -->
+            <Button x:Name="CloseVotingButton" Style="{StaticResource PvButtonDangerOutline}"
+                    Text="Close voting now" IsVisible="False" Clicked="OnCloseVotingClicked" />
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

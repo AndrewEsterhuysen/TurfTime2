@@ -163,15 +163,17 @@ commit.
 3. **From Details → Nominations (scaffold entry).** The page lists recent
    sessions for the current shared team (same source as Reports). The user
    picks a match, or lands directly on one if `sessionId` was passed.
-4. **Nominate screen.** Eligible players from that session’s squad. The
-   current user’s pick is highlighted. Tapping another player changes the
-   vote until the window closes. Self-nomination is blocked when we have a
-   reliable link (see §7).
+4. **Nominate screen.** Eligible (present / active) players from that
+   session’s squad. The current user’s pick is highlighted. Tapping another
+   player changes the vote until the window closes. There is no
+   self-nomination or own-child block in v1: any member may nominate any
+   present player, including their own child (see §7).
 5. **Live tally.** Visible to every team member while the page is open:
    nominee name + vote count, leaders marked, ties shown as joint leaders.
    Individual voters are **not** listed. When the window is closed, the page
    becomes view-only and shows the result (or joint winners).
-6. **Admin close (future).** An Admin can close voting early from this page.
+6. **Admin close.** An Admin can close voting early from this page
+   (“Close voting now”, with a confirmation).
 
 ---
 
@@ -483,7 +485,8 @@ offline for local play (existing freemium rule).
 3. Implement `NominationService` (transactional submit + tally listener) and
    emulator rules tests. ✅ Done: service (§6), rules patched on the branch
    and emulator tests passing (§5). Not deployed.
-4. Build the real `NominationsPage` (session picker, nominee list, live tally).
+4. ✅ Build the real `NominationsPage` (session picker, nominee list, live
+   tally, view-only result after close, Admin close button).
 5. Add End-game prompt and a Reports entry, behind the same page.
    Include the nomination result (winner or joint winners) in the match
    report once voting has closed.
