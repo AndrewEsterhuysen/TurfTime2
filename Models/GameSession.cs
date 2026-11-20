@@ -24,11 +24,15 @@ public sealed class GameSession
     public string? Location { get; init; }
     public int MatchDurationSeconds { get; init; }
     public int RotationIntervalSeconds { get; init; }
-    public List<GameEvent> Events { get; } = [];
+    // init (not get-only) so System.Text.Json restores events when a saved session is deserialized
+    // (history archive, crash resume, cloud sessionJson); a get-only list is silently left empty.
+    public List<GameEvent> Events { get; init; } = [];
     public GameSessionSummary? Summary { get; set; }
     public int ScoreUs { get; set; }
     public int ScoreThem { get; set; }
     public string? TeamName { get; set; }
+    /// <summary>Scorer/assist option at match start; null for sessions saved before this field existed.</summary>
+    public bool? ScorerAssistEnabled { get; set; }
 }
 
 /// <summary>Lightweight listing record used by ReportsPage and SessionLoadHelper.</summary>
