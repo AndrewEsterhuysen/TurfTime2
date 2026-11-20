@@ -175,83 +175,113 @@ commit.
 
 ---
 
-## 5. Proposed Firestore rules (do not deploy without Andrew’s OK)
+## 5. Firestore rules (patched on this branch — do not deploy without Andrew’s OK)
 
 `nominationsOpen` below implements both close triggers: writes are denied
 once 24 hours have passed since `endTime` **or** an Admin has set
 `nominationsMeta/status.closed`, whichever happens first.
 
-Add these matches **next to** the existing `teams/{teamId}/sessions/{sessionId}`
-block in `firestore.rules`. This is a proposed diff only. **Do not run
-`firebase deploy --only firestore:rules` until Andrew approves.**
+These rules are now in `firestore.rules` on `feature/nominations`, next to the
+existing `teams/{teamId}/sessions/{sessionId}` block, using the file’s own
+helpers (`isTeamMember`, `isTeamAdmin`, `isTeamOwner`, `canReadTeam`).
+**They are not deployed. Do not run `firebase deploy --only firestore:rules`
+until Andrew approves.**
 
-A copy also lives in `docs/nominations-rules.snippet` (commented; not loaded
-by the Firebase CLI).
+Differences from the first proposal: the payload must also have only the
+known fields (`hasOnly`) and a real `timestamp`; `endTime` must be a
+timestamp; the team owner may delete votes and the status doc during the
+`DeleteTeamAsOwner` cascade (when they are no longer a member); and the
+status doc must carry a boolean `closed`.
 
 ```
-// Player of the match nominations (proposed — not deployed)
+// Player of the match nominations (docs/nominations-spec.md §5).
+// One vote per member per session: doc id = voter uid, so a new vote overwrites the old one.
+// Voting closes when an Admin sets nominationsMeta/status.closed, or 24 hours after the
+// session's endTime, whichever comes first. Keep in sync with INominationService.
+function sessionDocPath(teamId, sessionId) {
+  return /databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId);
+}
+
+function nominationsStatusPath(teamId, sessionId) {
+  return /databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)/nominationsMeta/status;
+}
+
+function sessionEnded(teamId, sessionId) {
+  return exists(sessionDocPath(teamId, sessionId))
+    && 'endTime' in get(sessionDocPath(teamId, sessionId)).data
+    && get(sessionDocPath(teamId, sessionId)).data.endTime is timestamp;
+}
+
+function nominationsOpen(teamId, sessionId) {
+  return sessionEnded(teamId, sessionId)
+    && request.time <= get(sessionDocPath(teamId, sessionId)).data.endTime + duration.value(24, 'h')
+    && (
+      !exists(nominationsStatusPath(teamId, sessionId))
+      || get(nominationsStatusPath(teamId, sessionId)).data.get('closed', false) != true
+    );
+}
+
+function nominationPayloadOk(nominatorId) {
+  let d = request.resource.data;
+  return d.keys().hasAll(['nominatorId', 'nomineeSlotId', 'nomineeName', 'timestamp'])
+    && d.keys().hasOnly(['nominatorId', 'nominatorDisplayName', 'nomineeSlotId', 'nomineeName', 'timestamp'])
+    && d.nominatorId == request.auth.uid
+    && d.nominatorId == nominatorId
+    && d.nomineeSlotId is int
+    && d.nomineeSlotId >= 1
+    && d.nomineeName is string
+    && d.nomineeName.size() > 0
+    && d.nomineeName.size() <= 80
+    && d.timestamp is timestamp
+    && (!('nominatorDisplayName' in d)
+        || (d.nominatorDisplayName is string && d.nominatorDisplayName.size() <= 80));
+}
+
 match /teams/{teamId}/sessions/{sessionId}/nominations/{nominatorId} {
   allow read: if canReadTeam(teamId);
 
-  function nominationPayloadOk() {
-    return request.resource.data.keys().hasAll([
-             'nominatorId', 'nomineeSlotId', 'nomineeName', 'timestamp'])
-        && request.resource.data.nominatorId == request.auth.uid
-        && request.resource.data.nominatorId == nominatorId
-        && request.resource.data.nomineeSlotId is int
-        && request.resource.data.nomineeSlotId >= 1
-        && request.resource.data.nomineeName is string
-        && request.resource.data.nomineeName.size() > 0
-        && request.resource.data.nomineeName.size() <= 80;
-  }
-
-  function sessionEnded(teamId, sessionId) {
-    return exists(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId))
-        && 'endTime' in get(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)).data;
-  }
-
-  function nominationsOpen(teamId, sessionId) {
-    return sessionEnded(teamId, sessionId)
-        && request.time <= get(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)).data.endTime
-                           + duration.value(24, 'h')
-        && (
-          !exists(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)/nominationsMeta/status)
-          || get(/databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)/nominationsMeta/status).data.closed != true
-        );
-  }
-
   allow create: if isTeamMember(teamId)
-      && nominatorId == request.auth.uid
-      && nominationPayloadOk()
-      && nominationsOpen(teamId, sessionId);
+    && nominatorId == request.auth.uid
+    && nominationPayloadOk(nominatorId)
+    && nominationsOpen(teamId, sessionId);
 
   allow update: if isTeamMember(teamId)
-      && resource.data.nominatorId == request.auth.uid
-      && nominatorId == request.auth.uid
-      && nominationPayloadOk()
-      && nominationsOpen(teamId, sessionId);
+    && nominatorId == request.auth.uid
+    && resource.data.nominatorId == request.auth.uid
+    && nominationPayloadOk(nominatorId)
+    && nominationsOpen(teamId, sessionId);
 
-  // Members may withdraw while open; admins may remove a vote at any time.
-  allow delete: if (isTeamMember(teamId)
-        && resource.data.nominatorId == request.auth.uid
-        && nominationsOpen(teamId, sessionId))
-      || isTeamAdmin(teamId);
+  // Members may withdraw while open; Admins may remove a vote at any time;
+  // the team owner may delete during the DeleteTeamAsOwner cascade.
+  allow delete: if (
+      isTeamMember(teamId)
+      && resource.data.nominatorId == request.auth.uid
+      && nominationsOpen(teamId, sessionId)
+    )
+    || isTeamAdmin(teamId)
+    || isTeamOwner(teamId);
 }
 
-match /teams/{teamId}/sessions/{sessionId}/nominationsMeta/status {
-  allow read: if canReadTeam(teamId);
-  allow create, update, delete: if isTeamAdmin(teamId);
+// Admin-only close flag for a session's nominations.
+match /teams/{teamId}/sessions/{sessionId}/nominationsMeta/{docId} {
+  allow read: if docId == 'status' && canReadTeam(teamId);
+  allow create, update: if docId == 'status'
+    && isTeamAdmin(teamId)
+    && request.resource.data.closed is bool;
+  allow delete: if docId == 'status' && (isTeamAdmin(teamId) || isTeamOwner(teamId));
 }
 ```
 
-Rules tests should be added under `firestore-tests/` before any production
-deploy, covering: non-member denied, member create, second create rejected
-(same id is an update), update by another uid denied, vote after 24h denied,
-vote after admin close denied, tally readable by members.
+Emulator tests: `firestore-tests/test/nominations.test.mjs` (run `npm test` in
+`firestore-tests/`; emulator only). They cover: non-member denied, member
+create, bad payloads denied, second vote replaces the first (same id is an
+update), another user cannot edit or delete someone’s vote, withdraw / Admin
+remove, vote after 24h denied, vote just inside 24h allowed, no `endTime` or
+missing session denied, vote after Admin close denied, Admin-only status
+writes, members and late joiners can read the tally, and the owner cascade.
 
 When `DeleteTeamAsOwner` (and any future “delete this session”) runs, it must
 also delete `sessions/{sessionId}/nominations/*` and `nominationsMeta/status`.
-Today’s cascade only deletes the session documents themselves.
 
 ---
 
@@ -386,7 +416,7 @@ offline for local play (existing freemium rule).
 
 - Wiring End game or Reports buttons.
 - Writing or listening to Firestore.
-- Deploying or even patching `firestore.rules` (snippet + this doc only).
+- Deploying or even patching `firestore.rules` (the first commit had a snippet + this doc only; the rules are now patched on the branch, §5, but not deployed).
 - Adding `SlotId` to `PlayerStats`.
 - Parent–child member links.
 - MCP tools or push notifications.
@@ -451,7 +481,8 @@ offline for local play (existing freemium rule).
    `PlayerStats.SlotId` + `WasPresent`, session schema v2, roster fallback for
    older sessions; §3.3).
 3. Implement `NominationService` (transactional submit + tally listener) and
-   emulator rules tests. ✅ Service done (§6).
+   emulator rules tests. ✅ Done: service (§6), rules patched on the branch
+   and emulator tests passing (§5). Not deployed.
 4. Build the real `NominationsPage` (session picker, nominee list, live tally).
 5. Add End-game prompt and a Reports entry, behind the same page.
    Include the nomination result (winner or joint winners) in the match
