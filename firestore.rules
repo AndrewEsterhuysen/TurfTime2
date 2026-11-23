@@ -5,7 +5,8 @@ rules_version = '2';
 //
 // Model:
 //   clubs/{clubId}/metadata/info
-//   clubs/{clubId}/members/{uid}    (role: owner | admin | member)
+//   clubs/{clubId}/members/{uid}    (role: owner | admin | member; optional coachTeamId)
+//   clubs/{clubId}/players/{playerId}  (club player list — owner/admin/coach; docs/club-players-spec.md)
 //   teams/{teamId}/metadata/info    (+ optional clubId/clubName/kind)
 //   teams/{teamId}/members/{uid}
 //   teams/{teamId}/roster/data
@@ -111,16 +112,101 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == userId
         && request.resource.data.role in ['owner', 'admin', 'member'];
 
+      // Self-updates: profile fields, plus coachTeamId (which team makes them a club coach;
+      // isClubCoach re-checks it live, so a stale or false value grants nothing).
       allow update: if isClubOwner(clubId)
         || (
           signedIn()
           && request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['displayName', 'addedAt'])
+              .hasOnly(['displayName', 'addedAt', 'coachTeamId'])
         );
 
       allow delete: if isClubOwner(clubId)
         || (signedIn() && request.auth.uid == userId);
+    }
+
+    // ── Club player list (docs/club-players-spec.md §4.1, §9) ─────────────────
+    // Club coach = admin of one of the club's teams. Rules can't search teams, so the
+    // client records the team on the caller's club membership (coachTeamId) and the
+    // rule checks it live: caller is Admin of that team AND that team belongs to this
+    // club. Losing team Admin (or the team leaving the club) removes coach access at once.
+    function teamMetaPath(teamId) {
+      return /databases/$(database)/documents/teams/$(teamId)/metadata/info;
+    }
+
+    function coachTeamOk(clubId, t) {
+      return t is string && t != ''
+        && exists(/databases/$(database)/documents/teams/$(t)/members/$(request.auth.uid))
+        && isTeamAdmin(t)
+        && exists(teamMetaPath(t))
+        && get(teamMetaPath(t)).data.get('clubId', '') == clubId;
+    }
+
+    function isClubCoach(clubId) {
+      return signedIn()
+        && exists(clubMemberPath(clubId))
+        && coachTeamOk(clubId, get(clubMemberPath(clubId)).data.get('coachTeamId', ''));
+    }
+
+    function isClubManager(clubId) {
+      return isClubOwnerOrAdmin(clubId) || isClubCoach(clubId);
+    }
+
+    // ISO date YYYY-MM-DD (full date of birth, decision 2).
+    function isIsoDate(v) {
+      return v is string && v.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+
+    function clubPlayerFieldsOk(d) {
+      return d.keys().hasOnly(['playerId', 'name', 'preferredName', 'nameKey', 'dateOfBirth',
+          'teams', 'teamIds', 'status', 'totals', 'byTeam', 'borrowed', 'borrowedByTeam',
+          'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'lastUsedAt'])
+        && d.name is string && d.name.trim().size() > 0 && d.name.size() <= 80
+        && (d.get('preferredName', null) == null
+            || (d.preferredName is string && d.preferredName.size() <= 40))
+        && d.nameKey is string && d.nameKey.size() <= 160
+        && (d.get('dateOfBirth', null) == null || isIsoDate(d.dateOfBirth))
+        && d.status in ['active', 'archived']
+        && (!('teamIds' in d) || d.teamIds is list)
+        && (!('teams' in d) || d.teams is list);
+    }
+
+    // Stats maps are written only by the Cloud Function (Admin SDK), never by clients.
+    function noClientStats(d) {
+      return !d.keys().hasAny(['totals', 'byTeam', 'borrowed', 'borrowedByTeam']);
+    }
+
+    match /clubs/{clubId}/players/{playerId} {
+      allow read: if isClubManager(clubId);
+
+      // New players: date of birth required; no team assignments yet in this slice
+      // (assignment + eligibility checks arrive with the team picker).
+      allow create: if isClubManager(clubId)
+        && clubPlayerFieldsOk(request.resource.data)
+        && noClientStats(request.resource.data)
+        && isIsoDate(request.resource.data.get('dateOfBirth', null))
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.get('playerId', playerId) == playerId
+        && request.resource.data.get('teamIds', []).size() == 0
+        && request.resource.data.get('teams', []).size() == 0;
+
+      // Owner/Admin: any field except stats and creation stamps (date of birth, archive, merge).
+      // Coach: name / preferred name (and their search key + stamps) only.
+      allow update: if clubPlayerFieldsOk(request.resource.data)
+        && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['totals', 'byTeam', 'borrowed', 'borrowedByTeam', 'createdAt', 'createdBy', 'playerId'])
+        && (
+          isClubOwnerOrAdmin(clubId)
+          || (
+            isClubCoach(clubId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['name', 'preferredName', 'nameKey', 'updatedAt', 'updatedBy', 'lastUsedAt'])
+          )
+        );
+
+      allow delete: if isClubOwnerOrAdmin(clubId);
     }
 
     // O(1) invite lookup (root collection)
