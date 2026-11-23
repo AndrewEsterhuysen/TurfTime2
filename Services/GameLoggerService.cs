@@ -40,6 +40,7 @@ public sealed class GameLoggerService : IGameLoggerService
             MatchDurationSeconds      = matchDurationSeconds,
             RotationIntervalSeconds   = rotationIntervalSeconds,
             Location                  = location,
+            ScorerAssistEnabled       = GoalScoringOptions.IsScorerAssistEnabled(),
             TeamId                    = NullIfEmpty(Preferences.Get("team_id", string.Empty))
         };
 

@@ -488,6 +488,9 @@ public partial class ReportsPage : ContentPage
             sb.AppendLine("        </div>");
             sb.AppendLine("    </div>");
 
+            // Goals Section (scorers/assists) — only when scorer/assist was enabled for this match
+            sb.Append(MatchGoalsReport.RenderHtml(MatchGoalsReport.Build(root)));
+
             // Match Timeline Section
             JsonElement logs;
             bool hasLogs = (root.TryGetProperty("Events", out logs) || root.TryGetProperty("logs", out logs)) && logs.GetArrayLength() > 0;

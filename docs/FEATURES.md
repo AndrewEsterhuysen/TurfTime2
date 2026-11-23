@@ -33,7 +33,7 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 | `LocalReports` | Reports from on-device session history | Free | Never gate |
 | `LocalTeams` | Create/edit teams stored on device | Free | Never gate |
 | `QrTeamShare` | Share/import team via QR (device-to-device) | Free | Offline-friendly; keep free |
-| `GoalScorerAssistSelect` | Select scorer/assist for reports | Free | |
+| `GoalScorerAssistSelect` | Select scorer/assist for reports | Free | Report (on-screen + email) shows a Goals section (goal list with game time, scorer, assist; per-player goals/assists) when the option was on for that match (`GameSession.ScorerAssistEnabled`, or inferred from scorer data for older sessions) |
 | `CloudTeamSync` | Sync roster/team state via Firebase/Firestore | Free (candidate paid) | **UI unlocked 2026-07-16**; gate at create/enable-sync + service write later |
 | `CloudSessionArchive` | Cloud-backed session history (full sessionJson incl. scorer/assist) | Free (candidate paid) | **Enabled** for `team_mode=shared` |
 | `MultiDeviceAdmin` | Admin role, multi-device team administration | Free (candidate paid) | **UI unlocked** (create/join/rejoin) |
