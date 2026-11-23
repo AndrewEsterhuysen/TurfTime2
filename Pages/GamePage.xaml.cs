@@ -224,11 +224,9 @@ public partial class GamePage : ContentPage
         DragState.NativeLongPressEnded += OnNativeLongPressEnded;
 
         // Re-subscribe every time the page appears (OnDisappearing unsubscribes).
-        if (_vm is not null)
-        {
-            _vm.PropertyChanged += OnViewModelPropertyChanged;
-            _vm.ControlRequestReceived += OnControlRequestReceived;
-        }
+        // Idempotent: on first appear CreateViewModelAsync has already subscribed, and a
+        // second += made every event fire twice (two stacked End-game nomination prompts).
+        WireViewModelEvents();
 
         // Keep checking role while Game stays open so Promote takes effect without tab switching.
         StartRolePolling(teamId);
@@ -253,6 +251,7 @@ public partial class GamePage : ContentPage
         {
             _vm.PropertyChanged -= OnViewModelPropertyChanged;
             _vm.ControlRequestReceived -= OnControlRequestReceived;
+            _vm.NominationsPromptRequested -= OnNominationsPromptRequested;
         }
         RotationStylePage.RotationStyleChanged -= OnRotationStyleChanged;
         DragState.NativeSwipeReleased -= OnNativeSwipeReleased;
@@ -451,8 +450,7 @@ public partial class GamePage : ContentPage
         _vm = new GameViewModel(timer, logger, cloud);
 
         BindingContext = _vm;
-        _vm.PropertyChanged += OnViewModelPropertyChanged;
-        _vm.ControlRequestReceived += OnControlRequestReceived;
+        WireViewModelEvents();
 
         Preferences.Set("_gamepage_last_team", teamId);
         await _vm.InitialiseAsync(teamId, userRole);
@@ -1214,6 +1212,57 @@ public partial class GamePage : ContentPage
             System.Diagnostics.Debug.WriteLine($"[GamePage] Banner control action: {ex.Message}");
             await DisplayAlertAsync("Error", "Could not complete control action.", "OK");
         }
+    }
+
+    /// <summary>
+    /// After End game on a shared team (session saved to the cloud): offer
+    /// player-of-the-match nominations for that session. Local teams never get here.
+    /// </summary>
+    private async void OnNominationsPromptRequested(object? sender, string sessionId)
+    {
+        // One prompt per match, never stacked (a duplicate alert stays on screen after
+        // the first one is answered).
+        if (_nominationPromptOpen || string.Equals(_lastNominationPromptSessionId, sessionId, StringComparison.Ordinal))
+            return;
+        _nominationPromptOpen = true;
+        _lastNominationPromptSessionId = sessionId;
+        try
+        {
+            var go = await DisplayAlertAsync(
+                "Player of the match",
+                "Match saved. Nominate a player of the match? Everyone on the team can vote for 24 hours.",
+                "Nominate",
+                "Not now");
+            if (!go) return;
+
+            // Let iOS finish dismissing the alert before pushing the page.
+            await Task.Delay(250);
+            await MainThread.InvokeOnMainThreadAsync(() =>
+                Shell.Current.GoToAsync($"details/nominations?sessionId={Uri.EscapeDataString(sessionId)}"));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GamePage] Nominations prompt: {ex.Message}");
+        }
+        finally
+        {
+            _nominationPromptOpen = false;
+        }
+    }
+
+    private bool _nominationPromptOpen;
+    private string? _lastNominationPromptSessionId;
+
+    /// <summary>Subscribe the page to view-model events exactly once (safe to call repeatedly).</summary>
+    private void WireViewModelEvents()
+    {
+        if (_vm is null) return;
+        _vm.PropertyChanged -= OnViewModelPropertyChanged;
+        _vm.ControlRequestReceived -= OnControlRequestReceived;
+        _vm.NominationsPromptRequested -= OnNominationsPromptRequested;
+        _vm.PropertyChanged += OnViewModelPropertyChanged;
+        _vm.ControlRequestReceived += OnControlRequestReceived;
+        _vm.NominationsPromptRequested += OnNominationsPromptRequested;
     }
 
     private async void OnControlRequestReceived(object? sender, (string RequesterName, string RequestId) e)

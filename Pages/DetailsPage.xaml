@@ -67,7 +67,7 @@
                     </Border>
                     <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
                         <Label Style="{StaticResource PvCardTitle}" Text="Nominations" />
-                        <Label Style="{StaticResource PvCaption}" Text="Player nominations and selections" />
+                        <Label Style="{StaticResource PvCaption}" Text="Player of the match after each game" />
                     </VerticalStackLayout>
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>

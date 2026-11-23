@@ -2194,7 +2194,11 @@ public sealed class CloudTeamService : ICloudTeamService
                 }
             }
 
-            // 2) Subcollections under the team
+            // 2) Subcollections under the team.
+            //    Session subcollections first (player-of-the-match votes + close status):
+            //    Firestore does not cascade, and the owner is still an Admin at this point
+            //    (rules also allow the owner after members/* are gone).
+            await DeleteSessionNominationsAsync(teamId).ConfigureAwait(false);
             await DeleteCollectionDocsAsync($"teams/{teamId}/members").ConfigureAwait(false);
             await DeleteCollectionDocsAsync($"teams/{teamId}/messages").ConfigureAwait(false);
             await DeleteCollectionDocsAsync($"teams/{teamId}/sessions").ConfigureAwait(false);
@@ -2234,6 +2238,59 @@ public sealed class CloudTeamService : ICloudTeamService
         {
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] DeleteTeamAsOwner: {ex.Message}");
             return $"error: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Deletes <c>sessions/{id}/nominations/*</c> and <c>sessions/{id}/nominationsMeta/status</c>
+    /// for every session of the team. Fail-soft per document. Call before deleting the
+    /// session docs themselves (and before any future single-session delete).
+    /// </summary>
+    internal async Task DeleteSessionNominationsAsync(string teamId)
+    {
+        List<string> sessionIds = [];
+        try
+        {
+            var snap = await _db.GetCollection($"teams/{teamId}/sessions")
+                .GetDocumentsAsync<Dictionary<string, object>>()
+                .ConfigureAwait(false);
+            if (snap?.Documents is not null)
+                sessionIds = snap.Documents
+                    .Select(d => d.Reference?.Id)
+                    .Where(id => !string.IsNullOrEmpty(id))
+                    .Select(id => id!)
+                    .ToList();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] List sessions for nominations cleanup: {ex.Message}");
+        }
+
+        foreach (var sessionId in sessionIds)
+            await DeleteSessionNominationsAsync(teamId, sessionId).ConfigureAwait(false);
+    }
+
+    /// <summary>Deletes one session's nominations and close-status doc (fail-soft).</summary>
+    internal async Task DeleteSessionNominationsAsync(string teamId, string sessionId)
+    {
+        await DeleteCollectionDocsAsync($"teams/{teamId}/sessions/{sessionId}/nominations").ConfigureAwait(false);
+
+        var metaPath = $"teams/{teamId}/sessions/{sessionId}/nominationsMeta/status";
+        try
+        {
+            await DeleteDocumentViaRestAsync(metaPath).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Delete REST {metaPath}: {ex.Message}");
+            try
+            {
+                await _db.GetDocument(metaPath).DeleteDocumentAsync().ConfigureAwait(false);
+            }
+            catch (Exception sdkEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] Delete {metaPath}: {sdkEx.Message}");
+            }
         }
     }
 

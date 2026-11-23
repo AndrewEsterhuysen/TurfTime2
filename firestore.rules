@@ -14,6 +14,8 @@ rules_version = '2';
 //   teams/{teamId}/details/duties    (Details → Duties — admin write, member read)
 //   teams/{teamId}/messages/{messageId}
 //   teams/{teamId}/sessions/{sessionId}
+//   teams/{teamId}/sessions/{sessionId}/nominations/{uid}   (player of the match votes)
+//   teams/{teamId}/sessions/{sessionId}/nominationsMeta/status
 //   mcp_* (server-only MCP OAuth state; Admin SDK only)
 //   teams/{teamId}/public/invite     (join reverse-lookup under team tree)
 //   invite_codes/{code}             (O(1) join lookup; may include clubId/clubName)
@@ -276,10 +278,98 @@ service cloud.firestore {
     }
 
     // Game sessions (reports)
+    // Delete: Admins, or the team owner during the DeleteTeamAsOwner cascade
+    // (which removes members/* before sessions, so the owner is no longer an Admin).
     match /teams/{teamId}/sessions/{sessionId} {
       allow read: if canReadTeam(teamId);
       allow create, update: if isTeamMember(teamId);
-      allow delete: if isTeamAdmin(teamId);
+      allow delete: if isTeamAdmin(teamId) || isTeamOwner(teamId);
+    }
+
+    // Player of the match nominations (docs/nominations-spec.md §5).
+    // One vote per member per session: doc id = voter uid, so a new vote overwrites the old one.
+    // Voting closes when an Admin sets nominationsMeta/status.closed, or 24 hours after the
+    // session's endTime, whichever comes first. Keep in sync with INominationService.
+    function sessionDocPath(teamId, sessionId) {
+      return /databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId);
+    }
+
+    function nominationsStatusPath(teamId, sessionId) {
+      return /databases/$(database)/documents/teams/$(teamId)/sessions/$(sessionId)/nominationsMeta/status;
+    }
+
+    function sessionEnded(teamId, sessionId) {
+      return exists(sessionDocPath(teamId, sessionId))
+        && 'endTime' in get(sessionDocPath(teamId, sessionId)).data
+        && get(sessionDocPath(teamId, sessionId)).data.endTime is timestamp;
+    }
+
+    function nominationsOpen(teamId, sessionId) {
+      return sessionEnded(teamId, sessionId)
+        && request.time <= get(sessionDocPath(teamId, sessionId)).data.endTime + duration.value(24, 'h')
+        && (
+          !exists(nominationsStatusPath(teamId, sessionId))
+          || get(nominationsStatusPath(teamId, sessionId)).data.get('closed', false) != true
+        );
+    }
+
+    function nominationPayloadOk(nominatorId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['nominatorId', 'nomineeSlotId', 'nomineeName', 'timestamp'])
+        && d.keys().hasOnly(['nominatorId', 'nominatorDisplayName', 'nomineeSlotId', 'nomineeName', 'timestamp'])
+        && d.nominatorId == request.auth.uid
+        && d.nominatorId == nominatorId
+        && d.nomineeSlotId is int
+        && d.nomineeSlotId >= 1
+        && d.nomineeName is string
+        && d.nomineeName.size() > 0
+        && d.nomineeName.size() <= 80
+        && d.timestamp is timestamp
+        && (!('nominatorDisplayName' in d)
+            || (d.nominatorDisplayName is string && d.nominatorDisplayName.size() <= 80));
+    }
+
+    match /teams/{teamId}/sessions/{sessionId}/nominations/{nominatorId} {
+      // The live tally is Admin-only while voting is open (it could sway voters):
+      // a member may read only their own vote until voting closes; Admins (and the
+      // team owner, for the delete cascade) can read all; everyone can read all after close.
+      allow read: if canReadTeam(teamId) && (
+          nominatorId == request.auth.uid
+          || isTeamAdmin(teamId)
+          || isTeamOwner(teamId)
+          || !nominationsOpen(teamId, sessionId)
+        );
+
+      allow create: if isTeamMember(teamId)
+        && nominatorId == request.auth.uid
+        && nominationPayloadOk(nominatorId)
+        && nominationsOpen(teamId, sessionId);
+
+      allow update: if isTeamMember(teamId)
+        && nominatorId == request.auth.uid
+        && resource.data.nominatorId == request.auth.uid
+        && nominationPayloadOk(nominatorId)
+        && nominationsOpen(teamId, sessionId);
+
+      // Members may withdraw while open; Admins may remove a vote at any time;
+      // the team owner may delete during the DeleteTeamAsOwner cascade.
+      allow delete: if (
+          isTeamMember(teamId)
+          && resource.data.nominatorId == request.auth.uid
+          && nominationsOpen(teamId, sessionId)
+        )
+        || isTeamAdmin(teamId)
+        || isTeamOwner(teamId);
+    }
+
+    // Admin-only close flag for a session's nominations. The team creator counts as an
+    // Admin here (as in the app), even if their members doc role isn't 'admin'.
+    match /teams/{teamId}/sessions/{sessionId}/nominationsMeta/{docId} {
+      allow read: if docId == 'status' && canReadTeam(teamId);
+      allow create, update: if docId == 'status'
+        && (isTeamAdmin(teamId) || (isTeamMember(teamId) && isTeamOwner(teamId)))
+        && request.resource.data.closed is bool;
+      allow delete: if docId == 'status' && (isTeamAdmin(teamId) || isTeamOwner(teamId));
     }
 
     // Game logs

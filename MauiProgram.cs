@@ -103,6 +103,7 @@ namespace TurfTime2
             builder.Services.AddSingleton<Services.IMatchScheduleService,  Services.MatchScheduleService>();
             builder.Services.AddSingleton<Services.MatchScheduleSyncHost>();
             builder.Services.AddSingleton<Services.ITeamDetailsDocService, Services.TeamDetailsDocService>();
+            builder.Services.AddSingleton<Services.INominationService, Services.NominationService>();
             builder.Services.AddSingleton<Services.IMatchReminderService,  Services.MatchReminderService>();
             builder.Services.AddTransient<Services.IGameTimerService,      Services.GameTimerService>();
             builder.Services.AddTransient<Services.IGameLoggerService,     Services.GameLoggerService>();

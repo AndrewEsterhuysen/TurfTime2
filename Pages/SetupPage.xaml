@@ -60,6 +60,17 @@
             </Border>
             <Border Style="{StaticResource PvCard}">
                 <VerticalStackLayout Spacing="12">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Maps Link" />
+                    <Label Style="{StaticResource PvCaption}" Text="Link (Google Maps)" />
+                    <Border Style="{StaticResource PvField}">
+                        <Entry Style="{StaticResource PvEntry}" x:Name="MapsLinkEntry" Placeholder="Paste Google Maps link here" Keyboard="Url" TextChanged="OnFieldChanged" />
+                    </Border>
+                    <Button Style="{StaticResource PvButtonSecondary}" x:Name="PickLocationButton" Text="Pick Location from Maps" Clicked="OnPickLocationClicked" />
+                    <Button Style="{StaticResource PvButtonPrimary}" x:Name="OpenLinkButton" Text="Open in Maps" Clicked="OnOpenLinkClicked" />
+                </VerticalStackLayout>
+            </Border>
+            <Border Style="{StaticResource PvCard}">
+                <VerticalStackLayout Spacing="12">
                     <Label Style="{StaticResource PvSectionHeader}" Text="GPS Coordinates" />
                     <Label Style="{StaticResource PvCaption}" Text="Optional" />
                     <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
@@ -70,18 +81,8 @@
                             <Entry Style="{StaticResource PvEntry}" x:Name="LongitudeEntry" Placeholder="Longitude" Keyboard="Numeric" TextChanged="OnFieldChanged" />
                         </Border>
                     </Grid>
+                    <Button Style="{StaticResource PvButtonPrimary}" x:Name="NavigateCoordsButton" Text="Navigate to Coordinates" Clicked="OnNavigateCoordsClicked" />
                     <Button Style="{StaticResource PvButtonSecondary}" x:Name="GetLocationButton" Text="Get Current Location" Clicked="OnGetLocationClicked" />
-                </VerticalStackLayout>
-            </Border>
-            <Border Style="{StaticResource PvCard}">
-                <VerticalStackLayout Spacing="12">
-                    <Label Style="{StaticResource PvSectionHeader}" Text="Maps Link" />
-                    <Label Style="{StaticResource PvCaption}" Text="Link (Google Maps)" />
-                    <Border Style="{StaticResource PvField}">
-                        <Entry Style="{StaticResource PvEntry}" x:Name="MapsLinkEntry" Placeholder="Paste Google Maps link here" Keyboard="Url" TextChanged="OnFieldChanged" />
-                    </Border>
-                    <Button Style="{StaticResource PvButtonSecondary}" x:Name="PickLocationButton" Text="Pick Location from Maps" Clicked="OnPickLocationClicked" />
-                    <Button Style="{StaticResource PvButtonPrimary}" x:Name="OpenLinkButton" Text="Open in Maps" Clicked="OnOpenLinkClicked" />
                 </VerticalStackLayout>
             </Border>
         </VerticalStackLayout>

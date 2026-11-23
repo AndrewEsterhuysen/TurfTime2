@@ -46,7 +46,7 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 | `TeamChat` | Chat tab for shared teams | Free (candidate paid) | **Tab unlocked** for shared mode. Identity: user-entered **display name** stored on `teams/{{id}}/members/{{uid}}.displayName` + local `user_name`; messages denormalize `senderName` for UI/push |
 | `TeamKit` | Kit under Details (arrive / warm-up / game / departure / non-playing / special event) | Free | Admin edit; members view-only; team-scoped Preferences (same pattern as Location) |
 | `TeamDuties` | Match-day duties under Details (duty officer, canteen, grounds setup/pack-up, other) | Free | Admin edit; members view-only; team-scoped Preferences |
-| `TeamNominations` | Nominations under Details | Not shipped | Placeholder “Coming soon…” under Details |
+| `TeamNominations` | Player of the match nominations on shared teams | Not shipped | On `feature/nominations` (spec `docs/nominations-spec.md`): members vote once per match (changeable), live tally, Admin close or 24h auto-close, result in the match report. Entry: End-game prompt, Reports, Details → Nominations. Firestore rules patched on the branch, not deployed. Local teams disabled. |
 
 ---
 
