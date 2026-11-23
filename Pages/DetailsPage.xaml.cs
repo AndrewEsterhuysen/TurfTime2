@@ -24,6 +24,42 @@ public partial class DetailsPage : ContentPage
         try { await TeamNominationsOptions.RefreshAsync(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Details] Nominations setting: {ex.Message}"); }
         NominationsCard.IsVisible = shared && TeamNominationsOptions.ShowDetailsTile();
+        await RefreshClubPlayersCardAsync(shared);
+    }
+
+    /// <summary>
+    /// Club players: club teams only, for club owners/admins and coaches (Admins of a club team).
+    /// The page and the rules re-check access; this only decides whether to show the tile.
+    /// </summary>
+    private async Task RefreshClubPlayersCardAsync(bool shared)
+    {
+        var clubId = ClubPlayersPage.CurrentClubId();
+        if (!shared || string.IsNullOrWhiteSpace(clubId))
+        {
+            ClubPlayersCard.IsVisible = false;
+            return;
+        }
+
+        var teamAdmin = string.Equals(Preferences.Get("user_role", "member"), "admin", StringComparison.OrdinalIgnoreCase);
+        var cacheKey = $"club_role_{clubId}";
+        var cachedClubRole = Preferences.Get(cacheKey, string.Empty);
+        ClubPlayersCard.IsVisible = teamAdmin || cachedClubRole is "owner" or "admin";
+        if (teamAdmin) return;
+
+        try
+        {
+            var services = Application.Current?.Handler?.MauiContext?.Services
+                           ?? Shell.Current?.Handler?.MauiContext?.Services;
+            if (services?.GetService(typeof(Services.ICloudTeamService)) is not Services.ICloudTeamService teams) return;
+            var role = (await teams.GetMyClubRoleAsync(clubId))?.Trim().ToLowerInvariant() ?? "";
+            Preferences.Set(cacheKey, role);
+            if (string.Equals(ClubPlayersPage.CurrentClubId(), clubId, StringComparison.Ordinal))
+                ClubPlayersCard.IsVisible = role is "owner" or "admin";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Details] Club role: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -115,6 +151,11 @@ public partial class DetailsPage : ContentPage
     private async void OnReportsTapped(object sender, EventArgs e)
     {
         await NavigateAsync("details/reports", "Reports");
+    }
+
+    private async void OnClubPlayersTapped(object sender, EventArgs e)
+    {
+        await NavigateAsync("details/clubplayers", "Club players");
     }
 
     private async Task NavigateAsync(string route, string featureName)
