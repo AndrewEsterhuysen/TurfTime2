@@ -77,6 +77,15 @@ public partial class NominationsPage : ContentPage
             return;
         }
 
+        try { await TeamNominationsOptions.RefreshAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[NominationsPage] Setting: {ex.Message}"); }
+        if (!TeamNominationsOptions.IsEnabled())
+        {
+            HideAll();
+            ShowNotice("Nominations are turned off for this team.");
+            return;
+        }
+
         if (_nominations is null || _sessions is null)
         {
             HideAll();

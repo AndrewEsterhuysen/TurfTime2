@@ -57,7 +57,7 @@
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
             </Border>
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <Border x:Name="NominationsCard" Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnNominationsTapped" />
                 </Border.GestureRecognizers>

@@ -41,6 +41,8 @@ public partial class OptionsPage : ContentPage
             EnableGoalDetailsSwitch.IsToggled = enabled;
             ToggleStateLabel.Text = enabled ? "ON" : "OFF";
 
+            await LoadNominationsOptionAsync();
+
             var basis = RotationBasisOptions.Get();
             var basisIdx = Array.IndexOf(BasisOrder, basis);
             RotationBasisPicker.SelectedIndex = basisIdx >= 0 ? basisIdx : 0;
@@ -78,11 +80,53 @@ public partial class OptionsPage : ContentPage
         }
     }
 
+    private async Task LoadNominationsOptionAsync()
+    {
+        var shared = TeamNominationsOptions.IsSharedTeam();
+        NominationsOptionsCard.IsVisible = shared;
+        if (!shared) return;
+
+        try { await TeamNominationsOptions.RefreshAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Options] Nominations setting: {ex.Message}"); }
+
+        var on = TeamNominationsOptions.IsEnabled();
+        var admin = TeamNominationsOptions.IsCurrentUserAdmin();
+        NominationsSwitch.IsToggled = on;
+        NominationsStateLabel.Text = on ? "ON" : "OFF";
+        NominationsSwitch.IsEnabled = admin;
+        NominationsReadOnlyHint.IsVisible = !admin;
+    }
+
     private void OnEnableGoalDetailsToggled(object sender, ToggledEventArgs e)
     {
         if (_loading) return;
         GoalScoringOptions.SetScorerAssistEnabled(e.Value);
         ToggleStateLabel.Text = e.Value ? "ON" : "OFF";
+    }
+
+    private async void OnNominationsToggled(object sender, ToggledEventArgs e)
+    {
+        if (_loading) return;
+        if (!TeamNominationsOptions.IsCurrentUserAdmin())
+        {
+            _loading = true;
+            NominationsSwitch.IsToggled = TeamNominationsOptions.IsEnabled();
+            _loading = false;
+            return;
+        }
+
+        NominationsStateLabel.Text = e.Value ? "ON" : "OFF";
+        var ok = await TeamNominationsOptions.SetEnabledAsync(e.Value);
+        if (!ok)
+        {
+            NominationsReadOnlyHint.Text = "Couldn't save. Check your connection and try again.";
+            NominationsReadOnlyHint.IsVisible = true;
+        }
+        else
+        {
+            NominationsReadOnlyHint.Text = "Only Admins can change this.";
+            NominationsReadOnlyHint.IsVisible = false;
+        }
     }
 
     private void OnRotationBasisChanged(object? sender, EventArgs e)
