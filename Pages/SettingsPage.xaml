@@ -29,23 +29,6 @@
                 </Grid>
             </Border>
 
-            <!-- Kept only for local teams: the Details tab (where Reports now lives) is hidden there. -->
-            <Border x:Name="ReportsCard" Style="{StaticResource PvCard}" Padding="16,12" IsVisible="False">
-                <Border.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnReportsTapped" />
-                </Border.GestureRecognizers>
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
-                    <Border Style="{StaticResource PvIconTile}">
-                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconChart}" />
-                    </Border>
-                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
-                        <Label Style="{StaticResource PvCardTitle}" Text="Reports" />
-                        <Label Style="{StaticResource PvCaption}" Text="View and email match reports" />
-                    </VerticalStackLayout>
-                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
-                </Grid>
-            </Border>
-
             <Border Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnTimersTapped" />

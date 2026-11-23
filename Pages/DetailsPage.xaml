@@ -12,7 +12,7 @@
     <ScrollView>
         <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="12">
             <Label Style="{StaticResource PvTitle}" Text="Details" Margin="4,8,0,8"/>
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <Border x:Name="LocationCard" Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnLocationTapped" />
                 </Border.GestureRecognizers>
@@ -27,7 +27,7 @@
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
             </Border>
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <Border x:Name="KitCard" Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnKitTapped" />
                 </Border.GestureRecognizers>
@@ -42,7 +42,7 @@
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
             </Border>
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <Border x:Name="DutiesCard" Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnDutiesTapped" />
                 </Border.GestureRecognizers>

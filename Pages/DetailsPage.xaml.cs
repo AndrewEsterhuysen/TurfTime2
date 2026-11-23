@@ -14,11 +14,16 @@ public partial class DetailsPage : ContentPage
     {
         base.OnAppearing();
         ApplyPageTeamTitle(this, PageLabel);
-        // Only the Nominations tile is hidden when the team switch is off.
-        // Location, Kit, Duties, and Reports always stay visible.
+        // Local teams: only Reports is shown, so the tab stays consistent
+        // without exposing shared-team options (Location, Kit, Duties, Nominations).
+        // Shared teams: unchanged — only Nominations is hidden when the switch is off.
+        var shared = DetailsCloudSync.IsSharedTeam();
+        LocationCard.IsVisible = shared;
+        KitCard.IsVisible = shared;
+        DutiesCard.IsVisible = shared;
         try { await TeamNominationsOptions.RefreshAsync(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Details] Nominations setting: {ex.Message}"); }
-        NominationsCard.IsVisible = TeamNominationsOptions.ShowDetailsTile();
+        NominationsCard.IsVisible = shared && TeamNominationsOptions.ShowDetailsTile();
     }
 
     /// <summary>
