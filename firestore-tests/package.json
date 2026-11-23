@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "firebase emulators:exec --only firestore --project demo-turftimer \"node --test test/rules.test.mjs test/app-flows.test.mjs test/nominations.test.mjs\""
+    "test": "firebase emulators:exec --only firestore --project demo-turftimer \"node --test test/*.mjs\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
