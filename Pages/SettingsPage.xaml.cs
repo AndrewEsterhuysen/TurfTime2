@@ -12,6 +12,11 @@ public partial class SettingsPage : ContentPage
         base.OnAppearing();
         DetailsPage.ApplyPageTeamTitle(this, "Settings");
         AiConnectCard.IsVisible = Services.AiConnectConfig.IsEnabled;
+        // Reports moved to Details. Local teams have no Details tab, so keep
+        // the Settings tile for them only.
+        var isLocal = string.Equals(
+            Preferences.Get("team_mode", "local"), "local", StringComparison.Ordinal);
+        ReportsCard.IsVisible = isLocal;
     }
 
     private async void OnAiConnectTapped(object sender, EventArgs e)

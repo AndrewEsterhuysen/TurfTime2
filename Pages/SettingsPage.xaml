@@ -29,7 +29,8 @@
                 </Grid>
             </Border>
 
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <!-- Kept only for local teams: the Details tab (where Reports now lives) is hidden there. -->
+            <Border x:Name="ReportsCard" Style="{StaticResource PvCard}" Padding="16,12" IsVisible="False">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnReportsTapped" />
                 </Border.GestureRecognizers>

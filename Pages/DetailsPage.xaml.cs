@@ -15,7 +15,7 @@ public partial class DetailsPage : ContentPage
         base.OnAppearing();
         ApplyPageTeamTitle(this, PageLabel);
         // Only the Nominations tile is hidden when the team switch is off.
-        // Location, Kit, and Duties always stay visible.
+        // Location, Kit, Duties, and Reports always stay visible.
         try { await TeamNominationsOptions.RefreshAsync(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Details] Nominations setting: {ex.Message}"); }
         NominationsCard.IsVisible = TeamNominationsOptions.ShowDetailsTile();
@@ -105,6 +105,11 @@ public partial class DetailsPage : ContentPage
     private async void OnNominationsTapped(object sender, EventArgs e)
     {
         await NavigateAsync("details/nominations", "Nominations");
+    }
+
+    private async void OnReportsTapped(object sender, EventArgs e)
+    {
+        await NavigateAsync("details/reports", "Reports");
     }
 
     private async Task NavigateAsync(string route, string featureName)
