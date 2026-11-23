@@ -12,7 +12,7 @@
     <ScrollView>
         <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="12">
             <Label Style="{StaticResource PvTitle}" Text="Details" Margin="4,8,0,8"/>
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <Border x:Name="LocationCard" Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnLocationTapped" />
                 </Border.GestureRecognizers>
@@ -27,7 +27,7 @@
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
             </Border>
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <Border x:Name="KitCard" Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnKitTapped" />
                 </Border.GestureRecognizers>
@@ -42,7 +42,7 @@
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
             </Border>
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <Border x:Name="DutiesCard" Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnDutiesTapped" />
                 </Border.GestureRecognizers>
@@ -68,6 +68,21 @@
                     <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
                         <Label Style="{StaticResource PvCardTitle}" Text="Nominations" />
                         <Label Style="{StaticResource PvCaption}" Text="Player of the match after each game" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnReportsTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconChart}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Reports" />
+                        <Label Style="{StaticResource PvCaption}" Text="View and email match reports" />
                     </VerticalStackLayout>
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>

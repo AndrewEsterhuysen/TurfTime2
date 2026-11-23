@@ -39,19 +39,6 @@ public partial class SettingsPage : ContentPage
         }
     }
 
-    private async void OnReportsTapped(object sender, EventArgs e)
-    {
-        try
-        {
-            await Shell.Current.GoToAsync("settings/reports");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
-            await DisplayAlert("Error", "Could not navigate to Reports page.", "OK");
-        }
-    }
-
     private async void OnTimersTapped(object sender, EventArgs e)
     {
         try

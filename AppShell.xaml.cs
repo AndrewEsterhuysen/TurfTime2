@@ -16,7 +16,6 @@ namespace TurfTime2
 
             // Register routes for navigation from Settings page
             Routing.RegisterRoute("settings/teamdetails", typeof(TeamDetailsPage));
-            Routing.RegisterRoute("settings/reports", typeof(ReportsPage));
             Routing.RegisterRoute("settings/timers", typeof(TimersSettingsPage));
             Routing.RegisterRoute("settings/options", typeof(OptionsPage));
             Routing.RegisterRoute("settings/aiconnect", typeof(AiConnectPage));
@@ -26,6 +25,7 @@ namespace TurfTime2
             Routing.RegisterRoute("details/kit", typeof(KitPage));
             Routing.RegisterRoute("details/duties", typeof(DutiesPage));
             Routing.RegisterRoute("details/nominations", typeof(NominationsPage));
+            Routing.RegisterRoute("details/reports", typeof(ReportsPage));
             Routing.RegisterRoute("details/comingsoon", typeof(ComingSoonPage));
 
             // Handle navigation to clear stacks when switching to Settings / Details tabs
@@ -106,12 +106,13 @@ namespace TurfTime2
             System.Diagnostics.Debug.WriteLine($"[AppShell] Is Local: {isLocal}");
             System.Diagnostics.Debug.WriteLine($"[AppShell] Items.Count: {Items.Count}");
 
-            // Details still require the Game-selected team to be online.
+            // Details is shown for any selected team. Local teams see only Reports
+            // on that tab; shared teams keep the full Details options.
             // Chat is available whenever the user has any online team membership
             // (multi-team Chat strip), even if Game is currently on a local team.
             var hasOnlineMembership = HasOnlineTeamMembership();
             ChatTab.IsVisible = hasOnlineMembership;
-            DetailsTab.IsVisible = !isLocal;
+            DetailsTab.IsVisible = hasTeam || !isLocal;
 
             GameTab.IsEnabled = hasTeam;
 
