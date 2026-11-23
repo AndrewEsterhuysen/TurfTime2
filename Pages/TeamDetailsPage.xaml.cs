@@ -165,7 +165,7 @@ public partial class TeamDetailsPage : ContentPage
 		if (!hasTeam)
 		{
 			CurrentTeamLabel.Text = "No team selected";
-			TeamModeLabel.Text = "Mode: Not configured";
+			TeamTypeLabel.Text = "Type: Not configured";
 			DisplayNameSection.IsVisible = false;
 			SharedAdminTools.IsVisible = false;
 			ViewTeamMembersButton.IsVisible = false;
@@ -177,7 +177,7 @@ public partial class TeamDetailsPage : ContentPage
 		else
 		{
 			CurrentTeamLabel.Text = string.IsNullOrEmpty(teamName) ? "(unnamed team)" : teamName;
-			TeamModeLabel.Text = $"Mode: {(isShared ? "Online (Cloud)" : "Local (Device only)")}";
+			TeamTypeLabel.Text = FormatCurrentTeamTypeLabel(isShared, isLocal);
 			ShareTeamButton.IsVisible = true;
 
 			DisplayNameSection.IsVisible = isShared;
@@ -204,6 +204,24 @@ public partial class TeamDetailsPage : ContentPage
 
 		// Nav: "Team: {name}"
 		DetailsPage.ApplyPageTeamTitle(this, "Team");
+	}
+
+	/// <summary>Online/Local and Club/Nickname line for the Team Admin panel (all members).</summary>
+	private static string FormatCurrentTeamTypeLabel(bool isShared, bool isLocal)
+	{
+		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		var clubId = Preferences.Get($"{teamId}_club_id", string.Empty);
+		var clubName = Preferences.Get($"{teamId}_club_name", string.Empty);
+		var kind = Preferences.Get($"{teamId}_kind", string.Empty);
+		return ClubTeamNames.FormatTypeLabel(isShared, isLocal, kind, clubId, clubName);
+	}
+
+	private static void CacheTeamClubPrefs(string teamId, string? clubId, string? clubName, string? kind = null)
+	{
+		if (string.IsNullOrWhiteSpace(teamId)) return;
+		Preferences.Set($"{teamId}_club_id", clubId ?? "");
+		Preferences.Set($"{teamId}_club_name", clubName ?? "");
+		Preferences.Set($"{teamId}_kind", ClubTeamNames.ResolveKind(kind, clubId));
 	}
 
 	private async void OnSaveDisplayNameClicked(object sender, EventArgs e)
@@ -1189,6 +1207,9 @@ public partial class TeamDetailsPage : ContentPage
 				$"{teamId}_stats",          // Team statistics
 				$"team_mode_{teamId}",
 				$"user_role_{teamId}",
+				$"{teamId}_club_id",
+				$"{teamId}_club_name",
+				$"{teamId}_kind",
 			};
 
 			// Remove all known team-associated data
@@ -1531,8 +1552,7 @@ public partial class TeamDetailsPage : ContentPage
 		Preferences.Set($"{teamId}_invite_code", inviteCode);
 		Preferences.Set($"{teamId}_name", display);
 		Preferences.Set($"{teamId}_team_name", teamName);
-		Preferences.Set($"{teamId}_club_id", clubId ?? "");
-		Preferences.Set($"{teamId}_club_name", clubName ?? "");
+		CacheTeamClubPrefs(teamId, clubId, clubName);
 		Preferences.Set($"{teamId}_isOwner", true);
 		RegisterTeamId(teamId);
 		UserDisplayName.Set(displayName);
@@ -1845,8 +1865,7 @@ private void RegisterTeamId(string teamId)
 						Preferences.Set($"user_role_{restoredTeamId}", "admin");
 						Preferences.Set($"{restoredTeamId}_name", display);
 						Preferences.Set($"{restoredTeamId}_team_name", restoredTeamName);
-						Preferences.Set($"{restoredTeamId}_club_id", result.ClubId ?? "");
-						Preferences.Set($"{restoredTeamId}_club_name", result.ClubName ?? "");
+						CacheTeamClubPrefs(restoredTeamId, result.ClubId, result.ClubName);
 						UserDisplayName.Set(displayName);
 						RegisterTeamId(restoredTeamId);
 
@@ -3095,15 +3114,25 @@ private void RegisterTeamId(string teamId)
 
 			var memberships = await cloud.ListMyTeamMembershipsAsync().ConfigureAwait(false);
 			var added = false;
+			var currentId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var currentClubChanged = false;
 			foreach (var m in memberships)
 			{
-				if (string.IsNullOrWhiteSpace(m.TeamId) || known.Contains(m.TeamId)) continue;
+				if (string.IsNullOrWhiteSpace(m.TeamId)) continue;
+				var prevClubId = Preferences.Get($"{m.TeamId}_club_id", string.Empty);
+				var prevClubName = Preferences.Get($"{m.TeamId}_club_name", string.Empty);
+				var prevKind = Preferences.Get($"{m.TeamId}_kind", string.Empty);
+				CacheTeamClubPrefs(m.TeamId, m.ClubId, m.ClubName, m.Kind);
+				if (string.Equals(m.TeamId, currentId, StringComparison.Ordinal)
+				    && (prevClubId != (m.ClubId ?? "")
+				        || prevClubName != (m.ClubName ?? "")
+				        || prevKind != ClubTeamNames.ResolveKind(m.Kind, m.ClubId)))
+					currentClubChanged = true;
+				if (known.Contains(m.TeamId)) continue;
 				var display = ClubTeamNames.ComposeDisplayName(m.TeamName, m.ClubName);
 				if (string.IsNullOrWhiteSpace(display)) display = string.IsNullOrWhiteSpace(m.TeamName) ? m.TeamId : m.TeamName;
 				Preferences.Set($"{m.TeamId}_name", display);
 				Preferences.Set($"{m.TeamId}_team_name", m.TeamName ?? "");
-				Preferences.Set($"{m.TeamId}_club_id", m.ClubId ?? "");
-				Preferences.Set($"{m.TeamId}_club_name", m.ClubName ?? "");
 				Preferences.Set($"{m.TeamId}_isOwner", m.IsOwner);
 				Preferences.Set($"team_mode_{m.TeamId}", "shared");
 				// Per-team role cache only; never touch the *current* team's global keys here.
@@ -3115,6 +3144,8 @@ private void RegisterTeamId(string teamId)
 
 			if (added)
 				await MainThread.InvokeOnMainThreadAsync(LoadSharedTeamsAsync);
+			else if (currentClubChanged)
+				await MainThread.InvokeOnMainThreadAsync(() => LoadCurrentTeam());
 		}
 		catch (Exception ex)
 		{

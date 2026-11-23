@@ -33,12 +33,12 @@
                             <TapGestureRecognizer Tapped="OnTeamAdminHeaderTapped"/>
                         </Label.GestureRecognizers>
                     </Label>
+                    <Label Style="{StaticResource PvBody}" x:Name="TeamTypeLabel" Text="Type: Not configured"/>
 
                     <VerticalStackLayout x:Name="TeamAdminContent"
                                          IsVisible="False"
                                          Spacing="8">
                         <Label Style="{StaticResource PvBodyStrong}" x:Name="CurrentTeamLabel" Text="No team selected"/>
-                        <Label Style="{StaticResource PvCaption}" x:Name="TeamModeLabel" Text="Mode: Not configured"/>
 
                         <StackLayout x:Name="DisplayNameSection"
                                      IsVisible="False"

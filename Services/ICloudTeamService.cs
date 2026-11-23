@@ -161,6 +161,7 @@ public sealed class CloudMembership
     public string Role { get; init; } = "member";
     public string ClubId { get; init; } = "";
     public string ClubName { get; init; } = "";
+    public string Kind { get; init; } = ""; // clubbed | nickname | ""
     public bool IsOwner { get; init; }
 }
 

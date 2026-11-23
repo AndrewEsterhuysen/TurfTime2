@@ -52,5 +52,18 @@ var p = new ClubPlayer { Name = "Samuel Lee", PreferredName = "Sam" };
 Check(p.DisplayName == "Samuel Lee (Sam)" && !p.IsArchived, "display name with preferred name");
 Check(new ClubPlayer { Status = "archived" }.IsArchived, "archived status");
 
+// 7. Team type label (Team Admin panel)
+Check(ClubTeamNames.ResolveKind("clubbed", "") == ClubTeamNames.KindClubbed, "kind clubbed wins over empty clubId");
+Check(ClubTeamNames.ResolveKind("nickname", "some-club") == ClubTeamNames.KindNickname, "kind nickname wins over a leftover clubId");
+Check(ClubTeamNames.ResolveKind("", "club-1") == ClubTeamNames.KindClubbed, "missing kind falls back to clubId");
+Check(ClubTeamNames.ResolveKind(null, "") == ClubTeamNames.KindNickname, "missing kind and clubId -> nickname");
+Check(ClubTeamNames.FormatTypeLabel(false, true, "", "", "") == "Type: Local team (this device only)", "local type label");
+Check(ClubTeamNames.FormatTypeLabel(true, false, "clubbed", "c1", "ZZ Test Lambton Lions FC")
+      == "Type: Online · Club team (ZZ Test Lambton Lions FC)", "club type label with name");
+Check(ClubTeamNames.FormatTypeLabel(true, false, "", "c1", "  ") == "Type: Online · Club team", "club type label without name");
+Check(ClubTeamNames.FormatTypeLabel(true, false, "nickname", "", "") == "Type: Online · Nickname team", "nickname type label");
+Check(ClubTeamNames.FormatTypeLabel(true, false, "", "", "") == "Type: Online · Nickname team", "older online team with no kind or clubId");
+Check(ClubTeamNames.FormatTypeLabel(false, false, "", "", "") == "Type: Not configured", "no team selected");
+
 Console.WriteLine(fails == 0 ? "ALL PASS" : $"{fails} FAILED");
 return fails;

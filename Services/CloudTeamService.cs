@@ -1278,6 +1278,7 @@ public sealed class CloudTeamService : ICloudTeamService
         public string TeamName { get; init; } = "";
         public string ClubId { get; init; } = "";
         public string ClubName { get; init; } = "";
+        public string Kind { get; init; } = "";
         public string AdminCodeHash { get; init; } = "";
     }
 
@@ -1306,6 +1307,7 @@ public sealed class CloudTeamService : ICloudTeamService
             TeamName = ReadFirestoreRestString(fields, "teamName").Trim(),
             ClubId = ReadFirestoreRestString(fields, "clubId").Trim(),
             ClubName = ReadFirestoreRestString(fields, "clubName").Trim(),
+            Kind = ReadFirestoreRestString(fields, "kind").Trim(),
             AdminCodeHash = ReadFirestoreRestString(fields, "adminCodeHash").Trim()
         };
     }
@@ -1653,6 +1655,7 @@ public sealed class CloudTeamService : ICloudTeamService
                     TeamName = meta?.TeamName ?? "",
                     ClubId = meta?.ClubId ?? "",
                     ClubName = meta?.ClubName ?? "",
+                    Kind = meta?.Kind ?? "",
                     IsOwner = string.Equals(meta?.CreatedBy, uid, StringComparison.Ordinal)
                 });
             }
