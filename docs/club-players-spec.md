@@ -1,9 +1,10 @@
 # Club-level player list and team assignment — specification
 
-Status: **spec only, nothing built.** Branch `feature/club-players` (kept separate
-from nominations, PR #13, and the goals report, PR #14). Updated 23 Nov 2026 to
+Status: **slice 1 built** (model, rules + emulator tests, `ClubPlayerService`, Club players
+screen with search and add). Branch `feature/club-players`. Updated 23 Nov 2026 to
 match Andrew's decisions (§13). Nothing here is deployed; any Firestore rules or
-Cloud Function change needs Andrew's approval before deploy.
+Cloud Function change needs Andrew's approval before deploy. See §14 for what slice 1
+covers and what is still to do.
 
 Proposed feature id: `ClubPlayerList` (club / shared teams only; part of a future
 club subscription, decision 13). Add it to [`FEATURES.md`](FEATURES.md) when built.
@@ -369,3 +370,34 @@ club teams (older versions writing the roster would drop `playerId`).
     borrowing team's totals or to the player's overall totals.
 12. **Extras**: preferred name field on the player record, not jersey number.
 13. **Paid tier**: the club player list is part of a future club subscription.
+
+## 14. Slice 1 (built 23 Nov 2026)
+
+- **Model**: `Models/ClubPlayer.cs` (§4.1 fields; stats maps read-only for clients).
+  Helpers `Helpers/ClubPlayerNames.cs` (nameKey: lower-case, trimmed, single spaces,
+  accents removed; search; exact duplicate) and `Helpers/ClubAgeGroups.cs` (age on
+  1 January of the season, `U{age+1}`, play up never down). Console tests:
+  `tests/ClubPlayersTests` (`dotnet run`).
+- **Service**: `IClubPlayerService` / `ClubPlayerService` (list, add, update; REST like
+  the other services). Reads the `players` collection directly; the `playerIndex/v1`
+  document and its Cloud Function are a follow-up.
+- **Coach, as implemented in the rules**: rules can't search a club's teams, so instead
+  of a stored `coach` role the caller's club membership carries `coachTeamId`. The rule
+  `isClubCoach` checks live that the caller is Admin of that team **and** that team's
+  `clubId` is this club. The app sets `coachTeamId` when a team Admin opens Club players
+  from that team. Losing team Admin removes coach access straight away.
+- **Rules** for `clubs/{c}/players/{p}`: read and create for owner/admin/coach; full ISO
+  date of birth required on create; no team assignments on create yet; coaches edit
+  name / preferred name only; owner/admin edit date of birth, archive, delete; clients
+  never write `totals` / `byTeam` / `borrowed` / `borrowedByTeam`. Tests:
+  `firestore-tests/test/club-players.test.mjs`.
+- **Screen**: Details → **Club players** (club teams; shown to team Admins and club
+  owners/admins). Search, list (name, preferred name, date of birth, age group this
+  season, current teams), Add player form, inline "Add "X" to the club", and the exact
+  duplicate prompt (Use existing / Add anyway). Archived players are hidden.
+
+Still to do: filter chips, close-match duplicates, bulk add/CSV, player card, editing /
+archive / merge / delete UI, `playerIndex` Cloud Function, team age group and season,
+team picker and assignment (with eligibility in rules), Change player / Borrow, stats
+(`playerMatches` + Cloud Function), migration screen, removing teams from players on
+team delete, privacy policy wording for date of birth.
