@@ -33,7 +33,7 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 | `LocalReports` | Reports from on-device session history | Free | Never gate |
 | `LocalTeams` | Create/edit teams stored on device | Free | Never gate |
 | `QrTeamShare` | Share/import team via QR (device-to-device) | Free | Offline-friendly; keep free |
-| `GoalScorerAssistSelect` | Select scorer/assist for reports | Free | |
+| `GoalScorerAssistSelect` | Select scorer/assist for reports | Free | Report (on-screen + email) shows a Goals section (goal list with game time, scorer, assist; per-player goals/assists) when the option was on for that match (`GameSession.ScorerAssistEnabled`, or inferred from scorer data for older sessions) |
 | `CloudTeamSync` | Sync roster/team state via Firebase/Firestore | Free (candidate paid) | **UI unlocked 2026-07-16**; gate at create/enable-sync + service write later |
 | `CloudSessionArchive` | Cloud-backed session history (full sessionJson incl. scorer/assist) | Free (candidate paid) | **Enabled** for `team_mode=shared` |
 | `MultiDeviceAdmin` | Admin role, multi-device team administration | Free (candidate paid) | **UI unlocked** (create/join/rejoin) |
@@ -46,7 +46,7 @@ See also: [`FREEMIUM_RULES.md`](FREEMIUM_RULES.md).
 | `TeamChat` | Chat tab for shared teams | Free (candidate paid) | **Tab unlocked** for shared mode. Identity: user-entered **display name** stored on `teams/{{id}}/members/{{uid}}.displayName` + local `user_name`; messages denormalize `senderName` for UI/push |
 | `TeamKit` | Kit under Details (arrive / warm-up / game / departure / non-playing / special event) | Free | Admin edit; members view-only; team-scoped Preferences (same pattern as Location) |
 | `TeamDuties` | Match-day duties under Details (duty officer, canteen, grounds setup/pack-up, other) | Free | Admin edit; members view-only; team-scoped Preferences |
-| `TeamNominations` | Nominations under Details | Not shipped | Placeholder “Coming soon…” under Details |
+| `TeamNominations` | Player of the match nominations on shared teams | Not shipped | Spec `docs/nominations-spec.md`. Per-team Admin switch (Settings → Options, default ON) at `teams/{id}/details/settings`. When off: hide the Details Nominations tile only, suppress the post-match reminder, hide the Reports nominations button and POTM report section. Post-match popup is a later-at-home reminder, not a nominate-now prompt. Local teams disabled. |
 
 ---
 

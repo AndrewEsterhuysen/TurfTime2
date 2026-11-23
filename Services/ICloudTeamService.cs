@@ -84,7 +84,7 @@ public interface ICloudTeamService
     Task<string> RequestAdminCodeEmailAsync(string teamId);
 
     /// <summary>
-    /// Owner-only hard delete: wipes team cloud data (metadata, members, roster, messages, sessions, invites).
+    /// Owner-only hard delete: wipes team cloud data (metadata, members, roster, messages, sessions and their nominations, invites).
     /// Returns "success", "error: not_owner", or "error: …".
     /// </summary>
     Task<string> DeleteTeamAsOwnerAsync(string teamId);

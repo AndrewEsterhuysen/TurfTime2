@@ -169,6 +169,7 @@ public partial class SetupPage : ContentPage
 
 		SearchLocationButton.IsEnabled = true;
 		OpenLinkButton.IsEnabled = true;
+		NavigateCoordsButton.IsEnabled = true;
 	}
 
 	private void OnFieldChanged(object sender, EventArgs e)
@@ -423,6 +424,38 @@ public partial class SetupPage : ContentPage
 		{
 			await DisplayAlertAsync("Error", $"Unable to get location: {ex.Message}", "OK");
 		}
+	}
+
+	private async void OnNavigateCoordsClicked(object sender, EventArgs e)
+	{
+		try
+		{
+			if (!TryParseCoordinate(LatitudeEntry.Text, -90, 90, out var lat) ||
+				!TryParseCoordinate(LongitudeEntry.Text, -180, 180, out var lon))
+			{
+				await DisplayAlertAsync("No Coordinates", "Please enter a valid latitude and longitude first.", "OK");
+				return;
+			}
+
+			var ci = System.Globalization.CultureInfo.InvariantCulture;
+			var destination = $"{lat.ToString("F6", ci)},{lon.ToString("F6", ci)}";
+			var url = $"https://www.google.com/maps/dir/?api=1&destination={Uri.EscapeDataString(destination)}";
+			await Launcher.OpenAsync(new Uri(url));
+		}
+		catch (Exception ex)
+		{
+			await DisplayAlertAsync("Error", $"Unable to open Google Maps: {ex.Message}", "OK");
+		}
+	}
+
+	private static bool TryParseCoordinate(string? text, double min, double max, out double value)
+	{
+		value = 0;
+		if (string.IsNullOrWhiteSpace(text)) return false;
+		var t = text.Trim().Replace(',', '.');
+		if (!double.TryParse(t, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value))
+			return false;
+		return value >= min && value <= max;
 	}
 
 	private async void OnSearchLocationClicked(object sender, EventArgs e)

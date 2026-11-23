@@ -1,7 +1,7 @@
 namespace TurfTime2.Services;
 
 /// <summary>
-/// Simple string-field documents under <c>teams/{teamId}/details/{docName}</c> (Kit, Duties).
+/// Simple string-field documents under <c>teams/{teamId}/details/{docName}</c> (Kit, Duties, settings).
 /// Same backend/auth as <see cref="IMatchScheduleService"/>: Firestore REST first, SDK fallback.
 /// Admin writes; members read. Fail soft when offline.
 /// </summary>

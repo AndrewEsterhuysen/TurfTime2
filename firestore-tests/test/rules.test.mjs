@@ -92,3 +92,11 @@ test('unauthenticated cannot read anything', async () => {
   await assertFails(getDoc(doc(db, `teams/${T}/metadata/info`)));
   await assertFails(getDocs(collection(db, `teams/${T}/messages`)));
 });
+test('owner delete cascade: owner can delete sessions after members are gone; others cannot', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await deleteDoc(doc(ctx.firestore(), `teams/${T}/members/owner`));
+  });
+  await assertFails(deleteDoc(doc(as('mem'), `teams/${T}/sessions/s1`)));
+  await assertFails(deleteDoc(doc(as('stranger'), `teams/${T}/sessions/s1`)));
+  await assertSucceeds(deleteDoc(doc(as('owner'), `teams/${T}/sessions/s1`)));
+});

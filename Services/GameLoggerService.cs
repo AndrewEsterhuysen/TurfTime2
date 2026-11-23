@@ -19,6 +19,8 @@ public sealed class GameLoggerService : IGameLoggerService
 
     public GameSession? CurrentSession { get; private set; }
 
+    public event EventHandler<(string TeamId, string SessionId)>? SessionSavedToCloud;
+
     public GameLoggerService(ISessionStorageService storage)
     {
         _storage = storage;
@@ -37,7 +39,9 @@ public sealed class GameLoggerService : IGameLoggerService
         {
             MatchDurationSeconds      = matchDurationSeconds,
             RotationIntervalSeconds   = rotationIntervalSeconds,
-            Location                  = location
+            Location                  = location,
+            ScorerAssistEnabled       = GoalScoringOptions.IsScorerAssistEnabled(),
+            TeamId                    = NullIfEmpty(Preferences.Get("team_id", string.Empty))
         };
 
         Log(GameEventType.GameStarted,
@@ -82,6 +86,7 @@ public sealed class GameLoggerService : IGameLoggerService
         CurrentSession.ScoreUs = scoreUs;
         CurrentSession.ScoreThem = scoreThem;
         CurrentSession.TeamName = teamName ?? Preferences.Get("team_name", string.Empty);
+        CurrentSession.TeamId ??= NullIfEmpty(Preferences.Get("team_id", string.Empty));
 
         Log(GameEventType.GameEnded,
             $"Match ended",
@@ -167,13 +172,19 @@ public sealed class GameLoggerService : IGameLoggerService
                 $"[GameLogger] Saving session {session.SessionId} to cloud " +
                 $"(events={session.Events.Count}, score={session.ScoreUs}-{session.ScoreThem})");
 
-            await _storage.SaveSessionAsync(teamId, session).ConfigureAwait(false);
+            if (await _storage.SaveSessionAsync(teamId, session).ConfigureAwait(false))
+            {
+                try { SessionSavedToCloud?.Invoke(this, (teamId, session.SessionId)); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[GameLogger] SessionSavedToCloud handler: {ex.Message}"); }
+            }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[GameLogger] Cloud save failed: {ex.Message}");
         }
     }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
     private void PersistCurrentSession()
     {
@@ -247,7 +258,11 @@ public sealed class GameLoggerService : IGameLoggerService
                 BenchSeconds:   benchSeconds,
                 GoalieSeconds:  p.Position == PlayerPosition.Goalie ? p.FieldSeconds : 0,
                 RotationsIn:    rots.rotIn,
-                RotationsOut:   rots.rotOut);
+                RotationsOut:   rots.rotOut,
+                SlotId:         p.SlotId,
+                // Present = in the match-day squad (not Absent at full time), or
+                // played some minutes before being moved to Absent (e.g. injury).
+                WasPresent:     p.Position != PlayerPosition.Inactive || p.FieldSeconds > 0);
         }).ToList();
 
         return new GameSessionSummary(totalRotations, durationSeconds, playerStats);

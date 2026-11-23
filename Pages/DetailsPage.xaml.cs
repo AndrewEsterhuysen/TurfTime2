@@ -10,10 +10,20 @@ public partial class DetailsPage : ContentPage
         InitializeComponent();
     }
 
-    protected override void OnAppearing()
+    protected override async void OnAppearing()
     {
         base.OnAppearing();
         ApplyPageTeamTitle(this, PageLabel);
+        // Local teams: only Reports is shown, so the tab stays consistent
+        // without exposing shared-team options (Location, Kit, Duties, Nominations).
+        // Shared teams: unchanged — only Nominations is hidden when the switch is off.
+        var shared = DetailsCloudSync.IsSharedTeam();
+        LocationCard.IsVisible = shared;
+        KitCard.IsVisible = shared;
+        DutiesCard.IsVisible = shared;
+        try { await TeamNominationsOptions.RefreshAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Details] Nominations setting: {ex.Message}"); }
+        NominationsCard.IsVisible = shared && TeamNominationsOptions.ShowDetailsTile();
     }
 
     /// <summary>
@@ -99,7 +109,12 @@ public partial class DetailsPage : ContentPage
 
     private async void OnNominationsTapped(object sender, EventArgs e)
     {
-        await NavigateAsync("details/comingsoon?title=Nominations", "Nominations");
+        await NavigateAsync("details/nominations", "Nominations");
+    }
+
+    private async void OnReportsTapped(object sender, EventArgs e)
+    {
+        await NavigateAsync("details/reports", "Reports");
     }
 
     private async Task NavigateAsync(string route, string featureName)

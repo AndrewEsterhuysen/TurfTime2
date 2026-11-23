@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using System.Text.Json;
 using TurfTime2.Models;
+using TurfTime2.Services;
 
 namespace TurfTime2;
 
@@ -256,9 +257,15 @@ public partial class ReportsPage : ContentPage
                 System.Diagnostics.Debug.WriteLine($"[ReportsPage] Loaded session from Firestore");
             }
 
+            try { await TeamNominationsOptions.RefreshAsync(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[ReportsPage] Nominations setting: {ex.Message}"); }
+
+            UpdateNominationsButton(selectedSession);
+
             if (!string.IsNullOrEmpty(sessionJson))
             {
-                currentHtmlReport = GenerateHtmlReport(sessionJson);
+                var potm = await LoadNominationResultAsync(selectedSession.SessionId);
+                currentHtmlReport = GenerateHtmlReport(sessionJson, potm);
                 currentSavedReportPath = ""; // Reset saved path for new report
                 ReportWebView.Source = new HtmlWebViewSource { Html = currentHtmlReport };
 
@@ -283,11 +290,62 @@ public partial class ReportsPage : ContentPage
         }
     }
 
+    private static bool IsSharedTeam()
+    {
+        var teamId = Preferences.Get("team_id", "");
+        return !string.IsNullOrEmpty(teamId)
+               && !teamId.StartsWith("local_", StringComparison.Ordinal)
+               && !string.Equals(Preferences.Get("team_mode", ""), "local", StringComparison.Ordinal);
+    }
+
+    /// <summary>Nominations entry for the selected match — shared teams only (spec §4).</summary>
+    private void UpdateNominationsButton(SessionSummary session)
+    {
+        NominationsButton.IsVisible = IsSharedTeam() && TeamNominationsOptions.IsEnabled() && session.EndTime is not null;
+    }
+
+    private async void OnNominationsClicked(object sender, EventArgs e)
+    {
+        try
+        {
+            if (GameSessionPicker.SelectedIndex < 0 || GameSessionPicker.SelectedIndex >= availableReports.Count)
+                return;
+            var id = availableReports[GameSessionPicker.SelectedIndex].SessionId;
+            await Shell.Current.GoToAsync($"details/nominations?sessionId={Uri.EscapeDataString(id)}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Open nominations: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Player-of-the-match result for the report (spec §10 Q7): only once voting has
+    /// closed and someone received votes. Null for local teams or when unavailable.
+    /// </summary>
+    private static async Task<NominationTally?> LoadNominationResultAsync(string sessionId)
+    {
+        if (!IsSharedTeam() || !TeamNominationsOptions.IsEnabled()) return null;
+        try
+        {
+            var svc = Application.Current?.Handler?.MauiContext?.Services.GetService<INominationService>();
+            if (svc is null) return null;
+            var tally = await svc.GetTallyAsync(Preferences.Get("team_id", ""), sessionId);
+            return tally is { IsOpen: false } && tally.Winners.Count > 0 ? tally : null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ReportsPage] Nomination result: {ex.Message}");
+            return null;
+        }
+    }
+
     private void ShowNoDataMessage()
     {
         currentHtmlReport = GenerateNoDataHtml();
         ReportWebView.Source = new HtmlWebViewSource { Html = currentHtmlReport };
         GameSessionPicker.IsEnabled = false;
+        NominationsButton.IsVisible = false;
         ViewReportButton.IsEnabled = false;
         EmailHtmlButton.IsEnabled = false;
         EmailReportButton.IsEnabled = false;
@@ -295,7 +353,7 @@ public partial class ReportsPage : ContentPage
         StatusLabel.IsVisible = true;
     }
 
-    private string GenerateHtmlReport(string sessionJson)
+    private string GenerateHtmlReport(string sessionJson, NominationTally? playerOfTheMatch = null)
     {
         var sb = new StringBuilder();
 
@@ -433,6 +491,9 @@ public partial class ReportsPage : ContentPage
             sb.AppendLine("        </div>");
             sb.AppendLine("    </div>");
 
+            // Goals Section (scorers/assists) — only when scorer/assist was enabled for this match
+            sb.Append(MatchGoalsReport.RenderHtml(MatchGoalsReport.Build(root)));
+
             // Match Timeline Section
             JsonElement logs;
             bool hasLogs = (root.TryGetProperty("Events", out logs) || root.TryGetProperty("logs", out logs)) && logs.GetArrayLength() > 0;
@@ -515,6 +576,21 @@ public partial class ReportsPage : ContentPage
                 }
 
                 sb.AppendLine("        </table>");
+                sb.AppendLine("    </div>");
+            }
+
+            // Player of the match (shared teams, once voting has closed). Names and counts only.
+            if (playerOfTheMatch is { Winners.Count: > 0 } potm)
+            {
+                var title = potm.Winners.Count > 1 ? "Joint Players of the Match" : "Player of the Match";
+                sb.AppendLine("    <div class='section'>");
+                sb.AppendLine($"        <div class='section-title'>🏅 {title}</div>");
+                foreach (var w in potm.Winners)
+                {
+                    var votes = w.Votes == 1 ? "1 vote" : $"{w.Votes} votes";
+                    sb.AppendLine($"        <div class='summary-value'>{System.Net.WebUtility.HtmlEncode(w.NomineeName)} <span style='font-size:16px;color:#555;'>({votes})</span></div>");
+                }
+                sb.AppendLine($"        <div class='summary-label' style='margin-top:8px;'>Voted by the team · {potm.TotalVotes} vote{(potm.TotalVotes == 1 ? "" : "s")} cast</div>");
                 sb.AppendLine("    </div>");
             }
 

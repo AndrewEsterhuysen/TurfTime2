@@ -28,9 +28,9 @@
 		<!-- Versions -->
 		<!-- ApplicationDisplayVersion = marketing version (CFBundleShortVersionString / versionName).
 		     ApplicationVersion = integer build (CFBundleVersion / versionCode). Store rejects reuse. -->
-		<ApplicationDisplayVersion>3.4.2</ApplicationDisplayVersion>
+		<ApplicationDisplayVersion>3.7.1</ApplicationDisplayVersion>
 		<!-- Build 39: View Team Members for all members; Field token initials (A.E); Simulator push note. -->
-		<ApplicationVersion>56</ApplicationVersion>
+		<ApplicationVersion>67</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
@@ -140,6 +140,8 @@
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 		<!-- wwwroot (legacy JS Firebase) is not packaged — cloud uses native Plugin.Firebase; Help/Reports use inline HTML. -->
+		<Compile Remove="tests\**" />
+		<None Remove="tests\**" />
 		<Content Remove="wwwroot\**" />
 		<None Remove="wwwroot\**" />
 		<EmbeddedResource Remove="wwwroot\**" />
