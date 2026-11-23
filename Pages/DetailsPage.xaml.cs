@@ -99,7 +99,7 @@ public partial class DetailsPage : ContentPage
 
     private async void OnNominationsTapped(object sender, EventArgs e)
     {
-        await NavigateAsync("details/comingsoon?title=Nominations", "Nominations");
+        await NavigateAsync("details/nominations", "Nominations");
     }
 
     private async Task NavigateAsync(string route, string featureName)

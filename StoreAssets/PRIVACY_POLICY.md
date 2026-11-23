@@ -39,6 +39,9 @@ Despite the INTERNET permission, **Turf Time v1.0 does not transmit any data ove
 ## Third-Party Services
 Turf Time does not use any third-party services, analytics, or advertising networks.
 
+## Player-of-the-Match Votes (Shared Teams)
+If you use a shared team, Turf Time may store player-of-the-match votes for that team’s matches. Votes stay inside the team: the tally shows player names and vote counts only, never who voted, and nothing is published outside the team.
+
 ## Children's Privacy
 Turf Time does not knowingly collect any information from anyone, including children under 13. The app is designed for coaches and parents to manage team rotations.
 

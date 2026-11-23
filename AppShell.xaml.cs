@@ -25,6 +25,7 @@ namespace TurfTime2
             Routing.RegisterRoute("details/location", typeof(SetupPage));
             Routing.RegisterRoute("details/kit", typeof(KitPage));
             Routing.RegisterRoute("details/duties", typeof(DutiesPage));
+            Routing.RegisterRoute("details/nominations", typeof(NominationsPage));
             Routing.RegisterRoute("details/comingsoon", typeof(ComingSoonPage));
 
             // Handle navigation to clear stacks when switching to Settings / Details tabs

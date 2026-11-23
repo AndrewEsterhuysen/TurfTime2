@@ -222,6 +222,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         _timer  = timer;
         _logger = logger;
         _cloud  = cloud;
+        _logger.SessionSavedToCloud += OnSessionSavedToCloud;
 
         // Restore countdown preset persisted from the previous session.
         var savedCountdown = Preferences.Get("game.countdownPresetSeconds", 0);
@@ -462,6 +463,16 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     /// Args: (requesterDisplayName, requestId).
     /// </summary>
     public event EventHandler<(string RequesterName, string RequestId)>? ControlRequestReceived;
+
+    /// <summary>
+    /// Raised after End game once the session is saved to the cloud for a shared team,
+    /// so the page can offer “Nominate player of the match”. Arg: sessionId.
+    /// Not raised for local teams (nominations are shared-team only) or on Reset/restart.
+    /// </summary>
+    public event EventHandler<string>? NominationsPromptRequested;
+
+    // Session archived by End game (not restart) that should trigger the nominations prompt.
+    private string? _nominationPromptSessionId;
 
     public bool ScoresVisible => Phase != GamePhase.Setup && Phase != GamePhase.Finished;
 
@@ -3020,6 +3031,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     private void EndGame()
     {
         var teamName = Preferences.Get("team_name", string.Empty);
+        _nominationPromptSessionId = _logger.CurrentSession?.SessionId;
         _logger.EndSession(Players, TeamAScore, TeamBScore, teamName);
 
         // Finished (not Ended): allows Reset on next tap and ForceCloudSave without a live controller.
@@ -3039,6 +3051,21 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         StopCloudMirror();
 
         _ = PublishControllerReleasedAfterEndAsync();
+    }
+
+    private void OnSessionSavedToCloud(object? sender, (string TeamId, string SessionId) e)
+    {
+        if (string.IsNullOrEmpty(_nominationPromptSessionId)
+            || !string.Equals(e.SessionId, _nominationPromptSessionId, StringComparison.Ordinal))
+            return;
+        _nominationPromptSessionId = null;
+
+        // Shared teams only (the logger never saves local teams to the cloud; double-check).
+        if (e.TeamId.StartsWith("local_", StringComparison.Ordinal)
+            || string.Equals(Preferences.Get("team_mode", string.Empty), "local", StringComparison.Ordinal))
+            return;
+
+        MainThread.BeginInvokeOnMainThread(() => NominationsPromptRequested?.Invoke(this, e.SessionId));
     }
 
     /// <summary>
@@ -4325,6 +4352,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         RotationBasisOptions.Changed -= OnRotationBasisOptionsChanged;
+        _logger.SessionSavedToCloud -= OnSessionSavedToCloud;
         InformationTextOptions.Changed -= OnInformationTextOptionsChanged;
         TeamViewOptions.Changed -= OnTeamViewOptionsChanged;
         StopControllerHeartbeat();

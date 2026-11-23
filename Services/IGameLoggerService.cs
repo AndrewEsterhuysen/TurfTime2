@@ -21,6 +21,13 @@ public interface IGameLoggerService
     /// </summary>
     void EndSession(IReadOnlyList<Player> players, int scoreUs = 0, int scoreThem = 0, string? teamName = null);
 
+    /// <summary>
+    /// Raised (on a background thread) after an archived session was written to
+    /// Firestore for a shared team. Args: (teamId, sessionId). Not raised for
+    /// local teams or when the cloud save failed.
+    /// </summary>
+    event EventHandler<(string TeamId, string SessionId)>? SessionSavedToCloud;
+
     IReadOnlyList<GameSession> GetSessionHistory();
 
     void ClearHistory();
