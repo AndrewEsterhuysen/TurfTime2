@@ -13,3 +13,24 @@ export class RateLimiter {
     return true;
   }
 }
+
+/** Daily count cap per key (uid). Per instance, UTC day — same scope as RateLimiter. */
+export class DailyCap {
+  private counts = new Map<string, { day: string; n: number }>();
+  constructor(readonly limit = 20, private today: () => string = () => new Date().toISOString().slice(0, 10)) {}
+  atLimit(key: string): boolean { return this.peek(key) >= this.limit; }
+  peek(key: string): number {
+    const day = this.today();
+    const c = this.counts.get(key);
+    return (!c || c.day !== day) ? 0 : c.n;
+  }
+  /** Record one successful create. Returns false (and does not increment) when already at the limit. */
+  take(key: string): boolean {
+    const day = this.today();
+    const c = this.counts.get(key);
+    if (!c || c.day !== day) { this.counts.set(key, { day, n: 1 }); return true; }
+    if (c.n >= this.limit) return false;
+    c.n += 1;
+    return true;
+  }
+}

@@ -15,6 +15,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AccessDenied, ToolContext, ToolRefused, requireMember, makeWrap } from "./tools.js";
 import { RateLimiter } from "./ratelimit.js";
+import { createClub, createTeam } from "./creates.js";
 
 export class WriteRefused extends ToolRefused {}
 export const SCOPE_WRITE_HINT =
@@ -27,10 +28,10 @@ export function setWriteLimiters(w: RateLimiter, c: RateLimiter) { writeLimiter 
 
 export interface WriteContext extends ToolContext { canWrite?: boolean; clientName?: string; }
 
-const via = (ctx: WriteContext) => `mcp:${(ctx.clientName ?? "AI assistant").replace(/[\u0000-\u001f]/g, "").slice(0, 60)}`;
-const clean = (s: string) => s.replace(/\r\n/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+export const via = (ctx: WriteContext) => `mcp:${(ctx.clientName ?? "AI assistant").replace(/[\u0000-\u001f]/g, "").slice(0, 60)}`;
+export const clean = (s: string) => s.replace(/\r\n/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
 
-function gate(ctx: WriteContext, chat = false) {
+export function gateWrite(ctx: WriteContext, chat = false) {
   if (!ctx.canWrite) throw new WriteRefused(SCOPE_WRITE_HINT);
   if (!writeLimiter.take(ctx.uid) || (chat && !chatLimiter.take(ctx.uid)))
     throw new WriteRefused("Too many changes in a short time. Wait a minute and try again.");
@@ -54,7 +55,7 @@ async function touchActivity(ctx: ToolContext, t: string) {
   } catch { /* non-fatal */ }
 }
 
-function conflictWrap<T>(p: Promise<T>): Promise<T> {
+export function conflictWrap<T>(p: Promise<T>): Promise<T> {
   return p.catch(e => {
     if (e instanceof FirestoreError && e.conflict) throw new WriteRefused("Someone changed this at the same moment. Nothing was saved; read it again and retry.");
     throw e;
@@ -63,7 +64,7 @@ function conflictWrap<T>(p: Promise<T>): Promise<T> {
 
 // ---- Chat ----------------------------------------------------------------------------------------
 export async function postChatMessage(ctx: WriteContext, t: string, text: string, replyToMessageId?: string) {
-  gate(ctx, true);
+  gateWrite(ctx, true);
   const me = await requireMember(ctx, t);
   const body = clean(text).trim();
   if (!body) throw new WriteRefused("Message is empty.");
@@ -86,7 +87,7 @@ export const KIT_FIELDS = ["arrive", "warmUp", "game", "departure", "nonPlaying"
 export const DUTIES_FIELDS = ["officer", "canteen", "groundsSetup", "groundsPackup", "other"] as const;
 
 async function updateDetails(ctx: WriteContext, t: string, doc: "kit" | "duties", allowed: readonly string[], input: Record<string, unknown>) {
-  gate(ctx);
+  gateWrite(ctx);
   await requireAdmin(ctx, t);
   const changes: Record<string, unknown> = {};
   for (const k of allowed) if (typeof input[k] === "string") {
@@ -129,7 +130,7 @@ function normCoord(v: string, name: string, max: number): string {
 }
 
 export async function updateNextFixture(ctx: WriteContext, t: string, a: Record<string, unknown>) {
-  gate(ctx);
+  gateWrite(ctx);
   const me = await requireAdmin(ctx, t);
   const changes: Record<string, string> = {};
   for (const k of LOCATION_FIELDS) {
@@ -183,20 +184,27 @@ function findPlayer(players: P[], ref: string | number): P {
 }
 
 export async function updateRoster(ctx: WriteContext, t: string, changes: PlayerChange[]) {
-  gate(ctx);
+  gateWrite(ctx);
   await requireAdmin(ctx, t);
   if (!Array.isArray(changes) || changes.length === 0 || changes.length > 16) throw new WriteRefused("Give 1 to 16 changes.");
   const path = `teams/${t}/roster/data`;
   const cur = await ctx.fs.getDoc(path);
-  if (!cur || !Array.isArray(cur.data.players) || !cur.data.players.length)
-    throw new WriteRefused("This team has no roster in the cloud yet (Online teams only). Open the Game screen in the app once first.");
-  const g = cur.data;
-  // Game guard: never fight the controlling admin's phone (it saves every ~2 s and would overwrite us).
-  const controller = String(g.controllerUid ?? "").trim();
-  if (controller) throw new WriteRefused(`${String(g.controllerDisplayName || "An admin")} is running the game on their phone right now, so the lineup can't be changed from here. Change it in the app, or try again after the game is reset/finished (control is released automatically about a minute after their phone goes quiet).`);
-  if (g.timerRunning === true) throw new WriteRefused("The match clock is running, so the lineup can't be changed from here. Pause or finish the game first.");
+  // A brand-new Online team (just created by the app or create_team) has version:2 and players:[].
+  // Initialise the same 16 default bench slots GameViewModel builds on first open, so a club
+  // manager can name players with update_roster without opening the Game screen first.
+  const empty = !cur || !Array.isArray(cur.data.players) || !cur.data.players.length;
+  const g = empty ? {} : cur.data;
+  if (!empty) {
+    // Game guard: never fight the controlling admin's phone (it saves every ~2 s and would overwrite us).
+    const controller = String(g.controllerUid ?? "").trim();
+    if (controller) throw new WriteRefused(`${String(g.controllerDisplayName || "An admin")} is running the game on their phone right now, so the lineup can't be changed from here. Change it in the app, or try again after the game is reset/finished (control is released automatically about a minute after their phone goes quiet).`);
+    if (g.timerRunning === true) throw new WriteRefused("The match clock is running, so the lineup can't be changed from here. Pause or finish the game first.");
+  }
 
-  const players = (g.players as any[]).map(p => ({ ...p, slotId: Number(p.slotId ?? 0), name: String(p.name ?? ""), field: p.field === true, bench: p.bench === true, goalie: p.goalie === true, inactive: p.inactive === true, fieldCell: Number(p.fieldCell ?? 0) })) as P[];
+  const players = (empty
+    ? Array.from({ length: 16 }, (_, i) => ({ slotId: i + 1, name: `#${String(i + 1).padStart(2, "0")} Player`, field: false, bench: true, goalie: false, inactive: false, counterSeconds: 0, fieldCell: 0 }))
+    : (g.players as any[]).map(p => ({ ...p, slotId: Number(p.slotId ?? 0), name: String(p.name ?? ""), field: p.field === true, bench: p.bench === true, goalie: p.goalie === true, inactive: p.inactive === true, fieldCell: Number(p.fieldCell ?? 0) }))
+  ) as P[];
   const touched = new Set<number>();
   const log: string[] = [];
   for (const c of changes) {
@@ -235,12 +243,13 @@ export async function updateRoster(ctx: WriteContext, t: string, changes: Player
 
   const now = ts();
   const data: Record<string, unknown> = { players, lastModifiedUtc: now, lastModified: now, editedVia: via(ctx), editedViaAtUtc: now };
+  if (empty) data.version = 2;
   // Rotation "next on/off" queues hold slotIds; drop moved players (0 = empty slot, as the app does).
   for (const q of ["nextFieldSlotIds", "nextBenchSlotIds"]) {
     const arr = Array.isArray(g[q]) ? (g[q] as unknown[]).map(Number) : null;
     if (arr && arr.some(id => touched.has(id))) data[q] = arr.map(id => touched.has(id) ? 0 : id);
   }
-  await conflictWrap(ctx.fs.patchDoc(path, data, { updateTime: cur.updateTime! }));
+  await conflictWrap(ctx.fs.patchDoc(path, data, cur?.updateTime ? { updateTime: cur.updateTime } : { exists: false }));
   await touchActivity(ctx, t);
   const shape = (p: P) => ({ slotId: p.slotId, name: p.name, status: statusOf(p), ...(p.field ? { cell: p.fieldCell } : {}) });
   return { teamId: t, updated: "roster", changes: log, players: players.map(shape), lastModifiedUtc: now.iso };
@@ -277,7 +286,7 @@ export function registerWriteTools(server: McpServer, ctx: WriteContext) {
   }, wrap("update_next_fixture", a => updateNextFixture(ctx, a.teamId, a), true));
   server.registerTool("update_roster", {
     title: "Edit roster / lineup (admin)",
-    description: "Team admins: rename players, set status (field, goalie, bench, inactive) and place players on the 4x4 pitch grid (cell 1-16, row by row from top left), applied together in one save. Follows the app's rules: a new goalie sends the old goalie to the bench; moving onto an occupied cell swaps with a field player or sends the occupant to the bench. Identify a player by name or by slot number (e.g. 4 or \"#4\"). Refused while an admin is running the game on their phone or the clock is running." + note,
+    description: "Team admins: rename players, set status (field, goalie, bench, inactive) and place players on the 4x4 pitch grid (cell 1-16, row by row from top left), applied together in one save. Follows the app's rules: a new goalie sends the old goalie to the bench; moving onto an occupied cell swaps with a field player or sends the occupant to the bench. Identify a player by name or by slot number (e.g. 4 or \"#4\"). Refused while an admin is running the game on their phone or the clock is running. On a brand-new team whose roster is still empty (just created, Game screen not opened), this initialises the app's 16 default bench slots (\"#01 Player\"…\"#16 Player\") and then applies your changes — use slot numbers 1-16 to name players. Or pass players to create_team." + note,
     inputSchema: { teamId, changes: z.array(z.object({
       player: z.union([z.string().min(1).max(60), z.number().int().min(1).max(99)]),
       newName: z.string().min(1).max(40).optional(),
@@ -285,4 +294,20 @@ export function registerWriteTools(server: McpServer, ctx: WriteContext) {
       cell: z.number().int().min(1).max(16).optional(),
     })).min(1).max(16) }, annotations: w,
   }, wrap("update_roster", a => updateRoster(ctx, a.teamId, a.changes), true));
+  server.registerTool("create_club", {
+    title: "Create a club",
+    description: "Create a TurfTimer club with you as Owner (the same as Create Club in the app). Returns clubId and a Club Owner Recovery Code — save that code, it is not shown again. Spreadsheet workflow for a club manager: call create_club once, then create_team with this clubId (and the team name) for each team in the sheet, optionally passing players, or call update_roster afterwards. Needs a read-and-write connection. At most 20 clubs and teams combined per connection per day.",
+    inputSchema: { clubName: z.string().min(1).max(80), displayName: z.string().min(2).max(40).optional() }, annotations: w,
+  }, wrap("create_club", a => createClub(ctx, a), true));
+  server.registerTool("create_team", {
+    title: "Create a team",
+    description: "Create an Online team with you as admin, identical to one made in the app. Pass clubId to add the team to a club you Own or Admin (create the club first with create_club). Omit clubId and pass name (the team's nickname) for a standalone team. Returns teamId, an invite code (for members to join) and a Team Owner Recovery Code — save that code, it is not shown again. Optional players (1-16 names) fills the roster in the same call (16 bench slots, named players first, the rest '#NN Player'); otherwise the roster is empty like the app and you can fill it with update_roster. Spreadsheet workflow: create_club, then create_team for each row, then players. Needs a read-and-write connection. At most 20 clubs and teams combined per connection per day.",
+    inputSchema: {
+      name: z.string().min(1).max(80).describe("Team nickname (standalone) or team name (when clubId is set)"),
+      clubId: z.string().min(1).max(128).regex(/^[^/]+$/, "clubId must not contain '/'").optional(),
+      displayName: z.string().min(2).max(40).optional(),
+      creatorEmail: z.string().max(200).optional(),
+      players: z.array(z.string().min(1).max(40)).min(1).max(16).optional(),
+    }, annotations: w,
+  }, wrap("create_team", a => createTeam(ctx, a), true));
 }
