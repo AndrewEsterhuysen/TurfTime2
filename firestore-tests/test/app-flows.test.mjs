@@ -108,8 +108,8 @@ test('app: activeControllers — admin upsert/delete, member read', async () => 
   await assertSucceeds(getDoc(doc(as('mem'), `activeControllers/${T}`)));
   await assertSucceeds(deleteDoc(doc(as('owner'), `activeControllers/${T}`)));
 });
-test('app: details location/kit/duties — admins write, members read', async () => {
-  for (const d of ['location', 'kit', 'duties']) {
+test('app: details location/kit/duties/settings — admins write, members read', async () => {
+  for (const d of ['location', 'kit', 'duties', 'settings']) {
     await assertSucceeds(setDoc(doc(as('owner'), `teams/${T}/details/${d}`), { v: 'x', updatedByUid: 'owner' }, M));
     await assertSucceeds(getDoc(doc(as('mem'), `teams/${T}/details/${d}`)));
     await assertFails(setDoc(doc(as('mem'), `teams/${T}/details/${d}`), { v: 'y' }, M));

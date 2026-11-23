@@ -71,7 +71,7 @@
                     </Border>
                     <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
                         <Label Style="{StaticResource PvCardTitle}" Text="Options" />
-                        <Label Style="{StaticResource PvCaption}" Text="Configure goal scorer and assist reporting" />
+                        <Label Style="{StaticResource PvCaption}" Text="Goal scorer and assist, and Player of the Match nominations" />
                     </VerticalStackLayout>
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>

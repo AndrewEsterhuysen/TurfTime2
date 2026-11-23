@@ -12,6 +12,7 @@ rules_version = '2';
 //   teams/{teamId}/details/location  (match schedule / venue — admin write, member read)
 //   teams/{teamId}/details/kit       (Details → Kit — admin write, member read)
 //   teams/{teamId}/details/duties    (Details → Duties — admin write, member read)
+//   teams/{teamId}/details/settings  (team feature flags, e.g. nominationsEnabled — admin write, member read)
 //   teams/{teamId}/messages/{messageId}
 //   teams/{teamId}/sessions/{sessionId}
 //   teams/{teamId}/sessions/{sessionId}/nominations/{uid}   (player of the match votes)
@@ -231,11 +232,11 @@ service cloud.firestore {
       allow delete: if isTeamAdmin(teamId);
     }
 
-    // Details → Kit and Details → Duties (string fields + lastModifiedUtc/updatedByUid).
+    // Details → Kit, Duties, and team settings (string fields + lastModifiedUtc/updatedByUid).
     // Same access as Location: members read; admins write. Keep in sync with ITeamDetailsDocService.
     match /teams/{teamId}/details/{docId} {
-      allow read: if docId in ['kit', 'duties'] && isTeamMember(teamId);
-      allow create, update, delete: if docId in ['kit', 'duties'] && isTeamAdmin(teamId);
+      allow read: if docId in ['kit', 'duties', 'settings'] && isTeamMember(teamId);
+      allow create, update, delete: if docId in ['kit', 'duties', 'settings'] && isTeamAdmin(teamId);
     }
 
     // Chat messages
@@ -304,6 +305,17 @@ service cloud.firestore {
         && get(sessionDocPath(teamId, sessionId)).data.endTime is timestamp;
     }
 
+    function nominationsSettingsPath(teamId) {
+      return /databases/$(database)/documents/teams/$(teamId)/details/settings;
+    }
+
+    // Default ON when the settings doc or field is missing (existing shared teams).
+    function teamNominationsEnabled(teamId) {
+      return !exists(nominationsSettingsPath(teamId))
+        || !('nominationsEnabled' in get(nominationsSettingsPath(teamId)).data)
+        || get(nominationsSettingsPath(teamId)).data.nominationsEnabled != 'false';
+    }
+
     function nominationsOpen(teamId, sessionId) {
       return sessionEnded(teamId, sessionId)
         && request.time <= get(sessionDocPath(teamId, sessionId)).data.endTime + duration.value(24, 'h')
@@ -343,13 +355,15 @@ service cloud.firestore {
       allow create: if isTeamMember(teamId)
         && nominatorId == request.auth.uid
         && nominationPayloadOk(nominatorId)
-        && nominationsOpen(teamId, sessionId);
+        && nominationsOpen(teamId, sessionId)
+        && teamNominationsEnabled(teamId);
 
       allow update: if isTeamMember(teamId)
         && nominatorId == request.auth.uid
         && resource.data.nominatorId == request.auth.uid
         && nominationPayloadOk(nominatorId)
-        && nominationsOpen(teamId, sessionId);
+        && nominationsOpen(teamId, sessionId)
+        && teamNominationsEnabled(teamId);
 
       // Members may withdraw while open; Admins may remove a vote at any time;
       // the team owner may delete during the DeleteTeamAsOwner cascade.

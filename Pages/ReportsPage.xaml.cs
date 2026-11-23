@@ -257,6 +257,9 @@ public partial class ReportsPage : ContentPage
                 System.Diagnostics.Debug.WriteLine($"[ReportsPage] Loaded session from Firestore");
             }
 
+            try { await TeamNominationsOptions.RefreshAsync(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[ReportsPage] Nominations setting: {ex.Message}"); }
+
             UpdateNominationsButton(selectedSession);
 
             if (!string.IsNullOrEmpty(sessionJson))
@@ -298,7 +301,7 @@ public partial class ReportsPage : ContentPage
     /// <summary>Nominations entry for the selected match — shared teams only (spec §4).</summary>
     private void UpdateNominationsButton(SessionSummary session)
     {
-        NominationsButton.IsVisible = IsSharedTeam() && session.EndTime is not null;
+        NominationsButton.IsVisible = IsSharedTeam() && TeamNominationsOptions.IsEnabled() && session.EndTime is not null;
     }
 
     private async void OnNominationsClicked(object sender, EventArgs e)
@@ -322,7 +325,7 @@ public partial class ReportsPage : ContentPage
     /// </summary>
     private static async Task<NominationTally?> LoadNominationResultAsync(string sessionId)
     {
-        if (!IsSharedTeam()) return null;
+        if (!IsSharedTeam() || !TeamNominationsOptions.IsEnabled()) return null;
         try
         {
             var svc = Application.Current?.Handler?.MauiContext?.Services.GetService<INominationService>();

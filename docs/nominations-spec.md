@@ -151,21 +151,34 @@ listener) and `GetTallyAsync` (one-shot, used by the match report).
 
 ## 4. UI flow (iOS and Android — same pages)
 
-Nominations are reachable only on **shared** teams: the Details tab is hidden
-for local teams, and the End-game prompt and Reports button are not shown for
-them.
+Nominations are reachable only on **shared** teams: the Details Nominations
+tile still appears for local teams (the page then explains it is shared-team
+only), and the End-game prompt and Reports button are not shown for them.
+
+A per-team Admin switch, **Player of the Match nominations**, lives on
+Settings → Options and is stored at `teams/{teamId}/details/settings`
+(`nominationsEnabled`, default ON when the doc or field is missing). Only
+Admins can change it; members see it read-only. When it is **off**:
+
+- the Details page stays fully intact — only the Nominations tile/row is hidden;
+- the post-match reminder is not shown;
+- the Reports page and the rest of the match report stay intact — only the
+  Nominations button and the Player of the Match result section (on-screen
+  and emailed HTML) are omitted;
+- opening Nominations directly shows “Nominations are turned off for this team.”
 
 1. **After End game.** When a shared-team match is archived and saved to
-   `sessions/{sessionId}`, the device that ended the match is offered
-   “Nominate player of the match?”. That opens `NominationsPage` with
-   `sessionId` set. The Game tab stays as it is if they choose “Not now”.
-   Other members reach the same match from Reports or Details (a push
-   notification to every member is out of scope for v1, §8).
+   `sessions/{sessionId}`, the device that ended the match is reminded that
+   voting is open for 24 hours and that they can nominate later from
+   Details → Nominations (a single OK). It does not ask them to nominate
+   immediately. Other members reach the same match from Reports or Details (a
+   push notification to every member is out of scope for v1, §8).
 2. **From Reports.** A “Player of the match” button on the selected session
-   (shared teams) opens the same page for that report. Once voting has
-   closed, the report itself (and the emailed copy) includes a “Player of the
-   Match” section with the winner or joint winners and vote counts, never
-   who voted.
+   (shared teams, switch on) opens the same page for that report. Once voting
+   has closed, the report itself (and the emailed copy) includes a “Player of
+   the Match” section with the winner or joint winners and vote counts, never
+   who voted. When the switch is off, that button and section are omitted;
+   the rest of the report is unchanged.
 3. **From Details → Nominations.** The page lists recent
    sessions for the current shared team (same source as Reports). The user
    picks a match, or lands directly on one if `sessionId` was passed.
@@ -189,7 +202,9 @@ them.
 
 `nominationsOpen` below implements both close triggers: writes are denied
 once 24 hours have passed since `endTime` **or** an Admin has set
-`nominationsMeta/status.closed`, whichever happens first.
+`nominationsMeta/status.closed`, whichever happens first. Vote create/update
+is also denied when `details/settings.nominationsEnabled` is `'false'`
+(`teamNominationsEnabled`; missing doc or field defaults to on).
 
 These rules are now in `firestore.rules` on `feature/nominations`, next to the
 existing `teams/{teamId}/sessions/{sessionId}` block, using the file’s own

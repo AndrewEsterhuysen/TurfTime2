@@ -213,3 +213,33 @@ test('nominations: owner cascade can clear votes and status after members are go
   await assertSucceeds(deleteDoc(doc(db, `${NOM}/mem`)));
   await assertSucceeds(deleteDoc(doc(db, META)));
 });
+
+test('nominations: voting still works when settings doc is missing (default on)', async () => {
+  await assertSucceeds(setDoc(doc(as('mem'), `${NOM}/mem`), vote('mem')));
+});
+
+test('nominations: voting works when nominationsEnabled is true', async () => {
+  await seed((db) => setDoc(doc(db, `teams/${T}/details/settings`), { nominationsEnabled: 'true' }));
+  await assertSucceeds(setDoc(doc(as('mem'), `${NOM}/mem`), vote('mem')));
+});
+
+test('nominations: member cannot vote when the team switch is off', async () => {
+  await seed((db) => setDoc(doc(db, `teams/${T}/details/settings`), { nominationsEnabled: 'false' }));
+  await assertFails(setDoc(doc(as('mem'), `${NOM}/mem`), vote('mem')));
+  await assertFails(setDoc(doc(as('owner'), `${NOM}/owner`), vote('owner')));
+});
+
+test('nominations: existing vote cannot be changed when the team switch is off', async () => {
+  await seed(async (db) => {
+    await setDoc(doc(db, `${NOM}/mem`), vote('mem', 3, 'Cat'));
+    await setDoc(doc(db, `teams/${T}/details/settings`), { nominationsEnabled: 'false' });
+  });
+  await assertFails(setDoc(doc(as('mem'), `${NOM}/mem`), vote('mem', 5, 'Eve')));
+});
+
+test('nominations: settings doc — admin writes, member reads, member cannot write', async () => {
+  await assertSucceeds(setDoc(doc(as('owner'), `teams/${T}/details/settings`), { nominationsEnabled: 'false' }));
+  await assertSucceeds(getDoc(doc(as('mem'), `teams/${T}/details/settings`)));
+  await assertFails(setDoc(doc(as('mem'), `teams/${T}/details/settings`), { nominationsEnabled: 'true' }));
+  await assertFails(getDoc(doc(as('stranger'), `teams/${T}/details/settings`)));
+});

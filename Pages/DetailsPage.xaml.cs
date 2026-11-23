@@ -10,10 +10,15 @@ public partial class DetailsPage : ContentPage
         InitializeComponent();
     }
 
-    protected override void OnAppearing()
+    protected override async void OnAppearing()
     {
         base.OnAppearing();
         ApplyPageTeamTitle(this, PageLabel);
+        // Only the Nominations tile is hidden when the team switch is off.
+        // Location, Kit, and Duties always stay visible.
+        try { await TeamNominationsOptions.RefreshAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Details] Nominations setting: {ex.Message}"); }
+        NominationsCard.IsVisible = TeamNominationsOptions.ShowDetailsTile();
     }
 
     /// <summary>

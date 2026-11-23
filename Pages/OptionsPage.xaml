@@ -24,6 +24,20 @@
                 </VerticalStackLayout>
             </Border>
 
+            <!-- Per-team, Admin-only. Hidden on local teams. Members see it read-only. -->
+            <Border x:Name="NominationsOptionsCard" Style="{StaticResource PvCard}" IsVisible="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvCardTitle}" Text="Player of the Match nominations"/>
+                    <Label Style="{StaticResource PvCaption}" x:Name="NominationsOptionsCaption"
+                           Text="When on, everyone on this team can vote after each game. This applies to the whole team."/>
+                    <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
+                        <Label Style="{StaticResource PvAccentText}" x:Name="NominationsStateLabel" Text="ON" VerticalOptions="Center" WidthRequest="48"/>
+                        <Switch Style="{StaticResource PvSwitch}" x:Name="NominationsSwitch" IsToggled="True" Toggled="OnNominationsToggled" HorizontalOptions="Start" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                    <Label Style="{StaticResource PvCaption}" x:Name="NominationsReadOnlyHint" Text="Only Admins can change this." IsVisible="False"/>
+                </VerticalStackLayout>
+            </Border>
+
             <!-- Rotation Basis — who is selected for the next rotate -->
             <Border Style="{StaticResource PvCard}">
                 <VerticalStackLayout Spacing="8">

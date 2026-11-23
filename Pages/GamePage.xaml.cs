@@ -1215,8 +1215,10 @@ public partial class GamePage : ContentPage
     }
 
     /// <summary>
-    /// After End game on a shared team (session saved to the cloud): offer
-    /// player-of-the-match nominations for that session. Local teams never get here.
+    /// After End game on a shared team (session saved to the cloud): remind
+    /// the user that player-of-the-match voting is open, to be completed later
+    /// from Details → Nominations (kids are still on the field). Local teams
+    /// never get here. Suppressed when the team has nominations turned off.
     /// </summary>
     private async void OnNominationsPromptRequested(object? sender, string sessionId)
     {
@@ -1224,21 +1226,20 @@ public partial class GamePage : ContentPage
         // the first one is answered).
         if (_nominationPromptOpen || string.Equals(_lastNominationPromptSessionId, sessionId, StringComparison.Ordinal))
             return;
+
+        try { await TeamNominationsOptions.RefreshAsync(); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[GamePage] Nominations setting: {ex.Message}"); }
+        if (!TeamNominationsOptions.IsEnabled())
+            return;
+
         _nominationPromptOpen = true;
         _lastNominationPromptSessionId = sessionId;
         try
         {
-            var go = await DisplayAlertAsync(
-                "Player of the match",
-                "Match saved. Nominate a player of the match? Everyone on the team can vote for 24 hours.",
-                "Nominate",
-                "Not now");
-            if (!go) return;
-
-            // Let iOS finish dismissing the alert before pushing the page.
-            await Task.Delay(250);
-            await MainThread.InvokeOnMainThreadAsync(() =>
-                Shell.Current.GoToAsync($"details/nominations?sessionId={Uri.EscapeDataString(sessionId)}"));
+            await DisplayAlertAsync(
+                "Player of the Match",
+                "Voting is open for the next 24 hours. Remember to nominate your player of the match from Details > Nominations.",
+                "OK");
         }
         catch (Exception ex)
         {
