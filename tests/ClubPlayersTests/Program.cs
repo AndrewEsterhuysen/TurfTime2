@@ -1,0 +1,56 @@
+using TurfTime2.Helpers;
+using TurfTime2.Models;
+int fails = 0;
+void Check(bool c, string m) { Console.WriteLine((c ? "PASS " : "FAIL ") + m); if (!c) fails++; }
+DateOnly D(string iso) { ClubAgeGroups.TryParseDateOfBirth(iso, out var d); return d; }
+
+// 1. Name key normaliser
+Check(ClubPlayerNames.Normalize("  Zoë   O'Neil ") == "zoe o'neil", "normalize: trim, single spaces, accents, lower");
+Check(ClubPlayerNames.Normalize("JOSÉ\tÁlvarez") == "jose alvarez", "normalize: tabs and accents");
+Check(ClubPlayerNames.Normalize(null) == "" && ClubPlayerNames.Normalize("   ") == "", "normalize: empty");
+Check(ClubPlayerNames.BuildNameKey("Samuel Lee", "Sam") == "samuel lee sam", "nameKey includes preferred name");
+Check(ClubPlayerNames.BuildNameKey("Sam Lee", " sam  lee ") == "sam lee", "nameKey: preferred same as name not repeated");
+Check(ClubPlayerNames.BuildNameKey("Sam Lee", null) == "sam lee", "nameKey: no preferred name");
+Check(ClubPlayerNames.CleanDisplay("  Sam    Lee ") == "Sam Lee", "clean display name");
+Check(ClubPlayerNames.CleanDisplay(new string('a', 100)).Length == 80, "display name capped at 80");
+
+// 2. Search
+Check(ClubPlayerNames.Matches("sam lee", "lee"), "search: surname");
+Check(ClubPlayerNames.Matches("sam lee", "SA LE"), "search: word prefixes, any case");
+Check(ClubPlayerNames.Matches("zoe oneil", "Zoë"), "search: accents ignored");
+Check(!ClubPlayerNames.Matches("sam lee", "ee"), "search: mid-word does not match");
+Check(ClubPlayerNames.Matches("samuel lee sam", "sam"), "search: preferred name");
+Check(ClubPlayerNames.Matches("anything", ""), "search: empty query matches all");
+
+// 3. Exact duplicate
+Check(ClubPlayerNames.IsExactDuplicate("sam  LEE", "Sam Lee", null), "duplicate: same name, different case/spaces");
+Check(ClubPlayerNames.IsExactDuplicate("Sammy", "Samuel Lee", "Sammy"), "duplicate: matches preferred name");
+Check(!ClubPlayerNames.IsExactDuplicate("Sam Lea", "Sam Lee", null), "duplicate: close match is not exact");
+
+// 4. Age groups, 1 January cutoff (spec §5 examples, season 2027)
+Check(ClubAgeGroups.AgeOn1Jan(D("2017-01-02"), 2027) == 9, "born 2 Jan 2017 is 9 on 1 Jan 2027");
+Check(ClubAgeGroups.AgeGroupFor(D("2017-01-02"), 2027) == "U10", "9 on 1 Jan -> U10 even turning 10 on 2 Jan");
+Check(ClubAgeGroups.AgeOn1Jan(D("2017-01-01"), 2027) == 10, "born 1 Jan 2017 is 10 on 1 Jan 2027");
+Check(ClubAgeGroups.AgeGroupFor(D("2017-01-01"), 2027) == "U11", "born 1 Jan 2017 -> U11");
+Check(ClubAgeGroups.AgeGroupFor(D("2016-12-31"), 2027) == "U11", "born 31 Dec 2016 -> U11");
+Check(ClubAgeGroups.MaxAgeOn1Jan("U10") == 9 && ClubAgeGroups.MaxAgeOn1Jan("u17") == 16, "U10 -> 9, U17 -> 16");
+Check(ClubAgeGroups.MaxAgeOn1Jan("Open") is null && ClubAgeGroups.MaxAgeOn1Jan("U") is null, "Open / bad label -> no max");
+Check(ClubAgeGroups.IsEligible(D("2017-01-02"), "U10", 2027), "U10 player eligible for U10");
+Check(!ClubAgeGroups.IsEligible(D("2017-01-01"), "U10", 2027), "U11 player cannot play down to U10");
+Check(!ClubAgeGroups.IsEligible(D("2016-12-31"), "U10", 2027), "31 Dec 2016 cannot play U10");
+Check(ClubAgeGroups.IsEligible(D("2018-06-15"), "U10", 2027), "younger player may play up");
+Check(ClubAgeGroups.IsEligible(D("2010-06-15"), "Open", 2027), "Open accepts everyone");
+Check(ClubAgeGroups.IsEligible(D("2012-05-05"), "U17", 2027) && !ClubAgeGroups.IsEligible(D("2009-05-05"), "U17", 2027), "U17 pool: 14 ok, 17 too old");
+
+// 5. Date of birth parsing
+Check(ClubAgeGroups.TryParseDateOfBirth("2017-03-12", out var dob) && ClubAgeGroups.ToIso(dob) == "2017-03-12", "ISO round trip");
+Check(!ClubAgeGroups.TryParseDateOfBirth("12/03/2017", out _) && !ClubAgeGroups.TryParseDateOfBirth("2017", out _)
+      && !ClubAgeGroups.TryParseDateOfBirth("2017-02-30", out _), "rejects non-ISO, year-only and impossible dates");
+
+// 6. Model
+var p = new ClubPlayer { Name = "Samuel Lee", PreferredName = "Sam" };
+Check(p.DisplayName == "Samuel Lee (Sam)" && !p.IsArchived, "display name with preferred name");
+Check(new ClubPlayer { Status = "archived" }.IsArchived, "archived status");
+
+Console.WriteLine(fails == 0 ? "ALL PASS" : $"{fails} FAILED");
+return fails;
