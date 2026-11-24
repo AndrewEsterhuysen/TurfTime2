@@ -15,15 +15,17 @@ public sealed class GameLoggerService : IGameLoggerService
     private const int    MaxHistorySessions = 20;
 
     private readonly ISessionStorageService _storage;
+    private readonly IClubPlayerStatsService? _playerStats;
     private readonly object _lock = new();
 
     public GameSession? CurrentSession { get; private set; }
 
     public event EventHandler<(string TeamId, string SessionId)>? SessionSavedToCloud;
 
-    public GameLoggerService(ISessionStorageService storage)
+    public GameLoggerService(ISessionStorageService storage, IClubPlayerStatsService? playerStats = null)
     {
         _storage = storage;
+        _playerStats = playerStats;
         TryLoadCurrentSession();
     }
 
@@ -176,6 +178,11 @@ public sealed class GameLoggerService : IGameLoggerService
             {
                 try { SessionSavedToCloud?.Invoke(this, (teamId, session.SessionId)); }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[GameLogger] SessionSavedToCloud handler: {ex.Message}"); }
+                if (_playerStats is not null)
+                {
+                    try { await _playerStats.RecordSessionAsync(teamId, session).ConfigureAwait(false); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[GameLogger] PlayerStats: {ex.Message}"); }
+                }
             }
         }
         catch (Exception ex)
@@ -262,7 +269,8 @@ public sealed class GameLoggerService : IGameLoggerService
                 SlotId:         p.SlotId,
                 // Present = in the match-day squad (not Absent at full time), or
                 // played some minutes before being moved to Absent (e.g. injury).
-                WasPresent:     p.Position != PlayerPosition.Inactive || p.FieldSeconds > 0);
+                WasPresent:     p.Position != PlayerPosition.Inactive || p.FieldSeconds > 0,
+                PlayerId:       p.PlayerId ?? "");
         }).ToList();
 
         return new GameSessionSummary(totalRotations, durationSeconds, playerStats);

@@ -25,6 +25,7 @@ public partial class NominationsPage : ContentPage
     private bool _submitting;
     private bool _suppressPicker;
     private int _loadVersion;
+    private readonly HashSet<string> _potmApplied = new(StringComparer.Ordinal);
 
     public NominationsPage()
     {
@@ -225,6 +226,32 @@ public partial class NominationsPage : ContentPage
         RenderTally(tally, open);
         // Admin role comes from the member doc (tally.ViewerIsAdmin); rules enforce it too.
         CloseVotingButton.IsVisible = open && tally is { ViewerIsAdmin: true };
+        MaybeApplyPotm(tally);
+    }
+
+    /// <summary>
+    /// Once voting has closed, stamp POTM on the club player match rows (idempotent).
+    /// Also covers the automatic 24-hour close, the first time this page sees the result.
+    /// </summary>
+    private void MaybeApplyPotm(NominationTally? tally)
+    {
+        if (tally is not { IsOpen: false } || tally.Winners.Count == 0) return;
+        if (string.IsNullOrWhiteSpace(_teamId) || !_potmApplied.Add(tally.SessionId)) return;
+        _ = ApplyPotmAsync(tally);
+    }
+
+    private async Task ApplyPotmAsync(NominationTally tally)
+    {
+        try
+        {
+            var stats = GetService<IClubPlayerStatsService>();
+            if (stats is null) return;
+            await stats.ApplyPotmAsync(_teamId, tally.SessionId, tally.Winners.Select(w => w.NomineeSlotId));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[NominationsPage] PlayerStats POTM: {ex.Message}");
+        }
     }
 
     private Button BuildNomineeButton(NominationCandidate c, bool isMine)

@@ -1047,19 +1047,21 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             $"bench-q=[{QueueString(_manualBenchQueue)}]");
     }
 
-    public void IncrementTeamAScore(string? scorer = null, string? assist = null)
+    public void IncrementTeamAScore(string? scorer = null, string? assist = null,
+        string? scorerPlayerId = null, string? assistPlayerId = null)
     {
         if (IsMember) return;
         TeamAScore++;
-        LogScoreEvent(GameEventType.ScoreUs, delta: +1, TeamAScore, TeamBScore, scorer, assist);
+        LogScoreEvent(GameEventType.ScoreUs, delta: +1, TeamAScore, TeamBScore, scorer, assist, scorerPlayerId, assistPlayerId);
         _ = AutoSaveAsync();
     }
 
-    public void IncrementTeamBScore(string? scorer = null, string? assist = null)
+    public void IncrementTeamBScore(string? scorer = null, string? assist = null,
+        string? scorerPlayerId = null, string? assistPlayerId = null)
     {
         if (IsMember) return;
         TeamBScore++;
-        LogScoreEvent(GameEventType.ScoreThem, delta: +1, TeamAScore, TeamBScore, scorer, assist);
+        LogScoreEvent(GameEventType.ScoreThem, delta: +1, TeamAScore, TeamBScore, scorer, assist, scorerPlayerId, assistPlayerId);
         _ = AutoSaveAsync();
     }
 
@@ -1087,7 +1089,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private void LogScoreEvent(GameEventType type, int delta, int usScore, int themScore, string? scorer = null, string? assist = null)
+    private void LogScoreEvent(GameEventType type, int delta, int usScore, int themScore, string? scorer = null, string? assist = null,
+        string? scorerPlayerId = null, string? assistPlayerId = null)
     {
         // Only log during an active game; ignore accidental taps in setup/finished state.
         if (Phase == GamePhase.Setup || Phase == GamePhase.Finished) return;
@@ -1147,6 +1150,10 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         {
             details["assist"] = assist;
         }
+        if (!string.IsNullOrEmpty(scorerPlayerId))
+            details["scorerPlayerId"] = scorerPlayerId;
+        if (!string.IsNullOrEmpty(assistPlayerId))
+            details["assistPlayerId"] = assistPlayerId;
 
         _logger.Log(type, description, details: details);
     }

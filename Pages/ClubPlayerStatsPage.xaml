@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.ClubPlayerStatsPage"
+             Title="Stats">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
+    <ScrollView>
+        <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="16">
+            <VerticalStackLayout Spacing="2" Margin="4,0,0,0">
+                <Label x:Name="NameLabel" Style="{StaticResource PvTitle}" />
+                <Label Style="{StaticResource PvCaption}" Text="Goals, assists, field time and player of the match across club games. Older matches are not backfilled." />
+            </VerticalStackLayout>
+
+            <Border x:Name="NoticeCard" Style="{StaticResource PvCardWarning}" Padding="12,8" IsVisible="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label x:Name="NoticeLabel" Style="{StaticResource PvWarningText}" FontFamily="InterSemiBold"
+                           HorizontalTextAlignment="Center" />
+                    <Button x:Name="RetryButton" Style="{StaticResource PvButtonOutline}" Text="Try again"
+                            IsVisible="False" Clicked="OnRetryClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="FilterCard" Style="{StaticResource PvCard}" IsVisible="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Season" />
+                    <Picker x:Name="SeasonPicker" Style="{StaticResource PvPicker}" Title="Season"
+                            SelectedIndexChanged="OnSeasonChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="TotalsCard" Style="{StaticResource PvCard}" IsVisible="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Totals" />
+                    <Label x:Name="TotalsLabel" Style="{StaticResource PvBody}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="ListCard" Style="{StaticResource PvCard}" IsVisible="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Matches" />
+                    <Label x:Name="EmptyLabel" Style="{StaticResource PvCaption}" IsVisible="False"
+                           Text="No recorded matches in this season. Stats start from new matches saved after this update." />
+                    <VerticalStackLayout x:Name="MatchList" Spacing="8" />
+                </VerticalStackLayout>
+            </Border>
+
+            <ActivityIndicator x:Name="Busy" IsRunning="False" IsVisible="False" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

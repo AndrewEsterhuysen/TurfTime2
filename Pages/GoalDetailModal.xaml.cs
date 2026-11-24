@@ -14,15 +14,15 @@ public partial class GoalDetailModal : ContentPage
     public Player? SelectedScorer { get; set; }
     public Player? SelectedAssist { get; set; }
 
-    private readonly Func<string?, string?, Task> _onRecordGoal;
+    private readonly Func<Player?, Player?, Task> _onRecordGoal;
     private bool _completed = false;
 
     /// <summary>
     /// Creates a modal for recording goal details (scorer and assist).
     /// </summary>
     /// <param name="fieldPlayers">List of players currently on field to select scorer/assist from</param>
-    /// <param name="onRecordGoal">Callback when goal is recorded with (scorer, assist) player names</param>
-    public GoalDetailModal(IReadOnlyList<Player> fieldPlayers, Func<string?, string?, Task> onRecordGoal)
+    /// <param name="onRecordGoal">Callback when goal is recorded with (scorer, assist) players (names stay on the event for reports)</param>
+    public GoalDetailModal(IReadOnlyList<Player> fieldPlayers, Func<Player?, Player?, Task> onRecordGoal)
     {
         InitializeComponent();
 
@@ -51,12 +51,11 @@ public partial class GoalDetailModal : ContentPage
         }
 
         _completed = true;
-        var scorerName = SelectedScorer.Name;
-        var assistName = SelectedAssist?.Name == "(None)" ? null : SelectedAssist?.Name;
+        var assist = SelectedAssist?.Name == "(None)" ? null : SelectedAssist;
 
         try
         {
-            await _onRecordGoal(scorerName, assistName);
+            await _onRecordGoal(SelectedScorer, assist);
         }
         catch (Exception ex)
         {

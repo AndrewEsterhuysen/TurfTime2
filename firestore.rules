@@ -297,6 +297,43 @@ service cloud.firestore {
         );
 
       allow delete: if isClubOwnerOrAdmin(clubId);
+
+      // Per-match stats for this player (keyed by session id so re-saves overwrite).
+      // Totals are computed on the client; this subcollection is the source of truth.
+      // v1 fields: matches/minutes/secondsPlayed/goals/assists/POTM (decision 7). No borrowed field.
+      // secondsPlayed is optional so rows written before this field (minutes only) remain valid.
+      match /matches/{sessionId} {
+        allow read: if isClubManager(clubId);
+
+        function clubPlayerMatchFieldsOk(d) {
+          return d.keys().hasOnly(['sessionId', 'playerId', 'clubId', 'teamId', 'teamName',
+                  'matchDate', 'season', 'minutes', 'secondsPlayed', 'goals', 'assists', 'potm',
+                  'playerName', 'updatedAt', 'updatedBy'])
+            && d.sessionId == sessionId
+            && d.playerId == playerId
+            && d.clubId == clubId
+            && d.teamId is string && d.teamId != ''
+            && (d.get('teamName', '') is string)
+            && (d.get('playerName', '') is string)
+            && d.season is int && d.season >= 2000 && d.season <= 2100
+            && d.minutes is int && d.minutes >= 0 && d.minutes <= 300
+            && (!('secondsPlayed' in d)
+                || (d.secondsPlayed is int && d.secondsPlayed >= 0 && d.secondsPlayed <= 18000))
+            && d.goals is int && d.goals >= 0 && d.goals <= 50
+            && d.assists is int && d.assists >= 0 && d.assists <= 50
+            && d.potm is bool;
+        }
+
+        function canWritePlayerMatch() {
+          return clubPlayerMatchFieldsOk(request.resource.data)
+            && teamBelongsToClub(request.resource.data.teamId, clubId)
+            && (isClubOwnerOrAdmin(clubId) || isTeamMember(request.resource.data.teamId));
+        }
+
+        allow create, update: if canWritePlayerMatch();
+        allow delete: if isClubOwnerOrAdmin(clubId)
+          || (resource.data.teamId is string && isTeamMember(resource.data.teamId));
+      }
     }
 
     // O(1) invite lookup (root collection)

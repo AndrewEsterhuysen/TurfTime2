@@ -1539,7 +1539,7 @@ public partial class GamePage : ContentPage
             var fieldPlayers = _vm.GetFieldPlayers();
             var modal = new GoalDetailModal(fieldPlayers, async (scorer, assist) =>
             {
-                _vm.IncrementTeamAScore(scorer, assist);
+                _vm.IncrementTeamAScore(scorer?.Name, assist?.Name, scorer?.PlayerId, assist?.PlayerId);
                 await Task.CompletedTask;
             });
 
