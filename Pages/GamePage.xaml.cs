@@ -1087,19 +1087,7 @@ public partial class GamePage : ContentPage
 
         if (_vm.Phase == GamePhase.Setup)
         {
-            // Pre-game: rename the player. Encourage first + surname for A.E-style Field tokens.
-            var isDefault = player.Name.TrimStart().StartsWith('#');
-            var result = await DisplayPromptAsync(
-                title: "Rename Player",
-                message: "Enter first and surname (e.g. Andrew Esterhuysen). Field tokens show initials like A.E.",
-                accept: "Save",
-                cancel: "Cancel",
-                placeholder: isDefault ? "First Last" : player.Name,
-                initialValue: player.Name,
-                keyboard: Keyboard.Default);
-
-            if (result is null) return;
-            _vm.RenamePlayer(player, result);
+            await PromptRenameOrChangePlayerAsync(player);
         }
         else
         {
@@ -2513,6 +2501,23 @@ public partial class GamePage : ContentPage
         // Rename only makes sense in Setup (and Finished / pre-start).
         if (_vm.Phase is not GamePhase.Setup and not GamePhase.Finished)
             return;
+
+        await PromptRenameOrChangePlayerAsync(player);
+    }
+
+    /// <summary>
+    /// Club teams: open the Change player picker. Nickname / local teams keep Rename Player.
+    /// Live-game swipes and in-play taps are unchanged; this is Setup / Finished only.
+    /// </summary>
+    private async Task PromptRenameOrChangePlayerAsync(Player player)
+    {
+        if (_vm is null) return;
+        if (_vm.IsClubTeam)
+        {
+            ChangePlayerPage.Begin(_vm, player);
+            await Shell.Current.GoToAsync("game/changeplayer");
+            return;
+        }
 
         var isDefault = player.Name.TrimStart().StartsWith('#');
         var result = await DisplayPromptAsync(

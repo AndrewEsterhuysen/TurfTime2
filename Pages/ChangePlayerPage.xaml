@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.ChangePlayerPage"
+             Title="Change player">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
+    <ScrollView>
+        <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="16">
+            <VerticalStackLayout Spacing="2" Margin="4,0,0,0">
+                <Label Style="{StaticResource PvTitle}" Text="Change player" />
+                <Label x:Name="SlotLabel" Style="{StaticResource PvCaption}" />
+            </VerticalStackLayout>
+
+            <Border x:Name="NoticeCard" Style="{StaticResource PvCardWarning}" Padding="12,8" IsVisible="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label x:Name="NoticeLabel" Style="{StaticResource PvWarningText}" FontFamily="InterSemiBold"
+                           HorizontalTextAlignment="Center" />
+                    <Button x:Name="RetryButton" Style="{StaticResource PvButtonOutline}" Text="Try again"
+                            IsVisible="False" Clicked="OnRetryClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="AgeCard" Style="{StaticResource PvCard}" IsVisible="False">
+                <VerticalStackLayout Spacing="12">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Team age group" />
+                    <Label Style="{StaticResource PvCaption}" Text="Set the age group and season before assigning players. Players may play up, never down (age on 1 January)." />
+                    <Picker Style="{StaticResource PvPicker}" x:Name="AgeGroupPicker" Title="Age group" />
+                    <Entry Style="{StaticResource PvEntry}" x:Name="SeasonEntry" Placeholder="Season year (e.g. 2026)" Keyboard="Numeric" MaxLength="4" />
+                    <Button Style="{StaticResource PvButtonPrimary}" x:Name="SaveAgeButton" Text="Save age group" Clicked="OnSaveAgeClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="ListCard" Style="{StaticResource PvCard}" IsVisible="False">
+                <VerticalStackLayout Spacing="12">
+                    <Label x:Name="AgeSummaryLabel" Style="{StaticResource PvCaption}" />
+                    <Border Style="{StaticResource PvField}">
+                        <Entry Style="{StaticResource PvEntry}" x:Name="SearchEntry" Placeholder="Search club players"
+                               TextChanged="OnSearchChanged" />
+                    </Border>
+                    <Label x:Name="CountLabel" Style="{StaticResource PvCaption}" />
+                    <Button x:Name="ClearButton" Style="{StaticResource PvButtonOutline}" Text="Clear this slot"
+                            IsVisible="False" Clicked="OnClearClicked" />
+                    <VerticalStackLayout x:Name="PlayerList" Spacing="8" />
+                    <Label x:Name="IneligibleLabel" Style="{StaticResource PvCaption}" />
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

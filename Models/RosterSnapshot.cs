@@ -6,8 +6,8 @@ namespace TurfTime2.Models;
 /// </summary>
 public sealed class RosterSnapshot
 {
-    /// <summary>Schema version. v3 adds per-player <see cref="PlayerSnapshot.FieldCell"/>.</summary>
-    public int Version { get; set; } = 3;
+    /// <summary>Schema version. v3 adds <see cref="PlayerSnapshot.FieldCell"/>; v4 adds <see cref="PlayerSnapshot.PlayerId"/> (club player link).</summary>
+    public int Version { get; set; } = 4;
     public DateTimeOffset LastModifiedUtc { get; set; } = DateTimeOffset.UtcNow;
     public int MatchDurationSeconds { get; set; } = 90 * 60;
     public int HalfDurationSeconds { get; set; }
@@ -78,4 +78,12 @@ public sealed class PlayerSnapshot
     /// Outfield grid cell 1–16 when <see cref="Field"/> is true; 0/omitted = unset (older clients).
     /// </summary>
     public int FieldCell { get; set; }
+
+    /// <summary>
+    /// Club player id (docs/club-players-spec.md §4.4). Empty for nickname teams, guests and unused slots.
+    /// </summary>
+    public string PlayerId { get; set; } = "";
+
+    /// <summary>One-match fill-in. Reserved for the borrow slice; always false in this slice.</summary>
+    public bool Borrowed { get; set; }
 }

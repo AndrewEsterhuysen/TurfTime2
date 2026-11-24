@@ -175,7 +175,9 @@ public sealed class CloudTeamService : ICloudTeamService
         string inviteCode,
         string adminCodeHash,
         string creatorEmail,
-        string displayName)
+        string displayName,
+        string? ageGroup = null,
+        int? season = null)
     {
         var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
         if (uid is null)
@@ -202,7 +204,9 @@ public sealed class CloudTeamService : ICloudTeamService
                 displayName,
                 clubId: clubId,
                 clubName: clubName,
-                kind: Helpers.ClubTeamNames.KindClubbed).ConfigureAwait(false);
+                kind: Helpers.ClubTeamNames.KindClubbed,
+                ageGroup: ageGroup,
+                season: season).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -220,7 +224,9 @@ public sealed class CloudTeamService : ICloudTeamService
         string displayName,
         string? clubId,
         string? clubName,
-        string kind)
+        string kind,
+        string? ageGroup = null,
+        int? season = null)
     {
         var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
         if (uid is null)
@@ -250,6 +256,16 @@ public sealed class CloudTeamService : ICloudTeamService
             {
                 meta["clubId"] = clubId;
                 meta["clubName"] = clubName ?? "";
+            }
+
+            var age = Helpers.ClubAgeGroups.CanonicalAgeGroup(ageGroup);
+            if (!string.IsNullOrWhiteSpace(age) && season is >= 2000 and <= 2100)
+            {
+                meta["ageGroup"] = age;
+                meta["season"] = season.Value;
+                var max = Helpers.ClubAgeGroups.MaxAgeOn1Jan(age);
+                if (max is int m)
+                    meta["maxAgeOn1Jan"] = m;
             }
 
             await _db.GetDocument($"teams/{teamId}/metadata/info")
@@ -514,6 +530,17 @@ public sealed class CloudTeamService : ICloudTeamService
         if (field.TryGetProperty("stringValue", out var sv))
             return sv.GetString() ?? "";
         return "";
+    }
+
+    private static int ReadFirestoreRestInt(JsonElement fields, string fieldName)
+    {
+        if (!fields.TryGetProperty(fieldName, out var field)) return 0;
+        if (field.TryGetProperty("integerValue", out var iv)
+            && int.TryParse(iv.GetString(), out var n))
+            return n;
+        if (field.TryGetProperty("doubleValue", out var dv) && dv.TryGetDouble(out var d))
+            return (int)d;
+        return 0;
     }
 
     private static CloudTeamLookup? ExtractLookupFromInviteQuery(IQuerySnapshot<InviteCodeDoc>? querySnap)
@@ -1278,7 +1305,11 @@ public sealed class CloudTeamService : ICloudTeamService
         public string TeamName { get; init; } = "";
         public string ClubId { get; init; } = "";
         public string ClubName { get; init; } = "";
+        public string Kind { get; init; } = "";
         public string AdminCodeHash { get; init; } = "";
+        public string AgeGroup { get; init; } = "";
+        public int Season { get; init; }
+        public int MaxAgeOn1Jan { get; init; }
     }
 
     private async Task<TeamMetadataRest?> GetTeamMetadataViaRestAsync(string teamId)
@@ -1306,8 +1337,92 @@ public sealed class CloudTeamService : ICloudTeamService
             TeamName = ReadFirestoreRestString(fields, "teamName").Trim(),
             ClubId = ReadFirestoreRestString(fields, "clubId").Trim(),
             ClubName = ReadFirestoreRestString(fields, "clubName").Trim(),
-            AdminCodeHash = ReadFirestoreRestString(fields, "adminCodeHash").Trim()
+            Kind = ReadFirestoreRestString(fields, "kind").Trim(),
+            AdminCodeHash = ReadFirestoreRestString(fields, "adminCodeHash").Trim(),
+            AgeGroup = ReadFirestoreRestString(fields, "ageGroup").Trim(),
+            Season = ReadFirestoreRestInt(fields, "season"),
+            MaxAgeOn1Jan = ReadFirestoreRestInt(fields, "maxAgeOn1Jan")
         };
+    }
+
+
+    private sealed class ClubMetadataRest
+    {
+        public string CreatedBy { get; init; } = "";
+        public string ClubName { get; init; } = "";
+    }
+
+    private async Task<string?> GetRestIdTokenAsync()
+    {
+        var idToken = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        return string.IsNullOrEmpty(idToken) ? null : idToken;
+    }
+
+    private async Task<(System.Net.HttpStatusCode Status, string Body)> GetRestDocumentAsync(string relativePath)
+    {
+        var idToken = await GetRestIdTokenAsync().ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            return (System.Net.HttpStatusCode.Unauthorized, "");
+
+        var url =
+            $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/"
+            + string.Join('/', relativePath.Split('/').Select(Uri.EscapeDataString));
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        return (resp.StatusCode, body);
+    }
+
+    private async Task<ClubMetadataRest?> GetClubMetadataViaRestAsync(string clubId)
+    {
+        if (string.IsNullOrWhiteSpace(clubId)) return null;
+        try
+        {
+            var (status, body) = await GetRestDocumentAsync($"clubs/{clubId}/metadata/info")
+                .ConfigureAwait(false);
+            if (status == System.Net.HttpStatusCode.NotFound || string.IsNullOrEmpty(body))
+                return null;
+            if ((int)status < 200 || (int)status >= 300) return null;
+            using var json = JsonDocument.Parse(body);
+            if (!json.RootElement.TryGetProperty("fields", out var fields)) return null;
+            return new ClubMetadataRest
+            {
+                CreatedBy = ReadFirestoreRestString(fields, "createdBy").Trim(),
+                ClubName = ReadFirestoreRestString(fields, "clubName").Trim()
+            };
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] GetClubMetadataViaRest: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<string?> GetClubMemberRoleViaRestAsync(string clubId, string memberUid)
+    {
+        if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(memberUid))
+            return null;
+        try
+        {
+            var (status, body) = await GetRestDocumentAsync($"clubs/{clubId}/members/{memberUid}")
+                .ConfigureAwait(false);
+            if (status == System.Net.HttpStatusCode.NotFound || string.IsNullOrEmpty(body))
+                return null;
+            if ((int)status < 200 || (int)status >= 300) return null;
+            using var json = JsonDocument.Parse(body);
+            if (!json.RootElement.TryGetProperty("fields", out var fields)) return null;
+            var role = ReadFirestoreRestString(fields, "role");
+            return string.IsNullOrWhiteSpace(role) ? null : role.Trim().ToLowerInvariant();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] GetClubMemberRoleViaRest: {ex.Message}");
+            return null;
+        }
     }
 
     public async Task<IReadOnlyList<CloudTeamMember>> ListMembersAsync(string teamId)
@@ -1653,6 +1768,7 @@ public sealed class CloudTeamService : ICloudTeamService
                     TeamName = meta?.TeamName ?? "",
                     ClubId = meta?.ClubId ?? "",
                     ClubName = meta?.ClubName ?? "",
+                    Kind = meta?.Kind ?? "",
                     IsOwner = string.Equals(meta?.CreatedBy, uid, StringComparison.Ordinal)
                 });
             }
@@ -2479,10 +2595,8 @@ public sealed class CloudTeamService : ICloudTeamService
 
     private async Task<string> ReadClubNameAsync(string clubId)
     {
-        var snap = await _db.GetDocument($"clubs/{clubId}/metadata/info")
-            .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-            .ConfigureAwait(false);
-        return snap?.Data is null ? "" : ReadString(snap.Data, "clubName");
+        var meta = await GetClubMetadataViaRestAsync(clubId).ConfigureAwait(false);
+        return meta?.ClubName ?? "";
     }
 
     private async Task<bool> IsClubOwnerOrAdminAsync(string clubId, string uid)
@@ -2492,18 +2606,12 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            var meta = await _db.GetDocument($"clubs/{clubId}/metadata/info")
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-            if (meta?.Data is not null &&
-                string.Equals(ReadString(meta.Data, "createdBy"), uid, StringComparison.Ordinal))
+            var meta = await GetClubMetadataViaRestAsync(clubId).ConfigureAwait(false);
+            if (meta is not null
+                && string.Equals(meta.CreatedBy, uid, StringComparison.Ordinal))
                 return true;
 
-            var mem = await _db.GetDocument($"clubs/{clubId}/members/{uid}")
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-            if (mem?.Data is null) return false;
-            var role = ReadString(mem.Data, "role");
+            var role = await GetClubMemberRoleViaRestAsync(clubId, uid).ConfigureAwait(false);
             return string.Equals(role, "owner", StringComparison.OrdinalIgnoreCase)
                    || string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
         }
@@ -2522,14 +2630,13 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            var meta = await _db.GetDocument($"clubs/{clubId}/metadata/info")
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-            return meta?.Data is not null
-                   && string.Equals(ReadString(meta.Data, "createdBy"), uid, StringComparison.Ordinal);
+            var meta = await GetClubMetadataViaRestAsync(clubId).ConfigureAwait(false);
+            return meta is not null
+                   && string.Equals(meta.CreatedBy, uid, StringComparison.Ordinal);
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] IsClubOwner: {ex.Message}");
             return false;
         }
     }
@@ -2545,15 +2652,12 @@ public sealed class CloudTeamService : ICloudTeamService
             if (await IsClubOwnerAsync(clubId).ConfigureAwait(false))
                 return "owner";
 
-            var mem = await _db.GetDocument($"clubs/{clubId}/members/{uid}")
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-            if (mem?.Data is null) return null;
-            var role = ReadString(mem.Data, "role");
+            var role = await GetClubMemberRoleViaRestAsync(clubId, uid).ConfigureAwait(false);
             return string.IsNullOrWhiteSpace(role) ? null : role;
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] GetMyClubRole: {ex.Message}");
             return null;
         }
     }
@@ -2597,6 +2701,87 @@ public sealed class CloudTeamService : ICloudTeamService
         }
     }
 
+    public async Task<CloudTeamAgeSettings?> GetTeamAgeSettingsAsync(string teamId)
+    {
+        if (string.IsNullOrWhiteSpace(teamId)) return null;
+        if (await _auth.EnsureSignedInAsync().ConfigureAwait(false) is null) return null;
+        try
+        {
+            var meta = await GetTeamMetadataViaRestAsync(teamId).ConfigureAwait(false);
+            if (meta is null) return null;
+            var age = Helpers.ClubAgeGroups.CanonicalAgeGroup(meta.AgeGroup) ?? meta.AgeGroup;
+            var max = meta.MaxAgeOn1Jan > 0
+                ? meta.MaxAgeOn1Jan
+                : Helpers.ClubAgeGroups.MaxAgeOn1Jan(age);
+            return new CloudTeamAgeSettings
+            {
+                AgeGroup = age ?? "",
+                Season = meta.Season,
+                MaxAgeOn1Jan = max
+            };
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] GetTeamAgeSettings: {ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<string> UpdateTeamAgeSettingsAsync(string teamId, string ageGroup, int season)
+    {
+        var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
+        if (uid is null)
+            return "error: Could not authenticate with Firebase. Please check your internet connection.";
+        if (string.IsNullOrWhiteSpace(teamId))
+            return "error: Team is required.";
+        var age = Helpers.ClubAgeGroups.CanonicalAgeGroup(ageGroup);
+        if (age is null)
+            return "error: Choose a valid age group.";
+        if (season < 2000 || season > 2100)
+            return "error: Set a valid season year.";
+
+        try
+        {
+            var idToken = await GetRestIdTokenAsync().ConfigureAwait(false);
+            if (string.IsNullOrEmpty(idToken))
+                return "error: Could not authenticate with Firebase. Please check your internet connection.";
+
+            var fields = new Dictionary<string, object>
+            {
+                ["ageGroup"] = new Dictionary<string, object> { ["stringValue"] = age },
+                ["season"] = new Dictionary<string, object> { ["integerValue"] = season.ToString() }
+            };
+            var max = Helpers.ClubAgeGroups.MaxAgeOn1Jan(age);
+            if (max is int m)
+                fields["maxAgeOn1Jan"] = new Dictionary<string, object> { ["integerValue"] = m.ToString() };
+
+            var mask = string.Join("&", fields.Keys.Select(k => $"updateMask.fieldPaths={Uri.EscapeDataString(k)}"));
+            var url =
+                $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/teams/{Uri.EscapeDataString(teamId)}/metadata/info?{mask}";
+            using var req = new HttpRequestMessage(HttpMethod.Patch, url);
+            req.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+            req.Content = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(new { fields }),
+                System.Text.Encoding.UTF8,
+                "application/json");
+            using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudTeam] UpdateTeamAgeSettings {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+                return "error: Could not save the age group. Only a team Admin or club Owner/Admin can change it.";
+            }
+            return "success";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] UpdateTeamAgeSettings: {ex.Message}");
+            return $"error: {ex.Message}";
+        }
+    }
+
     public async Task<IReadOnlyList<CloudClubSummary>> ListManagedClubsAsync()
     {
         var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
@@ -2604,50 +2789,47 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            // Collection-group query on clubs/*/members where uid doc matches is awkward
-            // (doc id = uid). Scan managed club ids from a lightweight index on the user is
-            // not available yet — fall back to collection-group on members filtered by role
-            // is also limited. Use collectionGroup "members" under clubs is ambiguous with
-            // team members. Instead: query clubs where createdBy == uid, then also try
-            // reading Preferences-backed list is client-side. Here we query club metadata
-            // createdBy and merge with membership docs via REST-free approach:
+            // Discover clubs from the user's teams (membership query + each team's
+            // clubId), then confirm owner/admin over REST. Do not use a collection-group
+            // query on metadata.createdBy — rules have no {path=**}/metadata match and
+            // there is no collection-group index for that field.
             var results = new Dictionary<string, CloudClubSummary>(StringComparer.Ordinal);
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
 
-            var owned = await _db.GetCollectionGroup("metadata")
-                .WhereEqualsTo("createdBy", uid)
-                .LimitedTo(50)
-                .GetDocumentsAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-
-            if (owned?.Documents != null)
+            var memberships = await ListMyTeamMembershipsAsync().ConfigureAwait(false);
+            var clubIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var m in memberships)
             {
-                foreach (var doc in owned.Documents)
-                {
-                    // Path: clubs/{clubId}/metadata/info  OR teams/{teamId}/metadata/info
-                    var parentId = doc.Reference?.Parent?.Parent?.Id;
-                    var rootName = doc.Reference?.Path;
-                    if (string.IsNullOrEmpty(parentId) || doc.Data is null) continue;
-                    if (rootName is null || !rootName.Contains("/clubs/", StringComparison.Ordinal))
-                        continue;
-                    if (!rootName.Contains("/metadata/", StringComparison.Ordinal)) continue;
-
-                    var clubName = ReadString(doc.Data, "clubName");
-                    if (string.IsNullOrWhiteSpace(clubName)) continue;
-                    results[parentId] = new CloudClubSummary
-                    {
-                        ClubId = parentId,
-                        ClubName = clubName,
-                        Role = "owner"
-                    };
-                }
+                if (string.IsNullOrWhiteSpace(m.ClubId)) continue;
+                clubIds.Add(m.ClubId);
+                if (!names.ContainsKey(m.ClubId) && !string.IsNullOrWhiteSpace(m.ClubName))
+                    names[m.ClubId] = m.ClubName;
             }
 
-            return results.Values.OrderBy(c => c.ClubName, StringComparer.OrdinalIgnoreCase).ToList();
+            foreach (var clubId in clubIds)
+            {
+                var role = await GetMyClubRoleAsync(clubId).ConfigureAwait(false);
+                if (role is not ("owner" or "admin")) continue;
+
+                if (!names.TryGetValue(clubId, out var clubName) || string.IsNullOrWhiteSpace(clubName))
+                    clubName = await ReadClubNameAsync(clubId).ConfigureAwait(false);
+
+                results[clubId] = new CloudClubSummary
+                {
+                    ClubId = clubId,
+                    ClubName = clubName ?? "",
+                    Role = role
+                };
+            }
+
+            return results.Values
+                .OrderBy(c => c.ClubName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] ListManagedClubs: {ex.Message}");
-            return Array.Empty<CloudClubSummary>();
+            throw;
         }
     }
 

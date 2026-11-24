@@ -40,7 +40,9 @@ public interface ICloudTeamService
         string inviteCode,
         string adminCodeHash,
         string creatorEmail,
-        string displayName);
+        string displayName,
+        string? ageGroup = null,
+        int? season = null);
 
     /// <summary>
     /// Legacy entry point — creates a nickname team. Prefer <see cref="CreateNicknameTeamAsync"/>.
@@ -141,8 +143,14 @@ public interface ICloudTeamService
     /// </summary>
     Task<string?> GetTeamInviteCodeAsync(string teamId);
 
-    /// <summary>Clubs where the signed-in user is Owner or Admin (for “add team to my club”).</summary>
+    /// <summary>Clubs where the signed-in user is Owner or Admin (for “add team to my club”). Discovered from the user’s teams; role is read over REST.</summary>
     Task<IReadOnlyList<CloudClubSummary>> ListManagedClubsAsync();
+
+    /// <summary>Age group and season on <c>teams/{teamId}/metadata/info</c>.</summary>
+    Task<CloudTeamAgeSettings?> GetTeamAgeSettingsAsync(string teamId);
+
+    /// <summary>Set age group and season (team Admin or club Owner/Admin). Derives maxAgeOn1Jan.</summary>
+    Task<string> UpdateTeamAgeSettingsAsync(string teamId, string ageGroup, int season);
 
     /// <summary>Teams under a club (for future filters). Caller should be a club member.</summary>
     Task<IReadOnlyList<CloudTeamLookup>> ListTeamsForClubAsync(string clubId);
@@ -161,6 +169,7 @@ public sealed class CloudMembership
     public string Role { get; init; } = "member";
     public string ClubId { get; init; } = "";
     public string ClubName { get; init; } = "";
+    public string Kind { get; init; } = ""; // clubbed | nickname | ""
     public bool IsOwner { get; init; }
 }
 
@@ -222,6 +231,15 @@ public sealed class CloudClubSummary
     public string ClubId { get; init; } = "";
     public string ClubName { get; init; } = "";
     public string Role { get; init; } = ""; // owner | admin
+}
+
+public sealed class CloudTeamAgeSettings
+{
+    public string AgeGroup { get; init; } = "";
+    public int Season { get; init; }
+    public int? MaxAgeOn1Jan { get; init; }
+    public bool IsSet =>
+        Helpers.ClubAgeGroups.IsKnownAgeGroup(AgeGroup) && Season >= 2000;
 }
 
 public sealed class CloudTeamMember

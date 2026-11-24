@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="TurfTime2.ClubPlayersPage"
+             Title="Club players">
+    <ContentPage.Resources>
+        <ResourceDictionary Source="/Resources/Styles/PitchVolt.xaml" />
+    </ContentPage.Resources>
+    <ContentPage.Style>
+        <StaticResource Key="PvPage" />
+    </ContentPage.Style>
+    <ScrollView>
+        <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="16">
+            <VerticalStackLayout Spacing="2" Margin="4,0,0,0">
+                <Label Style="{StaticResource PvTitle}" Text="Club players" />
+                <Label x:Name="ClubNameLabel" Style="{StaticResource PvCaption}" />
+            </VerticalStackLayout>
+
+            <!-- No access, offline, or load errors -->
+            <Border x:Name="NoticeCard" Style="{StaticResource PvCardWarning}" Padding="12,8" IsVisible="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label x:Name="NoticeLabel" Style="{StaticResource PvWarningText}" FontFamily="InterSemiBold"
+                           HorizontalTextAlignment="Center" />
+                    <Button x:Name="RetryButton" Style="{StaticResource PvButtonOutline}" Text="Try again"
+                            IsVisible="False" Clicked="OnRetryClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Add player form -->
+            <Border x:Name="AddCard" Style="{StaticResource PvCard}" IsVisible="False">
+                <VerticalStackLayout Spacing="12">
+                    <Label Style="{StaticResource PvSectionHeader}" Text="Add player" />
+                    <VerticalStackLayout Spacing="4">
+                        <Label Style="{StaticResource PvBodyStrong}" Text="Name" />
+                        <Border Style="{StaticResource PvField}">
+                            <Entry Style="{StaticResource PvEntry}" x:Name="AddNameEntry" Placeholder="First and last name"
+                                   MaxLength="80" />
+                        </Border>
+                    </VerticalStackLayout>
+                    <VerticalStackLayout Spacing="4">
+                        <Label Style="{StaticResource PvBodyStrong}" Text="Preferred name (optional)" />
+                        <Border Style="{StaticResource PvField}">
+                            <Entry Style="{StaticResource PvEntry}" x:Name="AddPreferredEntry" Placeholder="e.g. Sammy"
+                                   MaxLength="40" />
+                        </Border>
+                    </VerticalStackLayout>
+                    <VerticalStackLayout Spacing="4">
+                        <Label Style="{StaticResource PvBodyStrong}" Text="Date of birth" />
+                        <Border Style="{StaticResource PvField}">
+                            <DatePicker Style="{StaticResource PvDatePicker}" x:Name="AddDobPicker" Format="d MMM yyyy"
+                                        DateSelected="OnDobSelected" />
+                        </Border>
+                        <Label x:Name="AddAgeGroupLabel" Style="{StaticResource PvCaption}" />
+                    </VerticalStackLayout>
+                    <Label x:Name="AddErrorLabel" Style="{StaticResource PvDangerText}" IsVisible="False" />
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                        <Button Style="{StaticResource PvButtonOutline}" Text="Cancel" Clicked="OnAddCancelClicked" />
+                        <Button Grid.Column="1" x:Name="AddSaveButton" Style="{StaticResource PvButtonPrimary}"
+                                Text="Add to club" Clicked="OnAddSaveClicked" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Search + list -->
+            <Border x:Name="ListCard" Style="{StaticResource PvCard}" IsVisible="False">
+                <VerticalStackLayout Spacing="12">
+                    <Border Style="{StaticResource PvField}">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <Label Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconSearch}"
+                                   VerticalOptions="Center" Margin="8,0,0,0" />
+                            <Entry Grid.Column="1" Style="{StaticResource PvEntry}" x:Name="SearchEntry"
+                                   Placeholder="Search players" TextChanged="OnSearchChanged" ClearButtonVisibility="WhileEditing" />
+                        </Grid>
+                    </Border>
+                    <Label x:Name="CountLabel" Style="{StaticResource PvCaption}" />
+                    <Button x:Name="AddButton" Style="{StaticResource PvButtonPrimary}" Text="Add player"
+                            IsVisible="False" Clicked="OnAddClicked" />
+                    <VerticalStackLayout x:Name="PlayerList" Spacing="6" />
+                    <Button x:Name="AddFromSearchButton" Style="{StaticResource PvButtonOutline}" IsVisible="False"
+                            Clicked="OnAddFromSearchClicked" />
+                    <HorizontalStackLayout x:Name="ArchivedToggleRow" IsVisible="False" Spacing="12">
+                        <Switch x:Name="ShowArchivedSwitch" Style="{StaticResource PvSwitch}"
+                                Toggled="OnShowArchivedToggled" />
+                        <Label Style="{StaticResource PvBody}" Text="Show archived" VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                    <Label x:Name="ArchivedCountLabel" Style="{StaticResource PvCaption}" IsVisible="False" />
+                    <VerticalStackLayout x:Name="ArchivedList" Spacing="6" />
+                </VerticalStackLayout>
+            </Border>
+
+            <ActivityIndicator x:Name="Busy" IsRunning="False" IsVisible="False" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

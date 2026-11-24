@@ -600,7 +600,8 @@ public static class QrCodeService
         string role = "member",
         bool isOwner = false,
         string? clubId = null,
-        string? clubName = null)
+        string? clubName = null,
+        string? kind = null)
     {
         var normalizedRole = string.IsNullOrWhiteSpace(role)
             ? "member"
@@ -627,6 +628,7 @@ public static class QrCodeService
         var cname = (clubName ?? "").Trim();
         Preferences.Set($"{teamId}_club_id", cid);
         Preferences.Set($"{teamId}_club_name", cname);
+        Preferences.Set($"{teamId}_kind", Helpers.ClubTeamNames.ResolveKind(kind, cid));
 
         // Persist invite so a later Promote-to-Admin can show/share it without recreating the team.
         var code = NormalizeInviteCode(inviteCode);

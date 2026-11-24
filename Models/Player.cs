@@ -11,6 +11,9 @@ public sealed class Player : INotifyPropertyChanged
 {
     public int SlotId { get; set; }
 
+    /// <summary>Club player id when this slot is linked; otherwise empty.</summary>
+    public string PlayerId { get; set; } = "";
+
     private string _name = string.Empty;
     private PlayerPosition _position = PlayerPosition.Bench;
     private int? _fieldCell;

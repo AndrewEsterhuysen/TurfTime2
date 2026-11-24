@@ -87,6 +87,21 @@
                     <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
                 </Grid>
             </Border>
+            <Border x:Name="ClubPlayersCard" Style="{StaticResource PvCard}" Padding="16,12" IsVisible="False">
+                <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnClubPlayersTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconGroups}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Club players" />
+                        <Label Style="{StaticResource PvCaption}" Text="The club's player list (admins and coaches)" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
+                </Grid>
+            </Border>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

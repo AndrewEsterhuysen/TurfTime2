@@ -22,4 +22,38 @@ public static class ClubTeamNames
     }
 
     public static bool HasClub(string? clubId) => !string.IsNullOrWhiteSpace(clubId);
+
+    /// <summary>
+    /// Prefer the stored <c>kind</c> field when present; older teams may omit it,
+    /// in which case a non-empty <paramref name="clubId"/> means clubbed.
+    /// </summary>
+    public static string ResolveKind(string? kind, string? clubId)
+    {
+        if (string.Equals(kind, KindClubbed, StringComparison.OrdinalIgnoreCase))
+            return KindClubbed;
+        if (string.Equals(kind, KindNickname, StringComparison.OrdinalIgnoreCase))
+            return KindNickname;
+        return HasClub(clubId) ? KindClubbed : KindNickname;
+    }
+
+    /// <summary>
+    /// Short type line for the Team Admin panel, visible to every member.
+    /// </summary>
+    public static string FormatTypeLabel(bool isShared, bool isLocal, string? kind, string? clubId, string? clubName)
+    {
+        if (isLocal)
+            return "Type: Local team (this device only)";
+        if (!isShared)
+            return "Type: Not configured";
+
+        if (string.Equals(ResolveKind(kind, clubId), KindClubbed, StringComparison.OrdinalIgnoreCase))
+        {
+            var name = (clubName ?? string.Empty).Trim();
+            return string.IsNullOrEmpty(name)
+                ? "Type: Online · Club team"
+                : $"Type: Online · Club team ({name})";
+        }
+
+        return "Type: Online · Nickname team";
+    }
 }
