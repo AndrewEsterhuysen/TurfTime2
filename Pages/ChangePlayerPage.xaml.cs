@@ -223,13 +223,8 @@ public partial class ChangePlayerPage : ContentPage
             details.Add(dob.ToString("d MMM yyyy", CultureInfo.CurrentCulture));
             details.Add(ClubAgeGroups.AgeGroupFor(dob, _season));
         }
-        var current = ClubPlayerAssignments.CurrentTeamIds(p.Teams);
-        if (current.Count > 0)
-        {
-            var names = p.Teams.Where(t => t.RemovedAt is null && !string.IsNullOrWhiteSpace(t.TeamName))
-                .Select(t => t.TeamName).Distinct().ToList();
-            if (names.Count > 0) details.Add(string.Join(", ", names));
-        }
+        var names = ClubPlayerAssignments.CurrentTeamNames(p.Teams, p.TeamIds);
+        if (names.Count > 0) details.Add(string.Join(", ", names));
         if (string.Equals(p.PlayerId, _targetSlot?.PlayerId, StringComparison.Ordinal))
             details.Add("This slot");
         else if (_targetVm?.Players.Any(s =>
@@ -297,6 +292,11 @@ public partial class ChangePlayerPage : ContentPage
             _targetVm.LinkClubPlayer(_targetSlot, player.PlayerId, player.DisplayName);
             await Navigation.PopAsync();
         }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChangePlayer] Assign: {ex.Message}");
+            await DisplayAlert("Change player", "Could not assign the player. Check the connection and try again.", "OK");
+        }
         finally
         {
             _busy = false;
@@ -320,22 +320,30 @@ public partial class ChangePlayerPage : ContentPage
             "Cancel");
         if (!go) return;
 
+        if (_players is null || string.IsNullOrWhiteSpace(_clubId) || string.IsNullOrWhiteSpace(_teamId))
+        {
+            await DisplayAlert("Change player", "Could not remove the assignment. Check the connection and try again.", "OK");
+            return;
+        }
+
         _busy = true;
         try
         {
-            if (_players is not null && !string.IsNullOrWhiteSpace(_clubId))
+            var season = _season >= 2000 ? _season : ClubAgeGroups.CurrentSeason();
+            var result = await _players.UnassignFromTeamAsync(
+                _clubId, _targetSlot.PlayerId, _teamId, season);
+            if (!result.Success)
             {
-                var season = _season >= 2000 ? _season : ClubAgeGroups.CurrentSeason();
-                var result = await _players.UnassignFromTeamAsync(
-                    _clubId, _targetSlot.PlayerId, _teamId, season);
-                if (!result.Success)
-                {
-                    await DisplayAlert("Change player", result.Error ?? "Could not remove the assignment.", "OK");
-                    return;
-                }
+                await DisplayAlert("Change player", result.Error ?? "Could not remove the assignment.", "OK");
+                return;
             }
             _targetVm.UnlinkClubPlayer(_targetSlot);
             await Navigation.PopAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChangePlayer] Unassign: {ex.Message}");
+            await DisplayAlert("Change player", "Could not remove the assignment. Check the connection and try again.", "OK");
         }
         finally
         {

@@ -71,17 +71,50 @@ public static class ClubPlayerAssignments
         return list;
     }
 
+    /// <summary>
+    /// Current team names, preferring <paramref name="teamIds"/> when it is the
+    /// source of truth (entries in <see cref="ClubPlayer.Teams"/> with no
+    /// <see cref="ClubPlayerTeamEntry.RemovedAt"/> are used only to look up names,
+    /// or as a fallback when <paramref name="teamIds"/> is null).
+    /// </summary>
+    public static List<string> CurrentTeamNames(
+        IEnumerable<ClubPlayerTeamEntry> teams,
+        IReadOnlyList<string>? teamIds)
+    {
+        var list = teams as IList<ClubPlayerTeamEntry> ?? teams.ToList();
+        var ids = teamIds is null
+            ? CurrentTeamIds(list)
+            : teamIds.Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        var names = new List<string>();
+        foreach (var id in ids)
+        {
+            var name = list.LastOrDefault(t =>
+                           string.Equals(t.TeamId, id, StringComparison.Ordinal) && t.RemovedAt is null)?.TeamName
+                       ?? list.LastOrDefault(t =>
+                           string.Equals(t.TeamId, id, StringComparison.Ordinal))?.TeamName;
+            if (!string.IsNullOrWhiteSpace(name) && !names.Contains(name, StringComparer.Ordinal))
+                names.Add(name);
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// Close every open assignment to <paramref name="teamId"/>, regardless of
+    /// season. A season mismatch must not leave the player listed on the team.
+    /// </summary>
     public static List<ClubPlayerTeamEntry> Unassign(
         IEnumerable<ClubPlayerTeamEntry> existing,
         string teamId,
         int season,
         DateTimeOffset now)
     {
+        _ = season; // kept so callers can pass the team's current season
         var list = existing.Select(Clone).ToList();
         foreach (var t in list)
         {
             if (string.Equals(t.TeamId, teamId, StringComparison.Ordinal)
-                && t.Season == season
                 && t.RemovedAt is null)
                 t.RemovedAt = now;
         }

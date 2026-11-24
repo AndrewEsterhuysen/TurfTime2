@@ -349,25 +349,33 @@ public sealed class ClubPlayerService : IClubPlayerService
         if (!ClubAgeGroups.IsKnownAgeGroup(ageGroup))
             return ClubPlayerWriteResult.Fail("Set this team's age group before assigning players.");
 
-        var loaded = await LoadPlayerAsync(clubId, playerId, cancellationToken).ConfigureAwait(false);
-        if (loaded.Error is not null) return loaded;
-        var current = loaded.Player!;
+        try
+        {
+            var loaded = await LoadPlayerAsync(clubId, playerId, cancellationToken).ConfigureAwait(false);
+            if (loaded.Error is not null) return loaded;
+            var current = loaded.Player!;
 
-        if (!ClubAgeGroups.TryParseDateOfBirth(current.DateOfBirth, out var dob))
-            return ClubPlayerWriteResult.Fail("This player needs a date of birth before they can be assigned.");
-        if (!ClubAgeGroups.IsEligibleToAssign(dob, ageGroup, season))
-            return ClubPlayerWriteResult.Fail(ClubAgeGroups.IneligibilityReason(dob, ageGroup, season)
-                                              ?? "This player is not eligible for the team.");
+            if (!ClubAgeGroups.TryParseDateOfBirth(current.DateOfBirth, out var dob))
+                return ClubPlayerWriteResult.Fail("This player needs a date of birth before they can be assigned.");
+            if (!ClubAgeGroups.IsEligibleToAssign(dob, ageGroup, season))
+                return ClubPlayerWriteResult.Fail(ClubAgeGroups.IneligibilityReason(dob, ageGroup, season)
+                                                  ?? "This player is not eligible for the team.");
 
-        var warning = ClubPlayerAssignments.ShouldWarnTeamCount(current.Teams, teamId)
-            ? $"This player is already assigned to {ClubPlayerAssignments.TeamCountWarningAt} or more teams this season."
-            : null;
+            var warning = ClubPlayerAssignments.ShouldWarnTeamCount(current.Teams, teamId)
+                ? $"This player is already assigned to {ClubPlayerAssignments.TeamCountWarningAt} or more teams this season."
+                : null;
 
-        var now = DateTimeOffset.UtcNow;
-        var teams = ClubPlayerAssignments.Assign(current.Teams, teamId, teamName ?? "", season, now);
-        var teamIds = ClubPlayerAssignments.CurrentTeamIds(teams);
-        return await PatchAssignmentAsync(clubId, current, teams, teamIds, teamId, dob, now, warning, cancellationToken)
-            .ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
+            var teams = ClubPlayerAssignments.Assign(current.Teams, teamId, teamName ?? "", season, now);
+            var teamIds = ClubPlayerAssignments.CurrentTeamIds(teams);
+            return await PatchAssignmentAsync(clubId, current, teams, teamIds, teamId, dob, now, warning, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ClubPlayers] Assign: {ex.Message}");
+            return ClubPlayerWriteResult.Fail("Could not reach the server. Check your connection.");
+        }
     }
 
     public async Task<ClubPlayerWriteResult> UnassignFromTeamAsync(string clubId, string playerId, string teamId,
@@ -376,16 +384,34 @@ public sealed class ClubPlayerService : IClubPlayerService
         if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(playerId) || string.IsNullOrWhiteSpace(teamId))
             return ClubPlayerWriteResult.Fail("Missing team or player.");
 
-        var loaded = await LoadPlayerAsync(clubId, playerId, cancellationToken).ConfigureAwait(false);
-        if (loaded.Error is not null) return loaded;
-        var current = loaded.Player!;
+        try
+        {
+            var loaded = await LoadPlayerAsync(clubId, playerId, cancellationToken).ConfigureAwait(false);
+            if (loaded.Error is not null) return loaded;
+            var current = loaded.Player!;
 
-        var now = DateTimeOffset.UtcNow;
-        var teams = ClubPlayerAssignments.Unassign(current.Teams, teamId, season, now);
-        var teamIds = ClubPlayerAssignments.CurrentTeamIds(teams);
-        ClubAgeGroups.TryParseDateOfBirth(current.DateOfBirth, out var dob);
-        return await PatchAssignmentAsync(clubId, current, teams, teamIds, teamId, dob, now, warning: null, cancellationToken)
-            .ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
+            // Already off the team (by teamIds or open history): treat as success so the slot can clear.
+            var currentIds = current.TeamIds.Count > 0
+                ? current.TeamIds
+                : ClubPlayerAssignments.CurrentTeamIds(current.Teams);
+            if (!currentIds.Contains(teamId, StringComparer.Ordinal))
+                return new ClubPlayerWriteResult { Success = true, Player = current };
+
+            var teams = ClubPlayerAssignments.Unassign(current.Teams, teamId, season, now);
+            var teamIds = ClubPlayerAssignments.CurrentTeamIds(teams);
+            if (teamIds.Contains(teamId, StringComparer.Ordinal))
+                return ClubPlayerWriteResult.Fail("Could not remove the assignment from the player record.");
+
+            ClubAgeGroups.TryParseDateOfBirth(current.DateOfBirth, out var dob);
+            return await PatchAssignmentAsync(clubId, current, teams, teamIds, teamId, dob, now, warning: null, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ClubPlayers] Unassign: {ex.Message}");
+            return ClubPlayerWriteResult.Fail("Could not reach the server. Check your connection.");
+        }
     }
 
     private async Task<ClubPlayerWriteResult> LoadPlayerAsync(string clubId, string playerId, CancellationToken ct)

@@ -101,5 +101,28 @@ hist = ClubPlayerAssignments.Assign(hist, "t1", "U10 Green", 2027, later.AddYear
 Check(hist.Count(x => x.TeamId == "t1") == 2 && hist.Count(x => x.TeamId == "t1" && x.RemovedAt is null) == 2,
       "new season adds a fresh assignment and keeps last year's");
 
+// Unassign must drop the player from the team even when the season doesn't match
+// (or when a prior season's entry was left open). A no-op here is what left a
+// player listed on a team after Clear this slot.
+var mismatch = ClubPlayerAssignments.Unassign(hist, "t1", 2026, later.AddYears(1).AddDays(1));
+Check(ClubPlayerAssignments.CurrentTeamIds(mismatch).All(id => id != "t1"),
+      "unassign with an older season still closes every open entry for that team");
+Check(mismatch.Count(x => x.TeamId == "t1" && x.RemovedAt is null) == 0,
+      "no open t1 entry remains after unassign");
+Check(ClubPlayerAssignments.CurrentTeamNames(mismatch, ClubPlayerAssignments.CurrentTeamIds(mismatch))
+          .All(n => n != "U10 Green"),
+      "current team names omit the unassigned team");
+
+// teamIds already cleared (successful write) should hide the name even if a
+// teams entry was left without removedAt (parse miss).
+var staleOpen = new List<ClubPlayerTeamEntry>
+{
+    new() { TeamId = "t1", TeamName = "U10 Green", Season = 2026 }
+};
+Check(ClubPlayerAssignments.CurrentTeamNames(staleOpen, []).Count == 0,
+      "empty teamIds hides a stale open teams entry");
+Check(ClubPlayerAssignments.CurrentTeamNames(staleOpen, ["t1"]).SequenceEqual(["U10 Green"]),
+      "teamIds still containing t1 still shows the name");
+
 Console.WriteLine(fails == 0 ? "ALL PASS" : $"{fails} FAILED");
 return fails;

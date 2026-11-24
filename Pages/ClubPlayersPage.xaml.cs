@@ -127,7 +127,7 @@ public partial class ClubPlayersPage : ContentPage
         if (matches.Count > MaxRows)
             CountLabel.Text += $" · showing {MaxRows}, type to narrow";
         if (active == 0)
-            CountLabel.Text = "No players yet. Add the first one below.";
+            CountLabel.Text = "No players yet. Add the first one above.";
 
         // Inline "Add X to the club" when nothing matches the typed name exactly (§7.2).
         var typed = ClubPlayerNames.CleanDisplay(query);
@@ -148,8 +148,8 @@ public partial class ClubPlayersPage : ContentPage
         {
             details.Add("Date of birth missing");
         }
-        var current = p.Teams.Where(t => t.RemovedAt is null && !string.IsNullOrWhiteSpace(t.TeamName))
-            .Select(t => t.TeamName).Distinct().ToList();
+        // Prefer teamIds (current assignments). Open teams entries supply the names.
+        var current = ClubPlayerAssignments.CurrentTeamNames(p.Teams, p.TeamIds);
         if (current.Count > 0) details.Add(string.Join(", ", current));
 
         return new Border
