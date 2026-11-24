@@ -23,13 +23,12 @@ beforeEach(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
-    await setDoc(doc(db, `clubs/${C}/metadata/info`), { clubName: 'FC', createdBy: 'cowner', ownerRecoveryCodeHash: CLUB_HASH });
+    await setDoc(doc(db, `clubs/${C}/metadata/info`), { clubName: 'FC', createdBy: 'cowner' });
     await setDoc(doc(db, `clubs/${C}/secrets/info`), { ownerRecoveryCodeHash: CLUB_HASH });
     await setDoc(doc(db, `clubs/${C}/members/cowner`), { role: 'owner', displayName: 'CO', uid: 'cowner' });
     await setDoc(doc(db, `clubs/${C}/members/cadmin`), { role: 'admin', displayName: 'CA', uid: 'cadmin' });
     await setDoc(doc(db, `teams/${T}/metadata/info`), {
-      teamName: 'U10', inviteCode: 'ABCD-EFGH', adminCodeHash: HASH,
-      creatorEmail: 'a@example.com', createdBy: 'owner', clubId: C, clubName: 'FC', kind: 'clubbed',
+      teamName: 'U10', createdBy: 'owner', clubId: C, clubName: 'FC', kind: 'clubbed',
     });
     await setDoc(doc(db, `teams/${T}/secrets/info`), { inviteCode: 'ABCD-EFGH', adminCodeHash: HASH, creatorEmail: 'a@example.com' });
     await setDoc(doc(db, `teams/${T}/members/owner`), { uid: 'owner', role: 'admin', displayName: 'O' });
@@ -180,5 +179,42 @@ test('invite_codes: get-by-id works for signed-in; list/query is denied', async 
 test('club owner can take a team admin seat on a club team (recovery path)', async () => {
   await assertSucceeds(setDoc(doc(as('cowner'), `teams/${T}/members/cowner`), {
     role: 'admin', uid: 'cowner', displayName: 'CO',
+  }, M));
+});
+
+test('metadata cannot contain secret fields on create or update', async () => {
+  const db = as('newbie');
+  await assertFails(setDoc(doc(db, 'teams/tsec/metadata/info'), {
+    teamName: 'Sec', createdBy: 'newbie', inviteCode: 'ABCD-EFGH',
+  }, M));
+  await assertFails(setDoc(doc(db, 'teams/tsec/metadata/info'), {
+    teamName: 'Sec', createdBy: 'newbie', adminCodeHash: HASH,
+  }, M));
+  await assertFails(setDoc(doc(db, 'teams/tsec/metadata/info'), {
+    teamName: 'Sec', createdBy: 'newbie', creatorEmail: 'a@example.com',
+  }, M));
+  await assertSucceeds(setDoc(doc(db, 'teams/tsec/metadata/info'), {
+    teamName: 'Sec', createdBy: 'newbie',
+  }, M));
+  await assertFails(updateDoc(doc(as('newbie'), 'teams/tsec/metadata/info'), { inviteCode: 'ABCD-EFGH' }));
+  await assertFails(updateDoc(doc(as('newbie'), 'teams/tsec/metadata/info'), { adminCodeHash: HASH }));
+  await assertFails(updateDoc(doc(as('newbie'), 'teams/tsec/metadata/info'), { creatorEmail: 'a@example.com' }));
+
+  const clubDb = as('fresh');
+  await assertFails(setDoc(doc(clubDb, 'clubs/csec/metadata/info'), {
+    clubName: 'SecFC', createdBy: 'fresh', ownerRecoveryCodeHash: CLUB_HASH,
+  }));
+  await assertSucceeds(setDoc(doc(clubDb, 'clubs/csec/metadata/info'), {
+    clubName: 'SecFC', createdBy: 'fresh',
+  }));
+  await assertFails(updateDoc(doc(as('fresh'), 'clubs/csec/metadata/info'), {
+    ownerRecoveryCodeHash: CLUB_HASH,
+  }));
+});
+
+test('admin recovery fails when secrets/info is missing (no metadata hash fallback)', async () => {
+  await assertSucceeds(deleteDoc(doc(as('owner'), `teams/${T}/secrets/info`)));
+  await assertFails(setDoc(doc(as('recover2'), `teams/${T}/members/recover2`), {
+    role: 'admin', uid: 'recover2', displayName: 'R2', adminCodeHash: HASH,
   }, M));
 });

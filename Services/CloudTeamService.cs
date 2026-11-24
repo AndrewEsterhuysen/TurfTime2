@@ -129,8 +129,6 @@ public sealed class CloudTeamService : ICloudTeamService
                 ["createdAt"] = now,
                 ["isActive"] = true
             };
-            if (!string.IsNullOrWhiteSpace(clubOwnerRecoveryCodeHash))
-                clubMeta["ownerRecoveryCodeHash"] = clubOwnerRecoveryCodeHash;
 
             await _db.GetDocument($"clubs/{clubId}/metadata/info")
                 .SetDataAsync(clubMeta, SetOptions.Merge()).ConfigureAwait(false);
@@ -245,9 +243,6 @@ public sealed class CloudTeamService : ICloudTeamService
             var meta = new Dictionary<object, object>
             {
                 ["teamName"] = teamName ?? "",
-                ["inviteCode"] = code,
-                ["adminCodeHash"] = adminCodeHash,
-                ["creatorEmail"] = creatorEmail ?? "",
                 ["createdBy"] = uid,
                 ["kind"] = kind,
                 ["isActive"] = true,
@@ -430,36 +425,7 @@ public sealed class CloudTeamService : ICloudTeamService
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup public CG: {ex.Message}");
         }
 
-        // 5) metadata.inviteCode collection-group
-        try
-        {
-            var querySnap = await _db.GetCollectionGroup("metadata")
-                .WhereEqualsTo("inviteCode", code)
-                .LimitedTo(5)
-                .GetDocumentsAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-
-            var hit = ExtractLookupFromQuery(querySnap, preferTeamIdFromPath: true);
-            if (hit != null)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[CloudTeam] Lookup hit metadata CG → {hit.TeamId}");
-                try
-                {
-                    await UpsertInviteCodeLookupAsync(
-                            code, hit.TeamId, hit.TeamName, _auth.UserId ?? "", hit.ClubId, hit.ClubName)
-                        .ConfigureAwait(false);
-                }
-                catch { /* heal best-effort */ }
-                return hit;
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[CloudTeam] Lookup metadata CG: {ex.Message}");
-        }
-
-        // 6) Authenticated Firestore REST — proven path when SDK Data is empty but docs exist
+        // 5) Authenticated Firestore REST — proven path when SDK Data is empty but docs exist
         try
         {
             var restHit = await LookupInviteCodeViaRestAsync(code).ConfigureAwait(false);
@@ -669,10 +635,9 @@ public sealed class CloudTeamService : ICloudTeamService
                 $"[CloudTeam] teams/.../public/invite skipped: {ex.Message}");
         }
 
-        // Join can still use metadata.inviteCode via collection-group if both index paths fail.
         if (!anyOk && last != null)
             System.Diagnostics.Debug.WriteLine(
-                $"[CloudTeam] No invite index written; metadata.inviteCode remains for CG lookup. Last={last.Message}");
+                $"[CloudTeam] No invite index written. Last={last.Message}");
     }
 
     /// <summary>Normalized invite codes: uppercase, keep alphanumerics and single dash form.</summary>
@@ -822,9 +787,8 @@ public sealed class CloudTeamService : ICloudTeamService
             var teamName = ReadString(data, "teamName");
             var clubId = ReadString(data, "clubId");
             var clubName = ReadString(data, "clubName");
-            var storedTeamHash = ReadString(data, "adminCodeHash");
             var previousOwnerUid = ReadString(data, "createdBy");
-            var inviteCode = NormalizeInviteCode(ReadString(data, "inviteCode"));
+            var inviteCode = "";
 
             try
             {
@@ -833,8 +797,6 @@ public sealed class CloudTeamService : ICloudTeamService
                 {
                     if (string.IsNullOrWhiteSpace(teamName) && !string.IsNullOrWhiteSpace(restMeta.TeamName))
                         teamName = restMeta.TeamName;
-                    if (string.IsNullOrEmpty(inviteCode))
-                        inviteCode = NormalizeInviteCode(restMeta.InviteCode);
                     if (string.IsNullOrEmpty(previousOwnerUid))
                         previousOwnerUid = restMeta.CreatedBy ?? "";
                     if (string.IsNullOrEmpty(clubId) && !string.IsNullOrWhiteSpace(restMeta.ClubId))
@@ -842,36 +804,38 @@ public sealed class CloudTeamService : ICloudTeamService
                         clubId = restMeta.ClubId;
                         clubName = restMeta.ClubName ?? clubName;
                     }
-                    if (string.IsNullOrEmpty(storedTeamHash) && !string.IsNullOrWhiteSpace(restMeta.AdminCodeHash))
-                        storedTeamHash = restMeta.AdminCodeHash;
                 }
             }
             catch { /* optional fill-in */ }
 
             try
             {
-                var secretHash = await GetTeamSecretStringAsync(teamId, "adminCodeHash").ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(secretHash))
-                    storedTeamHash = secretHash;
-                if (string.IsNullOrEmpty(inviteCode))
-                {
-                    var secretInvite = await GetTeamSecretStringAsync(teamId, "inviteCode").ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(secretInvite))
-                        inviteCode = NormalizeInviteCode(secretInvite);
-                }
+                var secretInvite = await GetTeamSecretStringAsync(teamId, "inviteCode").ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(secretInvite))
+                    inviteCode = NormalizeInviteCode(secretInvite);
             }
-            catch { /* secrets may not exist yet or are not readable until after rejoin */ }
+            catch { /* secrets may not be readable until after rejoin */ }
 
             var suppliedHash = hashAdminCode(adminCode.Trim());
 
-            // 1) Team Owner Recovery Code
-            if (!string.IsNullOrEmpty(storedTeamHash)
-                && string.Equals(suppliedHash, storedTeamHash, StringComparison.OrdinalIgnoreCase))
+            // 1) Team Owner Recovery Code — write the hash; rules compare it to secrets/info.
+            var teamRecoveryOk = false;
+            try
             {
                 await RestoreTeamOwnerAsync(
                     teamId, teamName, uid, displayName, previousOwnerUid, inviteCode, clubId, clubName,
                     suppliedHash)
                     .ConfigureAwait(false);
+                teamRecoveryOk = true;
+            }
+            catch (Exception teamRecEx)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudTeam] Team recovery write: {teamRecEx.Message}");
+            }
+
+            if (teamRecoveryOk)
+            {
 
                 System.Diagnostics.Debug.WriteLine(
                     $"[CloudTeam] Owner recovery (team) team={teamId} uid={uid[..Math.Min(6, uid.Length)]}…");
@@ -893,9 +857,7 @@ public sealed class CloudTeamService : ICloudTeamService
                 return new CloudOwnerRecoveryResult
                 {
                     Status = "error",
-                    Message = string.IsNullOrEmpty(storedTeamHash)
-                        ? "This team has no Owner recovery code, and it is not under a club."
-                        : "Invalid recovery code. Check the code and try again."
+                    Message = "Invalid recovery code. Check the code and try again."
                 };
             }
 
@@ -915,35 +877,24 @@ public sealed class CloudTeamService : ICloudTeamService
             if (string.IsNullOrWhiteSpace(clubName))
                 clubName = ReadString(clubData, "clubName");
 
-            var storedClubHash = ReadString(clubData, "ownerRecoveryCodeHash");
+            // Rules compare recoveryHash to clubs/{c}/secrets/info; the client cannot
+            // read club secrets until it is already the owner.
             try
             {
-                var secretClubHash = await GetClubSecretStringAsync(clubId, "ownerRecoveryCodeHash").ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(secretClubHash))
-                    storedClubHash = secretClubHash;
+                await RestoreClubOwnerAsync(
+                    clubId, clubName, teamId, teamName, uid, displayName, clubData, suppliedHash)
+                    .ConfigureAwait(false);
             }
-            catch { /* optional */ }
-            if (string.IsNullOrEmpty(storedClubHash))
+            catch (Exception clubRecEx)
             {
-                return new CloudOwnerRecoveryResult
-                {
-                    Status = "error",
-                    Message = "Invalid recovery code. This club has no Club Owner recovery code configured."
-                };
-            }
-
-            if (!string.Equals(suppliedHash, storedClubHash, StringComparison.OrdinalIgnoreCase))
-            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudTeam] Club recovery write: {clubRecEx.Message}");
                 return new CloudOwnerRecoveryResult
                 {
                     Status = "error",
                     Message = "Invalid recovery code. Check the code and try again."
                 };
             }
-
-            await RestoreClubOwnerAsync(
-                clubId, clubName, teamId, teamName, uid, displayName, clubData)
-                .ConfigureAwait(false);
 
             System.Diagnostics.Debug.WriteLine(
                 $"[CloudTeam] Owner recovery (club) club={clubId} via team={teamId} uid={uid[..Math.Min(6, uid.Length)]}…");
@@ -1004,6 +955,16 @@ public sealed class CloudTeamService : ICloudTeamService
             .SetDataAsync(ownershipFields, SetOptions.Merge())
             .ConfigureAwait(false);
 
+        if (string.IsNullOrEmpty(inviteCode))
+        {
+            try
+            {
+                inviteCode = NormalizeInviteCode(
+                    await GetTeamSecretStringAsync(teamId, "inviteCode").ConfigureAwait(false));
+            }
+            catch { /* best-effort after becoming admin */ }
+        }
+
         if (!string.IsNullOrEmpty(inviteCode))
         {
             try
@@ -1034,7 +995,8 @@ public sealed class CloudTeamService : ICloudTeamService
         string teamName,
         string uid,
         string? displayName,
-        IDictionary<string, object> clubData)
+        IDictionary<string, object> clubData,
+        string recoveryHash)
     {
         var previousClubOwner = ReadString(clubData, "createdBy");
         var clubOwnership = new Dictionary<object, object>
@@ -1042,12 +1004,8 @@ public sealed class CloudTeamService : ICloudTeamService
             ["createdBy"] = uid,
             ["ownershipRecoveredAt"] = DateTimeOffset.UtcNow
         };
-        var clubHash = ReadString(clubData, "ownerRecoveryCodeHash");
-        // Prefer the hash already verified by the caller; also try secrets.
-        if (string.IsNullOrEmpty(clubHash))
-            clubHash = await GetClubSecretStringAsync(clubId, "ownerRecoveryCodeHash").ConfigureAwait(false) ?? "";
-        if (!string.IsNullOrEmpty(clubHash))
-            clubOwnership["recoveryHash"] = clubHash;
+        if (!string.IsNullOrEmpty(recoveryHash))
+            clubOwnership["recoveryHash"] = recoveryHash;
         if (!string.IsNullOrEmpty(previousClubOwner)
             && !string.Equals(previousClubOwner, uid, StringComparison.Ordinal))
         {
@@ -1056,6 +1014,19 @@ public sealed class CloudTeamService : ICloudTeamService
 
         await _db.GetDocument($"clubs/{clubId}/metadata/info")
             .SetDataAsync(clubOwnership, SetOptions.Merge()).ConfigureAwait(false);
+
+        // recoveryHash is only a write-time proof; do not leave it on world-readable metadata.
+        try
+        {
+            await DeleteFieldsViaRestAsync(
+                $"clubs/{Uri.EscapeDataString(clubId)}/metadata/info",
+                "recoveryHash", "ownerRecoveryCodeHash").ConfigureAwait(false);
+        }
+        catch (Exception stripEx)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudTeam] Club recoveryHash strip: {stripEx.Message}");
+        }
 
         await _db.GetDocument($"clubs/{clubId}/members/{uid}")
             .SetDataAsync(new Dictionary<object, object>
@@ -1133,21 +1104,9 @@ public sealed class CloudTeamService : ICloudTeamService
             var code = NormalizeInviteCode(newCode);
             if (string.IsNullOrEmpty(code)) return false;
 
-            await _db.GetDocument($"teams/{teamId}/metadata/info")
-                .SetDataAsync(new Dictionary<object, object>
-                {
-                    ["inviteCode"] = code
-                }, SetOptions.Merge()).ConfigureAwait(false);
-            try
-            {
-                await _db.GetDocument($"teams/{teamId}/secrets/info")
-                    .SetDataAsync(new Dictionary<object, object> { ["inviteCode"] = code }, SetOptions.Merge())
-                    .ConfigureAwait(false);
-            }
-            catch (Exception secEx)
-            {
-                System.Diagnostics.Debug.WriteLine($"[CloudTeam] UpdateInvite secrets: {secEx.Message}");
-            }
+            await _db.GetDocument($"teams/{teamId}/secrets/info")
+                .SetDataAsync(new Dictionary<object, object> { ["inviteCode"] = code }, SetOptions.Merge())
+                .ConfigureAwait(false);
 
             // Clear previous public invite pointer (overwrite below) and legacy root docs.
             var oldNorm = NormalizeInviteCode(oldCode);
@@ -1205,19 +1164,6 @@ public sealed class CloudTeamService : ICloudTeamService
 
             await UpsertInviteCodeLookupAsync(code, teamId, teamName ?? "", uid, clubId, clubName)
                 .ConfigureAwait(false);
-            // Keep metadata.inviteCode aligned for collection-group fallback.
-            var patch = new Dictionary<object, object>
-            {
-                ["inviteCode"] = code,
-                ["teamName"] = teamName ?? ""
-            };
-            if (!string.IsNullOrEmpty(clubId))
-            {
-                patch["clubId"] = clubId;
-                patch["clubName"] = clubName;
-            }
-            await _db.GetDocument($"teams/{teamId}/metadata/info")
-                .SetDataAsync(patch, SetOptions.Merge()).ConfigureAwait(false);
             return true;
         }
         catch (Exception ex)
@@ -1784,22 +1730,24 @@ public sealed class CloudTeamService : ICloudTeamService
 
             var restMeta = await GetTeamMetadataViaRestAsync(teamId).ConfigureAwait(false);
             var teamName = restMeta?.TeamName ?? "";
-            var inviteCode = NormalizeInviteCode(restMeta?.InviteCode ?? "");
+            var inviteCode = "";
 
             try
             {
                 var metaSnap = await _db.GetDocument($"teams/{teamId}/metadata/info")
                     .GetDocumentSnapshotAsync<Dictionary<string, object>>()
                     .ConfigureAwait(false);
-                if (metaSnap?.Data is not null)
-                {
-                    if (string.IsNullOrWhiteSpace(teamName))
-                        teamName = ReadString(metaSnap.Data, "teamName");
-                    if (string.IsNullOrEmpty(inviteCode))
-                        inviteCode = NormalizeInviteCode(ReadString(metaSnap.Data, "inviteCode"));
-                }
+                if (metaSnap?.Data is not null && string.IsNullOrWhiteSpace(teamName))
+                    teamName = ReadString(metaSnap.Data, "teamName");
             }
             catch { /* optional fill-in */ }
+
+            try
+            {
+                inviteCode = NormalizeInviteCode(
+                    await GetTeamSecretStringAsync(teamId, "inviteCode").ConfigureAwait(false));
+            }
+            catch { /* owner should be able to read secrets */ }
 
             if (string.IsNullOrEmpty(inviteCode))
                 inviteCode = NormalizeInviteCode(Preferences.Get($"{teamId}_invite_code", string.Empty));
@@ -1935,20 +1883,7 @@ public sealed class CloudTeamService : ICloudTeamService
         try
         {
             var secretCode = NormalizeInviteCode(await GetTeamSecretStringAsync(teamId, "inviteCode").ConfigureAwait(false));
-            if (!string.IsNullOrEmpty(secretCode))
-                return secretCode;
-
-            var meta = await GetTeamMetadataViaRestAsync(teamId).ConfigureAwait(false);
-            var code = NormalizeInviteCode(meta?.InviteCode);
-            if (!string.IsNullOrEmpty(code))
-                return code;
-
-            // SDK fallback if REST fields empty
-            var snap = await _db.GetDocument($"teams/{teamId}/metadata/info")
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-            code = NormalizeInviteCode(ReadString(snap?.Data, "inviteCode"));
-            return string.IsNullOrEmpty(code) ? null : code;
+            return string.IsNullOrEmpty(secretCode) ? null : secretCode;
         }
         catch (Exception ex)
         {
@@ -2358,12 +2293,12 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            // Ownership + invite: REST first (SDK metadata Data is often empty on device).
+            // Ownership from metadata; invite code from secrets (not world-readable metadata).
             var restMeta = await GetTeamMetadataViaRestAsync(teamId).ConfigureAwait(false);
             string? createdBy = restMeta?.CreatedBy;
-            string inviteRaw = restMeta?.InviteCode ?? "";
+            string inviteRaw = "";
 
-            if (string.IsNullOrWhiteSpace(createdBy) || string.IsNullOrWhiteSpace(inviteRaw))
+            if (string.IsNullOrWhiteSpace(createdBy))
             {
                 try
                 {
@@ -2372,17 +2307,20 @@ public sealed class CloudTeamService : ICloudTeamService
                         .ConfigureAwait(false);
                     var meta = metaSnap?.Data;
                     if (meta is not null)
-                    {
-                        if (string.IsNullOrWhiteSpace(createdBy))
-                            createdBy = ReadString(meta, "createdBy");
-                        if (string.IsNullOrWhiteSpace(inviteRaw))
-                            inviteRaw = ReadString(meta, "inviteCode");
-                    }
+                        createdBy = ReadString(meta, "createdBy");
                 }
                 catch { /* best-effort SDK fill-in */ }
             }
 
-            // Prefer Preferences invite if cloud field missing (still allow delete).
+            try
+            {
+                var secretInvite = await GetTeamSecretStringAsync(teamId, "inviteCode").ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(secretInvite))
+                    inviteRaw = secretInvite;
+            }
+            catch { /* owner should be able to read secrets */ }
+
+            // Local Preferences as a last resort so invite_codes can still be cleaned up.
             if (string.IsNullOrWhiteSpace(inviteRaw))
                 inviteRaw = Preferences.Get($"{teamId}_invite_code", string.Empty);
 
@@ -2442,12 +2380,14 @@ public sealed class CloudTeamService : ICloudTeamService
             await DeleteCollectionDocsAsync($"teams/{teamId}/sessions").ConfigureAwait(false);
             await DeleteCollectionDocsAsync($"teams/{teamId}/logs").ConfigureAwait(false);
             await DeleteCollectionDocsAsync($"teams/{teamId}/public").ConfigureAwait(false);
+            await DeleteCollectionDocsAsync($"teams/{teamId}/secrets").ConfigureAwait(false);
 
             // 3) Known singleton docs (REST then SDK)
             foreach (var path in new[]
                      {
                          $"teams/{teamId}/roster/data",
                          $"teams/{teamId}/public/invite",
+                         $"teams/{teamId}/secrets/info",
                          $"teams/{teamId}/metadata/info"
                      })
             {
@@ -2851,6 +2791,35 @@ public sealed class CloudTeamService : ICloudTeamService
         {
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] GetTeamAgeSettings: {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Deletes the named fields on a Firestore document (REST updateMask with empty fields).
+    /// </summary>
+    private async Task DeleteFieldsViaRestAsync(string docPath, params string[] fieldNames)
+    {
+        if (fieldNames is null || fieldNames.Length == 0) return;
+        var idToken = await GetRestIdTokenAsync().ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken)) return;
+
+        var mask = string.Join("&",
+            fieldNames.Select(k => $"updateMask.fieldPaths={Uri.EscapeDataString(k)}"));
+        var url =
+            $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/{docPath}?{mask}";
+        using var req = new HttpRequestMessage(HttpMethod.Patch, url);
+        req.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+        req.Content = new StringContent(
+            System.Text.Json.JsonSerializer.Serialize(new { fields = new Dictionary<string, object>() }),
+            System.Text.Encoding.UTF8,
+            "application/json");
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            System.Diagnostics.Debug.WriteLine(
+                $"[CloudTeam] DeleteFields {docPath} {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
         }
     }
 

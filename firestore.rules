@@ -112,22 +112,25 @@ service cloud.firestore {
 
     function teamAdminHashMatches(teamId, hash) {
       return hash is string && hash != ''
-        && (
-          (exists(teamSecretsPath(teamId))
-            && get(teamSecretsPath(teamId)).data.get('adminCodeHash', '') == hash)
-          || (exists(teamMetaPath(teamId))
-            && get(teamMetaPath(teamId)).data.get('adminCodeHash', '') == hash)
-        );
+        && exists(teamSecretsPath(teamId))
+        && get(teamSecretsPath(teamId)).data.get('adminCodeHash', '') == hash;
     }
 
     function clubRecoveryHashMatches(clubId, hash) {
       return hash is string && hash != ''
-        && (
-          (exists(clubSecretsPath(clubId))
-            && get(clubSecretsPath(clubId)).data.get('ownerRecoveryCodeHash', '') == hash)
-          || (exists(clubMetaPath(clubId))
-            && get(clubMetaPath(clubId)).data.get('ownerRecoveryCodeHash', '') == hash)
-        );
+        && exists(clubSecretsPath(clubId))
+        && get(clubSecretsPath(clubId)).data.get('ownerRecoveryCodeHash', '') == hash;
+    }
+
+    // Secret fields belong on secrets/info only. Ban them on world-readable metadata.
+    function teamMetaHasNoSecrets() {
+      return !request.resource.data.keys()
+        .hasAny(['inviteCode', 'adminCodeHash', 'creatorEmail']);
+    }
+
+    function clubMetaHasNoSecrets() {
+      return !request.resource.data.keys()
+        .hasAny(['ownerRecoveryCodeHash']);
     }
 
     function clubIdUnchanged() {
@@ -164,8 +167,9 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn()
         && request.resource.data.keys().hasAll(['clubName', 'createdBy'])
-        && request.resource.data.createdBy == request.auth.uid;
-      allow update: if signedIn() && (
+        && request.resource.data.createdBy == request.auth.uid
+        && clubMetaHasNoSecrets();
+      allow update: if signedIn() && clubMetaHasNoSecrets() && (
         (
           isClubOwner(clubId)
           && request.resource.data.createdBy == resource.data.createdBy
@@ -449,7 +453,7 @@ service cloud.firestore {
     // (client validates Team Owner Recovery Code; only ownership fields may change).
     match /teams/{teamId}/metadata/info {
       allow read: if signedIn();
-      allow create: if signedIn() && (
+      allow create: if signedIn() && teamMetaHasNoSecrets() && (
         !('clubId' in request.resource.data)
         || request.resource.data.clubId == null
         || request.resource.data.clubId == ''
@@ -457,7 +461,7 @@ service cloud.firestore {
       );
       // clubId is immutable after create (including by team admins). Club linkage
       // is set only at create, by a club owner/admin when the team is club-managed.
-      allow update: if signedIn() && clubIdUnchanged() && (
+      allow update: if signedIn() && clubIdUnchanged() && teamMetaHasNoSecrets() && (
         (
           isTeamAdmin(teamId)
           && (

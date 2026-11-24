@@ -1,8 +1,9 @@
 # Membership security (to-do item 10)
 
-Status: **deployed 25 Nov 2026 (AEDT), 3.9.1 (74)**. PR #20 remains a draft — do not
-merge until Andrew has tested. Rollback of rules: `~/TurfRulesBackup/rollback.sh`
-(restores `e1be8d18`).
+Status: **deployed 25 Nov 2026 (AEDT), 3.9.1 (74)**; dual-write removal follows in
+3.9.1 (76). PR #20 remains a draft — do not merge until Andrew has tested.
+Rollback of rules: `~/TurfRulesBackup/rollback.sh` (points at the previous live
+ruleset; after the 76 rules deploy it should restore `ac9ea929`).
 
 Deploy record (all times Australia/Sydney, AEDT):
 
@@ -56,8 +57,8 @@ hash compare.
   `metadata.createdBy == auth.uid`.
 - **Admin / owner recovery:** the client hashes the Team Owner Recovery Code
   (SHA-256, uppercase) and writes `adminCodeHash` on the member doc. Rules compare
-  it to `teams/{t}/secrets/info.adminCodeHash`, falling back to
-  `metadata.adminCodeHash` until secrets are migrated.
+  it to `teams/{t}/secrets/info.adminCodeHash` only (no metadata fallback).
+  Rules `get()` the secrets doc even when the recoverer cannot read it yet.
 - **Promotion:** only an existing team admin can change someone else's role
   (`admin` or `member`). A member cannot self-promote without the recovery hash.
 - **Leave:** a user may delete their own membership. An admin may remove others.
@@ -87,11 +88,15 @@ New teams and clubs also write:
   (readable by team admins and the metadata creator).
 - `clubs/{clubId}/secrets/info` — `ownerRecoveryCodeHash` (club owner only).
 
-The app and MCP still **also write the same fields on metadata** so build 73 and
-the App Store build can keep reading them. To fully close the world-readable leak,
-run the migration (copy, then `--strip`) after those old builds are gone.
+From 3.9.1 (76) the app, MCP server, and Cloud Functions write and read these
+fields **only** on `secrets/info` (plus `invite_codes` for join). Team and club
+metadata must not contain `inviteCode`, `adminCodeHash`, `creatorEmail`, or
+`ownerRecoveryCodeHash` — rules reject creates and updates that would leave those
+keys on the document. After the 74 migration `--strip`, re-run `--apply --strip`
+for any team created by a still-dual-writing build (for example a Simulator test
+team).
 
-Script (dry-run by default; **do not run `--apply` against production yet**):
+Script (dry-run by default):
 
 ```
 python3 scripts/migrate_membership_secrets.py --project turf-timer
@@ -107,9 +112,10 @@ Needs gcloud application-default credentials.
    joins write `joinInviteCode` / `adminCodeHash` / `joinedViaTeamId` / secrets.
    Rules are still the old, loose set — the gap stays open until step 2.
 2. Deploy **firestore.rules** from this branch.
-3. Later, when old builds are no longer in use: run the migration `--apply`, then
-   `--strip`, so secrets leave metadata. Optional follow-up: stop writing secrets
-   onto metadata in the app.
+3. When old builds are no longer in use: run the migration `--apply`, then
+   `--strip`. Ship the app/MCP that stop writing secrets onto metadata, tighten
+   the rules so metadata cannot contain those fields, and re-strip any teams
+   created in the dual-write window.
 
 Do not reverse (2) before (1): old builds do not send join proof, so after a rules
 deploy they cannot join a team, recover as owner, or add a club membership on join.

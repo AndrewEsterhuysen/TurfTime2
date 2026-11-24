@@ -17,7 +17,7 @@ beforeEach(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
-    await setDoc(doc(db, `teams/${T}/metadata/info`), { teamName: 'U10', inviteCode: 'ABC-123', createdBy: 'owner' });
+    await setDoc(doc(db, `teams/${T}/metadata/info`), { teamName: 'U10', createdBy: 'owner' });
     await setDoc(doc(db, `teams/${T}/members/owner`), { uid: 'owner', role: 'admin', displayName: 'O' });
     await setDoc(doc(db, `teams/${T}/members/mem`), { uid: 'mem', role: 'member', displayName: 'M' });
     await setDoc(doc(db, `teams/${T}/roster/data`), { players: [] });
