@@ -243,6 +243,7 @@ test("create_team: standalone nickname team matches the app (metadata, admin mem
   assert.equal(sec.inviteCode, data.inviteCode);
   assert.equal(sec.adminCodeHash, hashAdminCode(data.ownerRecoveryCode));
   assert.equal(sec.creatorEmail, "andy@example.com");
+  assert.deepEqual(fake.docs[`teams/${t}/secrets/invite`], { inviteCode: data.inviteCode });
   assert.ok(m.createdAt); assert.ok(m.lastActivityUtc);
   assert.equal("clubId" in m, false);
   assert.deepEqual(memberOf(t), { role: "admin", displayName: "Coach Andy", uid: "admin" });

@@ -1107,6 +1107,7 @@ public sealed class CloudTeamService : ICloudTeamService
             await _db.GetDocument($"teams/{teamId}/secrets/info")
                 .SetDataAsync(new Dictionary<object, object> { ["inviteCode"] = code }, SetOptions.Merge())
                 .ConfigureAwait(false);
+            await WriteTeamInviteDocAsync(teamId, code).ConfigureAwait(false);
 
             // Clear previous public invite pointer (overwrite below) and legacy root docs.
             var oldNorm = NormalizeInviteCode(oldCode);
@@ -1164,6 +1165,8 @@ public sealed class CloudTeamService : ICloudTeamService
 
             await UpsertInviteCodeLookupAsync(code, teamId, teamName ?? "", uid, clubId, clubName)
                 .ConfigureAwait(false);
+            // Self-heal the member-readable invite doc (admins / owners only).
+            await WriteTeamInviteDocAsync(teamId, code).ConfigureAwait(false);
             return true;
         }
         catch (Exception ex)
@@ -1305,10 +1308,30 @@ public sealed class CloudTeamService : ICloudTeamService
                     ["adminCodeHash"] = adminCodeHash ?? "",
                     ["creatorEmail"] = creatorEmail ?? ""
                 }, SetOptions.Merge()).ConfigureAwait(false);
+            await WriteTeamInviteDocAsync(teamId, inviteCode ?? "").ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] WriteTeamSecrets: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Member-readable invite only. Does not include adminCodeHash or creatorEmail.
+    /// </summary>
+    private async Task WriteTeamInviteDocAsync(string teamId, string inviteCode)
+    {
+        var code = NormalizeInviteCode(inviteCode);
+        if (string.IsNullOrWhiteSpace(teamId) || string.IsNullOrEmpty(code)) return;
+        try
+        {
+            await _db.GetDocument($"teams/{teamId}/secrets/invite")
+                .SetDataAsync(new Dictionary<object, object> { ["inviteCode"] = code }, SetOptions.Merge())
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] WriteTeamInviteDoc: {ex.Message}");
         }
     }
 
@@ -1882,6 +1905,12 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
+            // Prefer the member-readable doc. Do not fall back to secrets/info for
+            // members — that document stays admin-only.
+            var fromInvite = NormalizeInviteCode(
+                await GetSecretStringAsync($"teams/{teamId}/secrets/invite", "inviteCode").ConfigureAwait(false));
+            if (!string.IsNullOrEmpty(fromInvite)) return fromInvite;
+
             var secretCode = NormalizeInviteCode(await GetTeamSecretStringAsync(teamId, "inviteCode").ConfigureAwait(false));
             return string.IsNullOrEmpty(secretCode) ? null : secretCode;
         }
@@ -2388,6 +2417,7 @@ public sealed class CloudTeamService : ICloudTeamService
                          $"teams/{teamId}/roster/data",
                          $"teams/{teamId}/public/invite",
                          $"teams/{teamId}/secrets/info",
+                         $"teams/{teamId}/secrets/invite",
                          $"teams/{teamId}/metadata/info"
                      })
             {

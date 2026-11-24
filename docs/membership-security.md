@@ -1,9 +1,11 @@
 # Membership security (to-do item 10)
 
 Status: **deployed 25 Nov 2026 (AEDT), 3.9.1 (74), then dual-write removal in
-3.9.1 (76)**. PR #20 and PR #21 remain drafts — do not merge until Andrew has
-tested. Rollback of rules: `~/TurfRulesBackup/rollback.sh` (restores `ac9ea929`,
-the 74 ruleset).
+3.9.1 (76)**. Member share (3.9.1 build 77) is prepared on `feature/member-share`
+and the Firestore rules plus the `--member-invite` migration were approved
+and applied on 25 Nov 2026 (AEDT). PR #20 and PR #21
+remain drafts — do not merge until Andrew has tested. Rollback of rules:
+`~/TurfRulesBackup/rollback.sh` (restores `ac9ea929`, the 74 ruleset).
 
 Deploy record (all times Australia/Sydney, AEDT):
 
@@ -45,6 +47,60 @@ Dual-write removal (3.9.1 build 76, same day):
   present fields). After that, metadata has no secret keys; `secrets/info`
   remains; `invite_codes/KVD4HQCJ` and `invite_codes/KVD4-HQCJ` still exist and
   point at that team.
+
+Member share (3.9.1 build 77, `feature/member-share`): any team member can see
+the invite code and use the Share page (QR, link, and code). New joiners always
+become Members. Regenerating or revoking the invite stays admin-only.
+`adminCodeHash`, `creatorEmail`, and club recovery hashes stay on `secrets/info`
+(admin or club owner only). Because Firestore cannot do field-level reads, the
+invite also lives at `teams/{t}/secrets/invite` (`inviteCode` only). Members may
+read that document; they cannot read or write `secrets/info`, and they cannot
+change `secrets/invite`. `invite_codes/{code}` lookup is unchanged.
+
+Build 77 writes `secrets/invite` on create, regenerate, and admin self-heal.
+That write is already allowed under the live `f0f39fe1` admin/owner secrets
+rules, so MCP and Functions may be redeployed before the rules change. Members
+cannot *read* the new document until the rules are deployed and the migration
+copies the invite for existing teams (or an admin opens Team Details on 77,
+which self-heals the doc). Until then, members who already have the code cached
+from joining can still share; members without a cache see N/A.
+
+Do **not** deploy these rules or run `--apply --member-invite` until Andrew
+approves. Dry-run (25 Nov 2026, AEDT): scanned 12 teams, 3 clubs. Member-invite
+copy planned for all 12 teams (`copy=12`, `already_ok=0`, `missing_source=0`,
+`conflicts=0`, `writes=0`). The leftover-metadata scan also noted an empty
+`creatorEmail` key still present on 9 team metadata docs (not stripped in this
+run).
+
+```
+python3 scripts/migrate_membership_secrets.py --project turf-timer --member-invite
+```
+
+Build 77 delivery (Australia/Sydney, AEDT):
+
+- TestFlight upload of 3.9.1 build 77: delivery UUID
+  `30dd08e4-a7e0-40d0-a28b-f49f248ef712` (altool succeeded at 10:08:36 AM AEDT).
+- MCP Cloud Run: revision `turftimer-mcp-00011-wvv` (was `turftimer-mcp-00010-bk8`),
+  100% traffic, health check 200 on `/.well-known/oauth-authorization-server`.
+  URL unchanged: `https://turftimer-mcp-co6qd7jw6q-ts.a.run.app`.
+  Writing `secrets/invite` is allowed under the live `f0f39fe1` admin/owner
+  secrets rules, so this deploy is backward compatible.
+- Cloud Functions: all five updated again (Node.js 22). `hardDeleteTeam` also
+  deletes `secrets/invite` and will read it if `secrets/info` has no invite.
+  Same Artifact Registry cleanup-policy warning in `australia-southeast1` as
+  before (left unchanged).
+- Firestore rules and the member-invite migration were later approved and
+  applied (same day, Australia/Sydney, AEDT):
+  - Live rules backup: `~/TurfRulesBackup/firestore-prod-20261125-101440.rules`
+    (ruleset `f0f39fe1-4524-409c-b94e-37dc417e7efb`). `rollback.sh` now
+    restores `f0f39fe1`.
+  - New live ruleset `15003d17-fa9b-4a34-9425-e4ea811e4319` (deployed
+    10:14:59 AM AEDT). After-backup:
+    `~/TurfRulesBackup/live-after-20261125-101507.rules`.
+  - Migration `--apply --member-invite --strip`: teams=12, member-invite
+    `copy=12` `writes=12`, leftover empty `creatorEmail` metadata keys
+    `strips=9`. Verified all 12 `secrets/invite` docs match `secrets/info`,
+    and no secret keys remain on team metadata.
 
 ## What was wrong
 
@@ -108,24 +164,31 @@ the team is club-managed.
 
 New teams and clubs also write:
 
+- `teams/{teamId}/secrets/invite` — `inviteCode` only (readable by any team
+  member; create/update/delete by team admins or the metadata creator).
 - `teams/{teamId}/secrets/info` — `inviteCode`, `adminCodeHash`, `creatorEmail`
   (readable by team admins and the metadata creator).
 - `clubs/{clubId}/secrets/info` — `ownerRecoveryCodeHash` (club owner only).
 
-From 3.9.1 (76) the app, MCP server, and Cloud Functions write and read these
-fields **only** on `secrets/info` (plus `invite_codes` for join). Team and club
-metadata must not contain `inviteCode`, `adminCodeHash`, `creatorEmail`, or
-`ownerRecoveryCodeHash` — rules reject creates and updates that would leave those
-keys on the document. After the 74 migration `--strip`, re-run `--apply --strip`
-for any team created by a still-dual-writing build (for example a Simulator test
-team).
+From 3.9.1 (76) the app, MCP server, and Cloud Functions write and read recovery
+fields **only** on `secrets/info` (plus `invite_codes` for join). From 3.9.1 (77)
+the join invite is also written to `secrets/invite` so members can share it.
+Team and club metadata must not contain `inviteCode`, `adminCodeHash`,
+`creatorEmail`, or `ownerRecoveryCodeHash` — rules reject creates and updates
+that would leave those keys on the document. After the 74 migration `--strip`,
+re-run `--apply --strip` for any team created by a still-dual-writing build
+(for example a Simulator test team). Then `--apply --member-invite` copies
+`secrets/info.inviteCode` into `secrets/invite` for existing teams (does not
+remove the copy on `secrets/info`).
 
 Script (dry-run by default):
 
 ```
 python3 scripts/migrate_membership_secrets.py --project turf-timer
+python3 scripts/migrate_membership_secrets.py --project turf-timer --member-invite
 python3 scripts/migrate_membership_secrets.py --project turf-timer --apply
 python3 scripts/migrate_membership_secrets.py --project turf-timer --apply --strip
+python3 scripts/migrate_membership_secrets.py --project turf-timer --apply --member-invite
 ```
 
 Needs gcloud application-default credentials.

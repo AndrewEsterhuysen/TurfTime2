@@ -92,7 +92,7 @@ App-impact trace: join by invite reads `invite_codes`, `public`, `metadata` befo
 
 Residual risk: a user on an old build whose member doc is missing would lose chat/roster access. Run `mcp-server/scripts/audit-membership.mjs` (read-only) before deploying the rules. Tests: `firestore-tests/` (emulator, 10 tests).
 
-Membership security (item 10): `create_team` / `create_club` write invite and recovery secrets only to `teams/{t}/secrets/info` and `clubs/{c}/secrets/info` — never on world-readable metadata. Client joins must include `joinInviteCode` (or `adminCodeHash` for recovery). `invite_codes` is get-by-id only (no list). `clubId` cannot change after create. Rules reject `inviteCode`, `adminCodeHash`, `creatorEmail` and `ownerRecoveryCodeHash` on metadata. The legacy root `/messages` and `rosters/` paths are unchanged.
+Membership security (item 10): `create_team` / `create_club` write recovery secrets to `teams/{t}/secrets/info` and `clubs/{c}/secrets/info`, and the join invite also to `teams/{t}/secrets/invite` (member-readable) — never on world-readable metadata. Client joins must include `joinInviteCode` (or `adminCodeHash` for recovery). `invite_codes` is get-by-id only (no list). `clubId` cannot change after create. Rules reject `inviteCode`, `adminCodeHash`, `creatorEmail` and `ownerRecoveryCodeHash` on metadata. The legacy root `/messages` and `rosters/` paths are unchanged.
 
 ## Tools and schema mapping
 All tools are annotated `readOnlyHint: true`. The server only issues `GET` and `:runQuery`.

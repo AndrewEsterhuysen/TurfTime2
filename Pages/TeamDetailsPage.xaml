@@ -64,18 +64,21 @@
                         <Button Style="{StaticResource PvButtonSecondary}" x:Name="ViewTeamMembersButton" Text="View Team Members" IsVisible="False" Clicked="OnViewMembersClicked"/>
                         <Label Style="{StaticResource PvCaption}" x:Name="ViewTeamMembersHint" Text="See who is Owner or Admin if you need help with team settings." IsVisible="False"/>
 
+                        <!-- Visible to every online-team member, including Admins.
+                             New joiners always become Members; only an Admin can regenerate the code. -->
+                        <Border Style="{StaticResource PvCardTinted}" x:Name="SharedMemberShareTools" IsVisible="False" Padding="12">
+                            <VerticalStackLayout Spacing="4">
+                                <Label Style="{StaticResource PvBodyStrong}" Text="Invite Code"/>
+                                <Label Style="{StaticResource PvCardTitle}" x:Name="InviteCodeDisplay" Text="Loading..." HorizontalOptions="Center" LineBreakMode="MiddleTruncation"/>
+                                <Label Style="{StaticResource PvCaption}" Text="Anyone on the team can share this. New people always join as Members." HorizontalOptions="Center"/>
+                            </VerticalStackLayout>
+                        </Border>
+
                         <!-- Admin-only tools (online teams). Visible when role is Admin / Owner. -->
                         <Border Style="{StaticResource PvCardTinted}" x:Name="SharedAdminTools" IsVisible="False" Padding="12">
                             <VerticalStackLayout Spacing="8">
                                 <Label Style="{StaticResource PvBodyStrong}" Text="Admin"/>
-                                <Label Style="{StaticResource PvCaption}" Text="Invite codes, promote/remove, and match control — Admin only."/>
-                                <Border Style="{StaticResource PvCardWarning}" Padding="12">
-                                    <VerticalStackLayout Spacing="4">
-                                        <Label Style="{StaticResource PvBodyStrong}" Text="Invite Code"/>
-                                        <Label Style="{StaticResource PvCardTitle}" x:Name="InviteCodeDisplay" Text="Loading..." HorizontalOptions="Center" LineBreakMode="MiddleTruncation"/>
-                                        <Label Style="{StaticResource PvCaption}" Text="Share this code with team members" HorizontalOptions="Center"/>
-                                    </VerticalStackLayout>
-                                </Border>
+                                <Label Style="{StaticResource PvCaption}" Text="Regenerate the invite, promote/remove members, and match control — Admin only."/>
                                 <Button Style="{StaticResource PvButtonWarning}" Text="Regenerate Invite Code" Clicked="OnRegenerateCodeClicked"/>
                                 <Button Style="{StaticResource PvButtonPrimary}" Text="Promote to Admin" Clicked="OnPromoteToAdminClicked"/>
                                 <Button Style="{StaticResource PvButtonDanger}" Text="Remove Member" Clicked="OnRemoveMemberClicked"/>

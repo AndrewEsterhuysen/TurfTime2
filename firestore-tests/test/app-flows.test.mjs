@@ -24,6 +24,7 @@ beforeEach(async () => {
     const db = ctx.firestore();
     await setDoc(doc(db, `teams/${T}/metadata/info`), { teamName: 'U10', createdBy: 'owner', isActive: true });
     await setDoc(doc(db, `teams/${T}/secrets/info`), { inviteCode: 'XYZ-789', adminCodeHash: 'a'.repeat(64), creatorEmail: '' });
+    await setDoc(doc(db, `teams/${T}/secrets/invite`), { inviteCode: 'XYZ-789' });
     await setDoc(doc(db, `teams/${T}/members/owner`), { uid: 'owner', role: 'admin', displayName: 'Owner' });
     await setDoc(doc(db, `teams/${T}/members/coach2`), { uid: 'coach2', role: 'admin', displayName: 'Coach2' });
     await setDoc(doc(db, `teams/${T}/members/mem`), { uid: 'mem', role: 'member', displayName: 'Mem' });
@@ -47,6 +48,7 @@ test('app: coach creates a new nickname team (CreateTeam order: metadata, member
   const db = as('newcoach'); const t = 'teamNew';
   await assertSucceeds(setDoc(doc(db, `teams/${t}/metadata/info`), { teamName: 'New', createdBy: 'newcoach', kind: 'nickname', isActive: true }, M));
   await assertSucceeds(setDoc(doc(db, `teams/${t}/secrets/info`), { inviteCode: 'NEW-111', adminCodeHash: 'b'.repeat(64), creatorEmail: '' }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/secrets/invite`), { inviteCode: 'NEW-111' }, M));
   await assertSucceeds(setDoc(doc(db, `teams/${t}/members/newcoach`), { role: 'admin', displayName: 'NC', uid: 'newcoach' }, M));
   await assertSucceeds(setDoc(doc(db, `teams/${t}/roster/data`), { version: 2, players: [] }, M));
   await assertSucceeds(setDoc(doc(db, `invite_codes/NEW111`), { teamId: t, teamName: 'New', createdBy: 'newcoach' }, M));
@@ -74,6 +76,8 @@ test('app: join by invite code, then use team as member', async () => {
   await assertSucceeds(setDoc(doc(db, `teams/${T}/messages/j1`), { text: 'hello', userId: 'joiner', senderName: 'J', timestamp: 5 }));
   await assertSucceeds(getDocs(collection(db, `teams/${T}/sessions`)));
   await assertSucceeds(getDoc(doc(db, `teams/${T}/details/location`)));
+  await assertSucceeds(getDoc(doc(db, `teams/${T}/secrets/invite`)));
+  await assertFails(getDoc(doc(db, `teams/${T}/secrets/info`)));
 });
 test('app: member re-join when already member (self update of allowed fields)', async () => {
   await assertSucceeds(setDoc(doc(as('mem'), `teams/${T}/members/mem`), { displayName: 'Mem2', uid: 'mem', rejoinedAt: 2 }, M));

@@ -38,7 +38,7 @@ export function fakeFirestore(docs: Record<string, Record<string, Val>>, tokens:
     if (commitWrite || method === "PATCH" || (method === "POST" && !url.endsWith(":runQuery"))) {
       // Write rule mirror (coarse), including bootstrap creates that production rules allow:
       //   metadata/info of a nickname team or (if club Owner/Admin) a clubbed team;
-      //   secrets/info after metadata (createdBy == uid) or once the caller is a member;
+      //   secrets/info and secrets/invite after metadata (createdBy == uid) or once the caller is a member;
       //   self member doc; public/invite by createdBy; invite_codes by createdBy;
       //   club metadata (createdBy == uid), club secrets (owner), and self club-member doc.
       // Roster still requires membership, so create_team must write members before roster (same as the app).
