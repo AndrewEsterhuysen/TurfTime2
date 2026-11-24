@@ -6,7 +6,7 @@ using TurfTime2.Services;
 namespace TurfTime2;
 
 /// <summary>
-/// Per-player running tally (docs/club-players-spec.md decision 7): matches, minutes,
+/// Per-player running tally (docs/club-players-spec.md decision 7): matches, field time,
 /// goals, assists and POTM, filterable by season. Club owners, admins and coaches only.
 /// </summary>
 public partial class ClubPlayerStatsPage : ContentPage
@@ -141,7 +141,7 @@ public partial class ClubPlayerStatsPage : ContentPage
 
         var totals = ClubPlayerSeasonTotals.From(rows);
         TotalsLabel.Text =
-            $"{totals.Matches} match{(totals.Matches == 1 ? "" : "es")}  ·  {totals.Minutes} min  ·  " +
+            $"{totals.Matches} match{(totals.Matches == 1 ? "" : "es")}  ·  {ClubPlayerFieldTime.Format(totals.SecondsPlayed)}  ·  " +
             $"{totals.Goals} goal{(totals.Goals == 1 ? "" : "s")}  ·  {totals.Assists} assist{(totals.Assists == 1 ? "" : "s")}  ·  " +
             $"{totals.Potm} POTM";
 
@@ -161,7 +161,7 @@ public partial class ClubPlayerStatsPage : ContentPage
         if (!string.IsNullOrWhiteSpace(m.TeamName)) bits.Add(m.TeamName);
         var title = bits.Count > 0 ? string.Join(" · ", bits) : "Match";
 
-        var line = $"{m.Goals} goal{(m.Goals == 1 ? "" : "s")}, {m.Assists} assist{(m.Assists == 1 ? "" : "s")} · {m.Minutes} min";
+        var line = $"{m.Goals} goal{(m.Goals == 1 ? "" : "s")}, {m.Assists} assist{(m.Assists == 1 ? "" : "s")} · {ClubPlayerFieldTime.Format(m.EffectiveSeconds)}";
         if (m.Potm) line += " · POTM";
 
         return new Border

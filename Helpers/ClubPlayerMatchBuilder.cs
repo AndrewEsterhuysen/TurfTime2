@@ -88,6 +88,7 @@ public static class ClubPlayerMatchBuilder
         MatchDate = date,
         Season = season,
         Minutes = fieldSeconds > 0 ? fieldSeconds / 60 : 0,
+        SecondsPlayed = Math.Max(0, fieldSeconds),
         Goals = goals,
         Assists = assists,
         Potm = potm,

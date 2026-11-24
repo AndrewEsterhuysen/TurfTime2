@@ -335,6 +335,13 @@ test('club player matches: other-club coach cannot write; path fields must match
   await assertFails(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ season: 1999 })));
 });
 
+test('club player matches: secondsPlayed is optional, allowed, and range-checked', async () => {
+  await assertSucceeds(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ secondsPlayed: 85, minutes: 1 })));
+  await assertSucceeds(setDoc(doc(as('coach'), matchPath('p1', 's4')), matchDoc({ sessionId: 's4' }))); // minutes only
+  await assertFails(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ secondsPlayed: -1, minutes: 1 })));
+  await assertFails(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ secondsPlayed: 18001, minutes: 300 })));
+});
+
 test('club player matches: team member or club owner can delete a match row', async () => {
   await seed(async (db) => setDoc(doc(db, matchPath('p1', 's1')), matchDoc()));
   await assertSucceeds(deleteDoc(doc(as('coach'), matchPath('p1', 's1'))));

@@ -158,10 +158,10 @@ sess.Events.Add(new GameEvent("them", DateTimeOffset.UtcNow, GameEventType.Score
 var built = ClubPlayerMatchBuilder.FromSession(sess, "club-1", "team-1", "U10 Green", 2027);
 Check(built.Count == 2, "guest and absent skipped; two linked players present");
 var rooney = built.Single(m => m.PlayerId == "p-rooney");
-Check(rooney.Goals == 1 && rooney.Assists == 0 && rooney.Minutes == 45 && rooney.Season == 2027, "Rooney: 1 goal after correction, 45 min");
+Check(rooney.Goals == 1 && rooney.Assists == 0 && rooney.Minutes == 45 && rooney.SecondsPlayed == 2700 && rooney.Season == 2027, "Rooney: 1 goal after correction, 45:00");
 Check(rooney.SessionId == "game-1" && rooney.TeamName == "U10 Green" && rooney.MatchDate == kickoff, "match identity");
 var ada = built.Single(m => m.PlayerId == "p-ada");
-Check(ada.Goals == 0 && ada.Assists == 1 && ada.Minutes == 30 && !ada.Potm, "Ada: 1 assist, 30 min");
+Check(ada.Goals == 0 && ada.Assists == 1 && ada.Minutes == 30 && ada.SecondsPlayed == 1800 && !ada.Potm, "Ada: 1 assist, 30:00");
 
 // Idempotent rebuild is identical
 var built2 = ClubPlayerMatchBuilder.FromSession(sess, "club-1", "team-1", "U10 Green", 2027);
@@ -194,6 +194,35 @@ var all = ClubPlayerSeasonTotals.From([s2026, s2027a, s2027b]);
 Check(all.Matches == 3 && all.Minutes == 135 && all.Goals == 4 && all.Assists == 1 && all.Potm == 2, "all-seasons totals");
 var y2027 = ClubPlayerSeasonTotals.From(new[] { s2026, s2027a, s2027b }.Where(m => m.Season == 2027));
 Check(y2027.Matches == 2 && y2027.Goals == 3 && y2027.Potm == 1 && y2027.Minutes == 95, "season 2027 filter");
+
+// Field time must keep leftover seconds (85s is 1:25, not truncated to 1 min)
+var shortSess = new GameSession
+{
+    SessionId = "game-short",
+    StartTime = kickoff,
+    TeamName = "U10 Green",
+    Summary = new GameSessionSummary(0, 120, [
+        new PlayerStats("Wayne Rooney", 85, 0, 0, 0, 0, SlotId: 1, WasPresent: true, PlayerId: "p-rooney"),
+        new PlayerStats("Ada Hegerberg", 40, 0, 0, 0, 0, SlotId: 2, WasPresent: true, PlayerId: "p-ada"),
+    ])
+};
+var shortRows = ClubPlayerMatchBuilder.FromSession(shortSess, "club-1", "team-1", "U10 Green", 2027);
+var shortRooney = shortRows.Single(m => m.PlayerId == "p-rooney");
+var shortAda = shortRows.Single(m => m.PlayerId == "p-ada");
+Check(shortRooney.SecondsPlayed == 85 && shortRooney.Minutes == 1, "85 field seconds stored exactly; minutes kept as truncated 1 for compat");
+Check(shortAda.SecondsPlayed == 40 && shortAda.Minutes == 0, "40 field seconds stored exactly; minutes 0");
+Check(ClubPlayerFieldTime.Format(shortRooney.EffectiveSeconds) == "1:25", "format 85s as 1:25 like the match report");
+Check(ClubPlayerFieldTime.Format(0) == "0:00" && ClubPlayerFieldTime.Format(60) == "1:00", "format 0s and 60s");
+var shortTotals = ClubPlayerSeasonTotals.From(shortRows);
+Check(shortTotals.SecondsPlayed == 125 && shortTotals.Minutes == 2
+      && ClubPlayerFieldTime.Format(shortTotals.SecondsPlayed) == "2:05",
+      "totals sum seconds (85+40=125) not truncated per-match minutes (1+0)");
+
+// Legacy row with only minutes still displays as whole minutes
+var legacyMinutes = new ClubPlayerMatch { SessionId = "old-min", Season = 2027, Minutes = 45 };
+Check(legacyMinutes.SecondsPlayed is null && legacyMinutes.EffectiveSeconds == 2700
+      && ClubPlayerFieldTime.Format(legacyMinutes.EffectiveSeconds) == "45:00",
+      "pre-secondsPlayed row falls back to minutes x 60");
 
 // No playerId on the summary -> no row (no backfill)
 var legacy = new GameSession

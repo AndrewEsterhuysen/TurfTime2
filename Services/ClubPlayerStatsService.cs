@@ -188,6 +188,7 @@ public sealed class ClubPlayerStatsService : IClubPlayerStatsService
             ["matchDate"] = Ts(row.MatchDate),
             ["season"] = Int(row.Season),
             ["minutes"] = Int(row.Minutes),
+            ["secondsPlayed"] = Int(row.EffectiveSeconds),
             ["goals"] = Int(row.Goals),
             ["assists"] = Int(row.Assists),
             ["potm"] = new Dictionary<string, object> { ["booleanValue"] = row.Potm },
@@ -195,6 +196,17 @@ public sealed class ClubPlayerStatsService : IClubPlayerStatsService
             ["updatedAt"] = Ts(now),
             ["updatedBy"] = Str(uid),
         };
+        var ok = await PatchMatchAsync(row, fields, token, ct).ConfigureAwait(false);
+        // Current production rules (before the secondsPlayed deploy) reject the new
+        // field via hasOnly. Retry without it so goals/assists still save.
+        if (!ok && fields.Remove("secondsPlayed"))
+            ok = await PatchMatchAsync(row, fields, token, ct).ConfigureAwait(false);
+        return ok;
+    }
+
+    private async Task<bool> PatchMatchAsync(ClubPlayerMatch row, Dictionary<string, object> fields,
+        string token, CancellationToken ct)
+    {
         var path = MatchPath(row.ClubId, row.PlayerId, row.SessionId);
         var mask = string.Join("&", fields.Keys.Select(k => $"updateMask.fieldPaths={Uri.EscapeDataString(k)}"));
         var url = $"{RestUrl(path)}?{mask}";
@@ -238,6 +250,7 @@ public sealed class ClubPlayerStatsService : IClubPlayerStatsService
             MatchDate = ReadTimestamp(f, "matchDate") ?? DateTimeOffset.MinValue,
             Season = (int)ReadNumber(f, "season"),
             Minutes = (int)ReadNumber(f, "minutes"),
+            SecondsPlayed = ReadOptionalInt(f, "secondsPlayed"),
             Goals = (int)ReadNumber(f, "goals"),
             Assists = (int)ReadNumber(f, "assists"),
             Potm = ReadBool(f, "potm"),
@@ -254,12 +267,14 @@ public sealed class ClubPlayerStatsService : IClubPlayerStatsService
     private static string ReadString(JsonElement fields, string key) =>
         fields.TryGetProperty(key, out var v) && v.TryGetProperty("stringValue", out var s) ? s.GetString() ?? "" : "";
 
-    private static long ReadNumber(JsonElement fields, string key)
+    private static long ReadNumber(JsonElement fields, string key) => ReadOptionalInt(fields, key) ?? 0;
+
+    private static int? ReadOptionalInt(JsonElement fields, string key)
     {
-        if (!fields.TryGetProperty(key, out var v)) return 0;
-        if (v.TryGetProperty("integerValue", out var i) && long.TryParse(i.GetString(), out var l)) return l;
-        if (v.TryGetProperty("doubleValue", out var d) && d.TryGetDouble(out var dbl)) return (long)dbl;
-        return 0;
+        if (!fields.TryGetProperty(key, out var v)) return null;
+        if (v.TryGetProperty("integerValue", out var i) && long.TryParse(i.GetString(), out var l)) return (int)l;
+        if (v.TryGetProperty("doubleValue", out var d) && d.TryGetDouble(out var dbl)) return (int)dbl;
+        return null;
     }
 
     private static bool ReadBool(JsonElement fields, string key) =>

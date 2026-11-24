@@ -13,7 +13,7 @@
         <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="16">
             <VerticalStackLayout Spacing="2" Margin="4,0,0,0">
                 <Label x:Name="NameLabel" Style="{StaticResource PvTitle}" />
-                <Label Style="{StaticResource PvCaption}" Text="Goals, assists, minutes and player of the match across club games. Older matches are not backfilled." />
+                <Label Style="{StaticResource PvCaption}" Text="Goals, assists, field time and player of the match across club games. Older matches are not backfilled." />
             </VerticalStackLayout>
 
             <Border x:Name="NoticeCard" Style="{StaticResource PvCardWarning}" Padding="12,8" IsVisible="False">
