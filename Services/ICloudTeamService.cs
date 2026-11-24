@@ -141,7 +141,7 @@ public interface ICloudTeamService
     /// </summary>
     Task<string?> GetTeamInviteCodeAsync(string teamId);
 
-    /// <summary>Clubs where the signed-in user is Owner or Admin (for “add team to my club”).</summary>
+    /// <summary>Clubs where the signed-in user is Owner or Admin (for “add team to my club”). Discovered from the user’s teams; role is read over REST.</summary>
     Task<IReadOnlyList<CloudClubSummary>> ListManagedClubsAsync();
 
     /// <summary>Teams under a club (for future filters). Caller should be a club member.</summary>

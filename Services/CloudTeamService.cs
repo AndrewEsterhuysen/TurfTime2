@@ -1312,6 +1312,86 @@ public sealed class CloudTeamService : ICloudTeamService
         };
     }
 
+
+    private sealed class ClubMetadataRest
+    {
+        public string CreatedBy { get; init; } = "";
+        public string ClubName { get; init; } = "";
+    }
+
+    private async Task<string?> GetRestIdTokenAsync()
+    {
+        var idToken = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        return string.IsNullOrEmpty(idToken) ? null : idToken;
+    }
+
+    private async Task<(System.Net.HttpStatusCode Status, string Body)> GetRestDocumentAsync(string relativePath)
+    {
+        var idToken = await GetRestIdTokenAsync().ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            return (System.Net.HttpStatusCode.Unauthorized, "");
+
+        var url =
+            $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/"
+            + string.Join('/', relativePath.Split('/').Select(Uri.EscapeDataString));
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        return (resp.StatusCode, body);
+    }
+
+    private async Task<ClubMetadataRest?> GetClubMetadataViaRestAsync(string clubId)
+    {
+        if (string.IsNullOrWhiteSpace(clubId)) return null;
+        try
+        {
+            var (status, body) = await GetRestDocumentAsync($"clubs/{clubId}/metadata/info")
+                .ConfigureAwait(false);
+            if (status == System.Net.HttpStatusCode.NotFound || string.IsNullOrEmpty(body))
+                return null;
+            if ((int)status < 200 || (int)status >= 300) return null;
+            using var json = JsonDocument.Parse(body);
+            if (!json.RootElement.TryGetProperty("fields", out var fields)) return null;
+            return new ClubMetadataRest
+            {
+                CreatedBy = ReadFirestoreRestString(fields, "createdBy").Trim(),
+                ClubName = ReadFirestoreRestString(fields, "clubName").Trim()
+            };
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] GetClubMetadataViaRest: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<string?> GetClubMemberRoleViaRestAsync(string clubId, string memberUid)
+    {
+        if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(memberUid))
+            return null;
+        try
+        {
+            var (status, body) = await GetRestDocumentAsync($"clubs/{clubId}/members/{memberUid}")
+                .ConfigureAwait(false);
+            if (status == System.Net.HttpStatusCode.NotFound || string.IsNullOrEmpty(body))
+                return null;
+            if ((int)status < 200 || (int)status >= 300) return null;
+            using var json = JsonDocument.Parse(body);
+            if (!json.RootElement.TryGetProperty("fields", out var fields)) return null;
+            var role = ReadFirestoreRestString(fields, "role");
+            return string.IsNullOrWhiteSpace(role) ? null : role.Trim().ToLowerInvariant();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] GetClubMemberRoleViaRest: {ex.Message}");
+            return null;
+        }
+    }
+
     public async Task<IReadOnlyList<CloudTeamMember>> ListMembersAsync(string teamId)
     {
         var list = new List<CloudTeamMember>();
@@ -2482,10 +2562,8 @@ public sealed class CloudTeamService : ICloudTeamService
 
     private async Task<string> ReadClubNameAsync(string clubId)
     {
-        var snap = await _db.GetDocument($"clubs/{clubId}/metadata/info")
-            .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-            .ConfigureAwait(false);
-        return snap?.Data is null ? "" : ReadString(snap.Data, "clubName");
+        var meta = await GetClubMetadataViaRestAsync(clubId).ConfigureAwait(false);
+        return meta?.ClubName ?? "";
     }
 
     private async Task<bool> IsClubOwnerOrAdminAsync(string clubId, string uid)
@@ -2495,18 +2573,12 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            var meta = await _db.GetDocument($"clubs/{clubId}/metadata/info")
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-            if (meta?.Data is not null &&
-                string.Equals(ReadString(meta.Data, "createdBy"), uid, StringComparison.Ordinal))
+            var meta = await GetClubMetadataViaRestAsync(clubId).ConfigureAwait(false);
+            if (meta is not null
+                && string.Equals(meta.CreatedBy, uid, StringComparison.Ordinal))
                 return true;
 
-            var mem = await _db.GetDocument($"clubs/{clubId}/members/{uid}")
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-            if (mem?.Data is null) return false;
-            var role = ReadString(mem.Data, "role");
+            var role = await GetClubMemberRoleViaRestAsync(clubId, uid).ConfigureAwait(false);
             return string.Equals(role, "owner", StringComparison.OrdinalIgnoreCase)
                    || string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase);
         }
@@ -2525,14 +2597,13 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            var meta = await _db.GetDocument($"clubs/{clubId}/metadata/info")
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-            return meta?.Data is not null
-                   && string.Equals(ReadString(meta.Data, "createdBy"), uid, StringComparison.Ordinal);
+            var meta = await GetClubMetadataViaRestAsync(clubId).ConfigureAwait(false);
+            return meta is not null
+                   && string.Equals(meta.CreatedBy, uid, StringComparison.Ordinal);
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] IsClubOwner: {ex.Message}");
             return false;
         }
     }
@@ -2548,15 +2619,12 @@ public sealed class CloudTeamService : ICloudTeamService
             if (await IsClubOwnerAsync(clubId).ConfigureAwait(false))
                 return "owner";
 
-            var mem = await _db.GetDocument($"clubs/{clubId}/members/{uid}")
-                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-            if (mem?.Data is null) return null;
-            var role = ReadString(mem.Data, "role");
+            var role = await GetClubMemberRoleViaRestAsync(clubId, uid).ConfigureAwait(false);
             return string.IsNullOrWhiteSpace(role) ? null : role;
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] GetMyClubRole: {ex.Message}");
             return null;
         }
     }
@@ -2607,50 +2675,47 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
-            // Collection-group query on clubs/*/members where uid doc matches is awkward
-            // (doc id = uid). Scan managed club ids from a lightweight index on the user is
-            // not available yet — fall back to collection-group on members filtered by role
-            // is also limited. Use collectionGroup "members" under clubs is ambiguous with
-            // team members. Instead: query clubs where createdBy == uid, then also try
-            // reading Preferences-backed list is client-side. Here we query club metadata
-            // createdBy and merge with membership docs via REST-free approach:
+            // Discover clubs from the user's teams (membership query + each team's
+            // clubId), then confirm owner/admin over REST. Do not use a collection-group
+            // query on metadata.createdBy — rules have no {path=**}/metadata match and
+            // there is no collection-group index for that field.
             var results = new Dictionary<string, CloudClubSummary>(StringComparer.Ordinal);
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
 
-            var owned = await _db.GetCollectionGroup("metadata")
-                .WhereEqualsTo("createdBy", uid)
-                .LimitedTo(50)
-                .GetDocumentsAsync<Dictionary<string, object>>()
-                .ConfigureAwait(false);
-
-            if (owned?.Documents != null)
+            var memberships = await ListMyTeamMembershipsAsync().ConfigureAwait(false);
+            var clubIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var m in memberships)
             {
-                foreach (var doc in owned.Documents)
-                {
-                    // Path: clubs/{clubId}/metadata/info  OR teams/{teamId}/metadata/info
-                    var parentId = doc.Reference?.Parent?.Parent?.Id;
-                    var rootName = doc.Reference?.Path;
-                    if (string.IsNullOrEmpty(parentId) || doc.Data is null) continue;
-                    if (rootName is null || !rootName.Contains("/clubs/", StringComparison.Ordinal))
-                        continue;
-                    if (!rootName.Contains("/metadata/", StringComparison.Ordinal)) continue;
-
-                    var clubName = ReadString(doc.Data, "clubName");
-                    if (string.IsNullOrWhiteSpace(clubName)) continue;
-                    results[parentId] = new CloudClubSummary
-                    {
-                        ClubId = parentId,
-                        ClubName = clubName,
-                        Role = "owner"
-                    };
-                }
+                if (string.IsNullOrWhiteSpace(m.ClubId)) continue;
+                clubIds.Add(m.ClubId);
+                if (!names.ContainsKey(m.ClubId) && !string.IsNullOrWhiteSpace(m.ClubName))
+                    names[m.ClubId] = m.ClubName;
             }
 
-            return results.Values.OrderBy(c => c.ClubName, StringComparer.OrdinalIgnoreCase).ToList();
+            foreach (var clubId in clubIds)
+            {
+                var role = await GetMyClubRoleAsync(clubId).ConfigureAwait(false);
+                if (role is not ("owner" or "admin")) continue;
+
+                if (!names.TryGetValue(clubId, out var clubName) || string.IsNullOrWhiteSpace(clubName))
+                    clubName = await ReadClubNameAsync(clubId).ConfigureAwait(false);
+
+                results[clubId] = new CloudClubSummary
+                {
+                    ClubId = clubId,
+                    ClubName = clubName ?? "",
+                    Role = role
+                };
+            }
+
+            return results.Values
+                .OrderBy(c => c.ClubName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[CloudTeam] ListManagedClubs: {ex.Message}");
-            return Array.Empty<CloudClubSummary>();
+            throw;
         }
     }
 

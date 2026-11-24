@@ -723,6 +723,8 @@ public partial class TeamDetailsPage : ContentPage
 		{
 			// Same team re-selected: still refresh cloud role (e.g. just promoted).
 			var refreshed = await RefreshMyRoleFromCloudAsync(selectedTeam.TeamId);
+			await MaybeRegisterManagedClubForTeamAsync(selectedTeam.TeamId);
+			RefreshManagedClubPicker();
 			LoadCurrentTeam();
 			if (!string.IsNullOrEmpty(refreshed))
 			{
@@ -749,6 +751,8 @@ public partial class TeamDetailsPage : ContentPage
 
 		SyncTeamIdToLocalStorage(selectedTeam.TeamId);
 		RefreshAppShellMenu();
+		await MaybeRegisterManagedClubForTeamAsync(selectedTeam.TeamId);
+		RefreshManagedClubPicker();
 
 		var roleLabel = char.ToUpperInvariant(role[0]) + role[1..];
 		selectedTeam.Role = roleLabel;
@@ -1241,22 +1245,21 @@ public partial class TeamDetailsPage : ContentPage
 
 	private List<(string ClubId, string ClubName)> _managedClubChoices = new();
 
+	private const string ManagedClubTitleSelect = "Select managed club";
+	private const string ManagedClubTitleCreateFirst = "No managed clubs yet — create a club first";
+	private const string ManagedClubTitleCoachOnly =
+		"Only a club owner or admin can create a team under this club";
+	private const string ManagedClubTitleLoadFailed =
+		"Couldn't load your clubs — check the connection and try again";
+
 	private void RefreshManagedClubPicker()
 	{
 		try
 		{
-			_managedClubChoices = QrCodeService.GetManagedClubs().ToList();
-			ManagedClubPicker.Items.Clear();
-			foreach (var c in _managedClubChoices)
-			{
-				var label = string.IsNullOrWhiteSpace(c.ClubName) ? c.ClubId : c.ClubName;
-				ManagedClubPicker.Items.Add(label);
-			}
-			ManagedClubPicker.IsEnabled = _managedClubChoices.Count > 0;
-			if (_managedClubChoices.Count == 0)
-				ManagedClubPicker.Title = "No managed clubs yet — create a club first";
-			else
-				ManagedClubPicker.Title = "Select managed club";
+			ApplyManagedClubPicker(
+				QrCodeService.GetManagedClubs().ToList(),
+				autoSelectCurrentClub: false,
+				emptyTitle: ManagedClubTitleCreateFirst);
 		}
 		catch (Exception ex)
 		{
@@ -1268,48 +1271,195 @@ public partial class TeamDetailsPage : ContentPage
 
 	private async Task SyncManagedClubsFromCloudAsync()
 	{
+		var loadFailed = false;
+		var sawClubTeam = false;
+		var roleReadFailed = false;
+		var sawMemberOrCoach = false;
 		try
 		{
 			var cloud = ResolveCloudTeam();
-			if (cloud is null) return;
-			var remote = await cloud.ListManagedClubsAsync();
-			foreach (var c in remote)
-				QrCodeService.RegisterManagedClub(c.ClubId, c.ClubName);
+			if (cloud is null)
+			{
+				await ApplyManagedClubPickerOnMainAsync(
+					QrCodeService.GetManagedClubs().ToList(),
+					autoSelectCurrentClub: true,
+					emptyTitle: ManagedClubTitleLoadFailed).ConfigureAwait(false);
+				return;
+			}
 
-			// Also register clubs from local shared teams where user is club owner/admin.
+			try
+			{
+				var remote = await cloud.ListManagedClubsAsync().ConfigureAwait(false);
+				foreach (var c in remote)
+					QrCodeService.RegisterManagedClub(c.ClubId, c.ClubName);
+			}
+			catch (Exception ex)
+			{
+				loadFailed = true;
+				System.Diagnostics.Debug.WriteLine($"[TeamDetails] ListManagedClubs: {ex.Message}");
+			}
+
+			var rolesByClub = new Dictionary<string, string?>(StringComparer.Ordinal);
 			foreach (var teamId in GetSharedTeamIds())
 			{
 				var clubId = Preferences.Get($"{teamId}_club_id", string.Empty);
 				if (string.IsNullOrWhiteSpace(clubId)) continue;
-				var role = await cloud.GetMyClubRoleAsync(clubId);
+				sawClubTeam = true;
+				if (!rolesByClub.TryGetValue(clubId, out var role))
+				{
+					try
+					{
+						role = await cloud.GetMyClubRoleAsync(clubId).ConfigureAwait(false);
+					}
+					catch (Exception ex)
+					{
+						role = null;
+						System.Diagnostics.Debug.WriteLine($"[TeamDetails] GetMyClubRole: {ex.Message}");
+					}
+					rolesByClub[clubId] = role;
+				}
+
 				if (role is "owner" or "admin")
 				{
 					var clubName = Preferences.Get($"{teamId}_club_name", string.Empty);
 					QrCodeService.RegisterManagedClub(clubId, clubName);
 				}
+				else if (string.IsNullOrWhiteSpace(role))
+					roleReadFailed = true;
+				else
+					sawMemberOrCoach = true;
+			}
+
+			var currentTeamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var currentClubId = Preferences.Get($"{currentTeamId}_club_id", string.Empty);
+			if (!string.IsNullOrWhiteSpace(currentClubId) && !rolesByClub.ContainsKey(currentClubId))
+			{
+				sawClubTeam = true;
+				try
+				{
+					var role = await cloud.GetMyClubRoleAsync(currentClubId).ConfigureAwait(false);
+					rolesByClub[currentClubId] = role;
+					if (role is "owner" or "admin")
+					{
+						var clubName = Preferences.Get($"{currentTeamId}_club_name", string.Empty);
+						QrCodeService.RegisterManagedClub(currentClubId, clubName);
+					}
+					else if (string.IsNullOrWhiteSpace(role))
+						roleReadFailed = true;
+					else
+						sawMemberOrCoach = true;
+				}
+				catch (Exception ex)
+				{
+					roleReadFailed = true;
+					System.Diagnostics.Debug.WriteLine($"[TeamDetails] GetMyClubRole: {ex.Message}");
+				}
 			}
 
 			var refreshed = QrCodeService.GetManagedClubs().ToList();
-			if (refreshed.Count == _managedClubChoices.Count) return;
-
-			await MainThread.InvokeOnMainThreadAsync(() =>
+			var emptyTitle = ManagedClubTitleCreateFirst;
+			if (refreshed.Count == 0)
 			{
-				_managedClubChoices = refreshed;
-				var selected = ManagedClubPicker.SelectedIndex;
-				ManagedClubPicker.Items.Clear();
-				foreach (var c in _managedClubChoices)
-				{
-					var label = string.IsNullOrWhiteSpace(c.ClubName) ? c.ClubId : c.ClubName;
-					ManagedClubPicker.Items.Add(label);
-				}
-				ManagedClubPicker.IsEnabled = _managedClubChoices.Count > 0;
-				if (selected >= 0 && selected < _managedClubChoices.Count)
-					ManagedClubPicker.SelectedIndex = selected;
-			});
+				var isOwnerOrAdmin = rolesByClub.Values.Any(r => r is "owner" or "admin");
+				if (loadFailed || isOwnerOrAdmin || (sawClubTeam && roleReadFailed))
+					emptyTitle = ManagedClubTitleLoadFailed;
+				else if (sawClubTeam || sawMemberOrCoach)
+					emptyTitle = ManagedClubTitleCoachOnly;
+			}
+
+			await ApplyManagedClubPickerOnMainAsync(
+				refreshed,
+				autoSelectCurrentClub: true,
+				emptyTitle: emptyTitle).ConfigureAwait(false);
 		}
 		catch (Exception ex)
 		{
 			System.Diagnostics.Debug.WriteLine($"[TeamDetails] SyncManagedClubs: {ex.Message}");
+			try
+			{
+				await ApplyManagedClubPickerOnMainAsync(
+					QrCodeService.GetManagedClubs().ToList(),
+					autoSelectCurrentClub: true,
+					emptyTitle: ManagedClubTitleLoadFailed).ConfigureAwait(false);
+			}
+			catch { /* non-fatal */ }
+		}
+	}
+
+	private Task ApplyManagedClubPickerOnMainAsync(
+		List<(string ClubId, string ClubName)> clubs,
+		bool autoSelectCurrentClub,
+		string emptyTitle)
+		=> MainThread.InvokeOnMainThreadAsync(() =>
+			ApplyManagedClubPicker(clubs, autoSelectCurrentClub, emptyTitle));
+
+	/// <summary>
+	/// Rebuilds the Create Team club picker, always refreshing the Title (including after a
+	/// cloud sync). When <paramref name="autoSelectCurrentClub"/> is set and the user already
+	/// has a selection still in the list, that selection is kept; otherwise the current team's
+	/// club is selected if it is in the list (owner/admin).
+	/// </summary>
+	private void ApplyManagedClubPicker(
+		List<(string ClubId, string ClubName)> clubs,
+		bool autoSelectCurrentClub,
+		string emptyTitle)
+	{
+		string? keepClubId = null;
+		if (ManagedClubPicker.SelectedIndex >= 0
+		    && ManagedClubPicker.SelectedIndex < _managedClubChoices.Count)
+			keepClubId = _managedClubChoices[ManagedClubPicker.SelectedIndex].ClubId;
+
+		_managedClubChoices = clubs;
+		ManagedClubPicker.Items.Clear();
+		foreach (var c in _managedClubChoices)
+		{
+			var label = string.IsNullOrWhiteSpace(c.ClubName) ? c.ClubId : c.ClubName;
+			ManagedClubPicker.Items.Add(label);
+		}
+
+		var hasClubs = _managedClubChoices.Count > 0;
+		ManagedClubPicker.IsEnabled = hasClubs && string.IsNullOrWhiteSpace(NicknameEntry.Text);
+		if (!hasClubs)
+		{
+			ManagedClubPicker.Title = emptyTitle;
+			ManagedClubPicker.SelectedIndex = -1;
+			return;
+		}
+
+		ManagedClubPicker.Title = ManagedClubTitleSelect;
+		var select = -1;
+		if (!string.IsNullOrWhiteSpace(keepClubId))
+			select = _managedClubChoices.FindIndex(c =>
+				string.Equals(c.ClubId, keepClubId, StringComparison.Ordinal));
+		if (select < 0 && autoSelectCurrentClub)
+		{
+			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var currentClubId = Preferences.Get($"{teamId}_club_id", string.Empty);
+			if (!string.IsNullOrWhiteSpace(currentClubId))
+				select = _managedClubChoices.FindIndex(c =>
+					string.Equals(c.ClubId, currentClubId, StringComparison.Ordinal));
+		}
+		if (select >= 0)
+			ManagedClubPicker.SelectedIndex = select;
+	}
+
+	private async Task MaybeRegisterManagedClubForTeamAsync(string teamId)
+	{
+		if (string.IsNullOrWhiteSpace(teamId)) return;
+		var clubId = Preferences.Get($"{teamId}_club_id", string.Empty);
+		if (string.IsNullOrWhiteSpace(clubId)) return;
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null) return;
+			var role = await cloud.GetMyClubRoleAsync(clubId).ConfigureAwait(false);
+			if (role is not ("owner" or "admin")) return;
+			var clubName = Preferences.Get($"{teamId}_club_name", string.Empty);
+			QrCodeService.RegisterManagedClub(clubId, clubName);
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] RegisterManagedClub: {ex.Message}");
 		}
 	}
 
