@@ -138,7 +138,8 @@ public interface ICloudTeamService
     Task StampMyMemberUidAsync(string teamId);
 
     /// <summary>
-    /// Invite code from <c>teams/{id}/metadata/info</c> (for Admins who joined as members and never stored it locally).
+    /// Invite code from <c>teams/{id}/secrets/invite</c> (readable by any team member).
+    /// Falls back to <c>secrets/info</c> for admins when the member-readable doc is not yet present.
     /// Returns null if missing / unreachable.
     /// </summary>
     Task<string?> GetTeamInviteCodeAsync(string teamId);

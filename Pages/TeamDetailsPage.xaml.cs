@@ -171,6 +171,7 @@ public partial class TeamDetailsPage : ContentPage
 			TeamAgeSection.IsVisible = false;
 			DisplayNameSection.IsVisible = false;
 			SharedAdminTools.IsVisible = false;
+			SharedMemberShareTools.IsVisible = false;
 			ViewTeamMembersButton.IsVisible = false;
 			ViewTeamMembersHint.IsVisible = false;
 			LeaveTeamButton.IsVisible = false;
@@ -194,7 +195,8 @@ public partial class TeamDetailsPage : ContentPage
 
 			var isAdmin = isShared && userRole == "admin";
 			SharedAdminTools.IsVisible = isAdmin;
-			if (isAdmin)
+			SharedMemberShareTools.IsVisible = isShared;
+			if (isShared)
 				LoadInviteCode(refreshFromCloud: refreshInviteFromCloud);
 
 			// Team Owner can transfer ownership to another admin
@@ -2347,7 +2349,7 @@ private void RegisterTeamId(string teamId)
 		QrCodeService.ApplySharedJoinLocalState(
 			teamId, teamName, displayName, inviteCode, role, isOwner, clubId, clubName);
 
-		// If join did not carry a code, pull secrets/info.inviteCode (Owner/Admin panel + Share).
+		// If join did not carry a code, pull secrets/invite (any team member can share).
 		if (string.IsNullOrWhiteSpace(Preferences.Get($"{teamId}_invite_code", string.Empty)))
 			await EnsureLocalInviteCodeAsync(teamId);
 
@@ -3160,12 +3162,13 @@ private void RegisterTeamId(string teamId)
 				{
 					await DisplayAlert(
 						"No Invite Code",
-						"Could not load this team's invite code from the cloud. Check your connection, or ask the Owner to open Team Admin (which publishes the code), then try again.",
+						"Could not load this team's invite code from the cloud. Check your connection, or ask an Admin to open Team Details (which publishes the share code), then try again.",
 						"OK");
 					return;
 				}
 
-				PublishInviteCodeBestEffort(teamId, inviteCode);
+				if (IsCurrentSharedAdmin())
+					PublishInviteCodeBestEffort(teamId, inviteCode);
 				// Soft refresh in case another Admin regenerated (does not block the QR modal).
 				_ = RefreshInviteCodeFromCloudAsync(teamId);
 
@@ -3610,8 +3613,8 @@ private void RegisterTeamId(string teamId)
 	}
 
 	/// <summary>
-	/// Loads <c>secrets/info.inviteCode</c> from Firestore into Preferences.
-	/// Cloud wins when available so regenerated codes sync across Admin devices.
+	/// Loads the invite from <c>secrets/invite</c> (any team member) into Preferences.
+	/// Cloud wins when available so regenerated codes sync across devices.
 	/// Falls back to the local cache if cloud is unreachable or empty.
 	/// </summary>
 	private async Task<string?> EnsureLocalInviteCodeAsync(string teamId)
@@ -3656,9 +3659,13 @@ private void RegisterTeamId(string teamId)
 			InviteCodeDisplay.Text = string.IsNullOrEmpty(code) ? "N/A" : code;
 		});
 
-		if (!string.IsNullOrEmpty(code))
+		if (!string.IsNullOrEmpty(code) && IsCurrentSharedAdmin())
 			PublishInviteCodeBestEffort(teamId, code);
 	}
+
+	private static bool IsCurrentSharedAdmin()
+		=> Preferences.Get(TEAM_MODE_KEY, string.Empty) == "shared"
+		   && Preferences.Get(USER_ROLE_KEY, string.Empty) == "admin";
 
 	private void PublishInviteCodeBestEffort(string teamId, string inviteCode)
 	{

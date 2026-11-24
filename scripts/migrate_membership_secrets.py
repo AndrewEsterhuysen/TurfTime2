@@ -3,21 +3,29 @@
 ownerRecoveryCodeHash) from world-readable metadata into
 teams/{id}/secrets/info and clubs/{id}/secrets/info.
 
+Also (--member-invite): copy teams/{id}/secrets/info.inviteCode into the
+member-readable teams/{id}/secrets/invite document. Does not remove the copy
+on secrets/info. Does not overwrite secrets/invite when it already exists
+and differs (prints CONFLICT).
+
 Default is a dry run (no writes). Do NOT run --apply against production until
-Andrew has approved a deploy window, build 74 is out, and a backup is taken.
+Andrew has approved a deploy window. Do NOT run --apply --member-invite until
+Andrew has approved the member-share rules deploy.
 
 Usage (from a machine with gcloud ADC, e.g. the Mac):
   export PATH="/opt/homebrew/bin:/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
   python3 scripts/migrate_membership_secrets.py --project turf-timer
+  python3 scripts/migrate_membership_secrets.py --project turf-timer --member-invite
   python3 scripts/migrate_membership_secrets.py --project turf-timer --apply
   python3 scripts/migrate_membership_secrets.py --project turf-timer --apply --strip
+  python3 scripts/migrate_membership_secrets.py --project turf-timer --apply --member-invite
 
 --strip also deletes the secret fields from metadata (closes world-readable
 leak). Only do this after old app builds no longer need those metadata fields.
 """
 from __future__ import annotations
 
-import argparse, json, subprocess, sys, urllib.parse, urllib.request
+import argparse, json, subprocess, sys, urllib.error, urllib.parse, urllib.request
 
 PROJECT_DEFAULT = "turf-timer"
 TEAM_FIELDS = ("inviteCode", "adminCodeHash", "creatorEmail")
@@ -78,11 +86,60 @@ def path_parts(name: str) -> list[str]:
     i = name.find(marker)
     return name[i + len(marker):].split("/") if i >= 0 else []
 
+def patch_fields(tok: str, project: str, rel_path: str, vals: dict[str, str]) -> None:
+    secret_path = f"projects/{project}/databases/(default)/documents/{rel_path}"
+    mask = "&".join(f"updateMask.fieldPaths={urllib.parse.quote(k)}" for k in vals)
+    url = f"{BASE}/{secret_path}?{mask}"
+    req("PATCH", url, tok, {"fields": to_firestore(vals)}, project)
+
+def migrate_member_invites(tok: str, project: str, apply: bool) -> None:
+    secret_docs = list_cg(tok, project, "secrets")
+    info_by_team: dict[str, str] = {}
+    invite_by_team: dict[str, str] = {}
+    for doc in secret_docs:
+        parts = path_parts(doc.get("name", ""))
+        if len(parts) == 4 and parts[0] == "teams" and parts[2] == "secrets":
+            tid, docid = parts[1], parts[3]
+            if docid == "info":
+                info_by_team[tid] = str_val(fields_of(doc), "inviteCode")
+            elif docid == "invite":
+                invite_by_team[tid] = str_val(fields_of(doc), "inviteCode")
+
+    scanned = already = create = missing = conflicts = writes = 0
+    for tid in sorted(set(info_by_team) | set(invite_by_team)):
+        scanned += 1
+        src = (info_by_team.get(tid) or "").strip()
+        dst = (invite_by_team.get(tid) or "").strip()
+        if not src:
+            missing += 1
+            extra = f" (invite doc has {dst})" if dst else ""
+            print(f"  team {tid}: no inviteCode on secrets/info{extra}")
+            continue
+        if dst == src:
+            already += 1
+            print(f"  team {tid}: secrets/invite already matches")
+            continue
+        if dst and dst != src:
+            conflicts += 1
+            print(f"  team {tid}: CONFLICT secrets/info={src} secrets/invite={dst} (will not overwrite)")
+            continue
+        create += 1
+        print(f"  team {tid}: copy inviteCode into secrets/invite")
+        if apply:
+            patch_fields(tok, project, f"teams/{tid}/secrets/invite", {"inviteCode": src})
+            writes += 1
+    print(
+        f"Member-invite: teams={scanned} copy={create} already_ok={already} "
+        f"missing_source={missing} conflicts={conflicts} writes={writes}."
+    )
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--project", default=PROJECT_DEFAULT)
     ap.add_argument("--apply", action="store_true", help="Write secrets (default is dry-run)")
     ap.add_argument("--strip", action="store_true", help="With --apply, also remove secret fields from metadata")
+    ap.add_argument("--member-invite", action="store_true",
+                    help="Copy secrets/info.inviteCode into member-readable secrets/invite (dry-run unless --apply)")
     args = ap.parse_args()
     if args.strip and not args.apply:
         print("--strip requires --apply", file=sys.stderr)
@@ -151,6 +208,13 @@ def main() -> int:
     print(f"Scanned teams={teams} clubs={clubs}. Writes teams={team_writes} clubs={club_writes} strips={strips}.")
     if not args.apply:
         print("Dry run only. Re-run with --apply to write secrets.")
+
+    # Member-readable invite copy (always shown on dry-run; writes only with --apply --member-invite).
+    if not args.apply or args.member_invite:
+        print("Member-invite copy (secrets/info.inviteCode -> secrets/invite):")
+        migrate_member_invites(tok, args.project, apply=bool(args.apply and args.member_invite))
+        if not (args.apply and args.member_invite):
+            print("Dry run only for member-invite. Re-run with --apply --member-invite to write.")
     return 0
 
 def strip_fields(tok, project, path, keys):

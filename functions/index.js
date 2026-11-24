@@ -440,6 +440,12 @@ async function hardDeleteTeam(db, teamId, meta) {
         if (secretsSnap.exists) {
             inviteCode = (secretsSnap.data().inviteCode && String(secretsSnap.data().inviteCode).trim().toUpperCase()) || '';
         }
+        if (!inviteCode) {
+            const inviteSnap = await db.collection('teams').doc(teamId).collection('secrets').doc('invite').get();
+            if (inviteSnap.exists) {
+                inviteCode = (inviteSnap.data().inviteCode && String(inviteSnap.data().inviteCode).trim().toUpperCase()) || '';
+            }
+        }
     } catch (secErr) {
         console.warn(`[cleanupDormantTeams] secrets/info ${teamId}:`, secErr.message);
     }
@@ -471,6 +477,7 @@ async function hardDeleteTeam(db, teamId, meta) {
         ['public', 'invite'],
         ['metadata', 'info'],
         ['secrets', 'info'],
+        ['secrets', 'invite'],
     ]) {
         try {
             await db.collection('teams').doc(teamId).collection(path[0]).doc(path[1]).delete();

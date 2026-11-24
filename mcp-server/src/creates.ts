@@ -12,6 +12,7 @@
  * Standalone (nickname) team:
  *   teams/{id}/metadata/info — teamName, createdBy, kind "nickname", isActive, createdAt, lastActivityUtc
  *   teams/{id}/secrets/info  — inviteCode, adminCodeHash, creatorEmail (team admin / creator only)
+ *   teams/{id}/secrets/invite — inviteCode only (any team member can read; admin write)
  *   teams/{id}/members/{uid} — role "admin", displayName, uid   (makes the creator admin; Select Team finds this)
  *   teams/{id}/roster/data   — version 2, players []            (the app writes an empty list at create)
  *   invite_codes/{compact}   — teamId, teamName, clubId, clubName, inviteCode, inviteCodeCompact, createdBy
@@ -22,7 +23,7 @@
  *
  * Sequential writes, not one batch: roster rules use exists(members/{uid}), which sees the pre-batch state.
  * Production rules already allow all of this (any signed-in user may create a nickname team or a club;
- * a clubbed team's metadata create requires isClubOwnerOrAdmin). No rules change.
+ * a clubbed team's metadata create requires isClubOwnerOrAdmin). Writing secrets/invite is allowed under current admin/owner secrets rules; members can read it only after the member-share rules deploy.
  */
 import { createHash, randomInt } from "crypto";
 import { FirestoreError, ts } from "./firestore.js";
@@ -282,6 +283,7 @@ export async function createTeam(ctx: WriteContext, a: CreateTeamArgs) {
     await writeNew(ctx, `teams/${teamId}/secrets/info`, {
       inviteCode, adminCodeHash: hashAdminCode(ownerRecoveryCode), creatorEmail,
     });
+    await writeNew(ctx, `teams/${teamId}/secrets/invite`, { inviteCode });
     await writeNew(ctx, `teams/${teamId}/members/${ctx.uid}`, { role: "admin", displayName, uid: ctx.uid });
     await writeNew(ctx, `teams/${teamId}/roster/data`, roster);
     try { await writeNew(ctx, `invite_codes/${compact}`, invitePayload); } catch (e) {

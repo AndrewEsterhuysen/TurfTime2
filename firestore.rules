@@ -8,6 +8,7 @@ rules_version = '2';
 //   clubs/{clubId}/members/{uid}    (role: owner | admin | member; optional coachTeamId)
 //   clubs/{clubId}/players/{playerId}  (club player list — owner/admin/coach; docs/club-players-spec.md)
 //   teams/{teamId}/metadata/info    (+ optional clubId/clubName/kind)
+//   teams/{teamId}/secrets/invite   (inviteCode — any team member can read; admin write)
 //   teams/{teamId}/secrets/info     (inviteCode, adminCodeHash, creatorEmail — team admins)
 //   clubs/{clubId}/secrets/info     (ownerRecoveryCodeHash — club owner)
 //   teams/{teamId}/members/{uid}
@@ -481,9 +482,18 @@ service cloud.firestore {
       allow delete: if isTeamAdmin(teamId);
     }
 
-    // Team secrets — invite code, admin recovery hash, creator email.
-    // Readable by team admins and the metadata creator (so the creator can write
-    // this during Create Team, and recoverers can read it once they are admin).
+    // Member-readable invite only. Field-level read is not possible in rules,
+    // so the invite lives on this document; adminCodeHash and creatorEmail stay
+    // on secrets/info (admin / metadata creator only).
+    match /teams/{teamId}/secrets/invite {
+      allow read: if isTeamMember(teamId);
+      allow create, update, delete: if isTeamAdmin(teamId) || isTeamOwner(teamId);
+    }
+
+    // Team secrets — admin recovery hash, creator email, and a copy of the
+    // invite for admin tools. Readable by team admins and the metadata creator
+    // (so the creator can write this during Create Team, and recoverers can
+    // read it once they are admin).
     match /teams/{teamId}/secrets/{docId} {
       allow read: if isTeamAdmin(teamId) || isTeamOwner(teamId);
       allow create, update: if isTeamAdmin(teamId) || isTeamOwner(teamId);
