@@ -2,8 +2,8 @@
 
 Status: **deployed 25 Nov 2026 (AEDT), 3.9.1 (74), then dual-write removal in
 3.9.1 (76)**. Member share (3.9.1 build 77) is prepared on `feature/member-share`
-but the Firestore rules and the `--member-invite` migration have **not** been
-deployed or applied — Andrew must approve that rules deploy. PR #20 and PR #21
+and the Firestore rules plus the `--member-invite` migration were approved
+and applied on 25 Nov 2026 (AEDT). PR #20 and PR #21
 remain drafts — do not merge until Andrew has tested. Rollback of rules:
 `~/TurfRulesBackup/rollback.sh` (restores `ac9ea929`, the 74 ruleset).
 
@@ -89,8 +89,18 @@ Build 77 delivery (Australia/Sydney, AEDT):
   deletes `secrets/invite` and will read it if `secrets/info` has no invite.
   Same Artifact Registry cleanup-policy warning in `australia-southeast1` as
   before (left unchanged).
-- Firestore rules were **not** deployed. Live rules remain `f0f39fe1`. The
-  member-invite migration was **not** applied.
+- Firestore rules and the member-invite migration were later approved and
+  applied (same day, Australia/Sydney, AEDT):
+  - Live rules backup: `~/TurfRulesBackup/firestore-prod-20261125-101440.rules`
+    (ruleset `f0f39fe1-4524-409c-b94e-37dc417e7efb`). `rollback.sh` now
+    restores `f0f39fe1`.
+  - New live ruleset `15003d17-fa9b-4a34-9425-e4ea811e4319` (deployed
+    10:14:59 AM AEDT). After-backup:
+    `~/TurfRulesBackup/live-after-20261125-101507.rules`.
+  - Migration `--apply --member-invite --strip`: teams=12, member-invite
+    `copy=12` `writes=12`, leftover empty `creatorEmail` metadata keys
+    `strips=9`. Verified all 12 `secrets/invite` docs match `secrets/info`,
+    and no secret keys remain on team metadata.
 
 ## What was wrong
 
