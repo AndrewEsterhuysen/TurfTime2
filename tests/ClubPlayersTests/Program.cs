@@ -65,5 +65,41 @@ Check(ClubTeamNames.FormatTypeLabel(true, false, "nickname", "", "") == "Type: O
 Check(ClubTeamNames.FormatTypeLabel(true, false, "", "", "") == "Type: Online · Nickname team", "older online team with no kind or clubId");
 Check(ClubTeamNames.FormatTypeLabel(false, false, "", "", "") == "Type: Not configured", "no team selected");
 
+// 8. Assignment eligibility (must have a known age group; play up, never down)
+Check(ClubAgeGroups.IsKnownAgeGroup("u10") && ClubAgeGroups.CanonicalAgeGroup("u10") == "U10", "canonical U10");
+Check(ClubAgeGroups.IsEligibleToAssign(D("2017-01-02"), "U10", 2027), "eligible to assign to own group");
+Check(ClubAgeGroups.IsEligibleToAssign(D("2018-06-15"), "U10", 2027), "younger may play up");
+Check(!ClubAgeGroups.IsEligibleToAssign(D("2017-01-01"), "U10", 2027), "cannot play down");
+Check(!ClubAgeGroups.IsEligibleToAssign(D("2017-01-02"), "", 2027), "missing age group: not assignable");
+Check(ClubAgeGroups.IsEligibleToAssign(D("2010-06-15"), "Open", 2027), "Open is assignable");
+Check(ClubAgeGroups.IneligibilityReason(D("2017-01-01"), "U10", 2027)
+      == "age 10 on 1 Jan 2027 — too old for U10", "ineligibility reason");
+Check(ClubAgeGroups.IneligibilityReason(D("2017-01-02"), "", 2027)
+      == "This team does not have an age group yet.", "missing group reason");
+Check(ClubAgeGroups.IneligibilityReason(D("2017-01-02"), "U10", 2027) is null, "no reason when eligible");
+Check(ClubAgeGroups.MaxAgeOn1Jan("U10") == 9, "derived maxAgeOn1Jan");
+
+// 9. Assignment history (fresh each season, history kept, team-count warning only)
+var now = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+var hist = new List<ClubPlayerTeamEntry>();
+hist = ClubPlayerAssignments.Assign(hist, "t1", "U10 Green", 2026, now);
+Check(hist.Count == 1 && ClubPlayerAssignments.CurrentTeamIds(hist).SequenceEqual(["t1"]), "first assign");
+hist = ClubPlayerAssignments.Assign(hist, "t1", "U10 Green", 2026, now);
+Check(hist.Count == 1, "same season re-assign is a no-op (no duplicate entry)");
+hist = ClubPlayerAssignments.Assign(hist, "t2", "U11 Blue", 2026, now);
+hist = ClubPlayerAssignments.Assign(hist, "t3", "U12 Red", 2026, now);
+Check(ClubPlayerAssignments.CurrentTeamIds(hist).Count == 3, "three current teams");
+Check(ClubPlayerAssignments.ShouldWarnTeamCount(hist, "t4"), "warn when a fourth team would be added");
+Check(!ClubPlayerAssignments.ShouldWarnTeamCount(hist, "t1"), "no warning when already on that team");
+var later = now.AddDays(1);
+hist = ClubPlayerAssignments.Unassign(hist, "t2", 2026, later);
+Check(hist.Count == 3 && hist.Single(x => x.TeamId == "t2").RemovedAt == later, "unassign sets removedAt, keeps history");
+Check(ClubPlayerAssignments.CurrentTeamIds(hist).SequenceEqual(["t1", "t3"]), "current teams drop the unassigned one");
+hist = ClubPlayerAssignments.Assign(hist, "t2", "U11 Blue", 2026, later.AddDays(1));
+Check(hist.Count == 3 && hist.Single(x => x.TeamId == "t2").RemovedAt is null, "re-assign same season reopens the entry");
+hist = ClubPlayerAssignments.Assign(hist, "t1", "U10 Green", 2027, later.AddYears(1));
+Check(hist.Count(x => x.TeamId == "t1") == 2 && hist.Count(x => x.TeamId == "t1" && x.RemovedAt is null) == 2,
+      "new season adds a fresh assignment and keeps last year's");
+
 Console.WriteLine(fails == 0 ? "ALL PASS" : $"{fails} FAILED");
 return fails;

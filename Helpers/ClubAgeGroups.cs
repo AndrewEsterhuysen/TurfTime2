@@ -54,4 +54,43 @@ public static class ClubAgeGroups
 
     /// <summary>Default season: the current calendar year (local time).</summary>
     public static int CurrentSeason() => DateTime.Now.Year;
+
+    /// <summary>Common junior labels plus Open. Used by the age-group picker.</summary>
+    public static readonly string[] StandardLabels =
+        ["U6", "U7", "U8", "U9", "U10", "U11", "U12", "U13", "U14", "U15", "U16", "U17", "U18", "Open"];
+
+    public static bool IsKnownAgeGroup(string? ageGroup)
+    {
+        var g = ageGroup?.Trim() ?? "";
+        return StandardLabels.Any(l => string.Equals(l, g, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Normalise a known label to the canonical form (e.g. "u10" → "U10"), or null.</summary>
+    public static string? CanonicalAgeGroup(string? ageGroup)
+    {
+        var g = ageGroup?.Trim() ?? "";
+        return StandardLabels.FirstOrDefault(l => string.Equals(l, g, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Eligible to be assigned to this team: the age group must be set (or Open),
+    /// and the player may play up but never down.
+    /// </summary>
+    public static bool IsEligibleToAssign(DateOnly dob, string? ageGroup, int season)
+    {
+        var canonical = CanonicalAgeGroup(ageGroup);
+        if (canonical is null) return false;
+        return IsEligible(dob, canonical, season);
+    }
+
+    /// <summary>e.g. "age 10 on 1 Jan 2027 — too old for U10". Null when eligible.</summary>
+    public static string? IneligibilityReason(DateOnly dob, string? ageGroup, int season)
+    {
+        if (IsEligibleToAssign(dob, ageGroup, season)) return null;
+        var label = CanonicalAgeGroup(ageGroup);
+        if (label is null) return "This team does not have an age group yet.";
+        if (string.Equals(label, Open, StringComparison.OrdinalIgnoreCase)) return null;
+        var age = AgeOn1Jan(dob, season);
+        return $"age {age} on 1 Jan {season} — too old for {label}";
+    }
 }
