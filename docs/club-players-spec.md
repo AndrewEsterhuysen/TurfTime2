@@ -1,10 +1,9 @@
 # Club-level player list and team assignment — specification
 
-Status: **slice 1 built** (model, rules + emulator tests, `ClubPlayerService`, Club players
-screen with search and add). Branch `feature/club-players`. Updated 23 Nov 2026 to
-match Andrew's decisions (§13). Nothing here is deployed; any Firestore rules or
-Cloud Function change needs Andrew's approval before deploy. See §14 for what slice 1
-covers and what is still to do.
+Status: **slice 2 built** (list + add, age group and season, assignment to the 16
+roster slots, Change player). Branch `feature/club-players`. Updated 24 Nov 2026.
+Nothing here is deployed; any Firestore rules or Cloud Function change needs
+Andrew's approval before deploy. See §14 for what is built and what is still to do.
 
 Proposed feature id: `ClubPlayerList` (club / shared teams only; part of a future
 club subscription, decision 13). Add it to [`FEATURES.md`](FEATURES.md) when built.
@@ -396,8 +395,28 @@ club teams (older versions writing the roster would drop `playerId`).
   season, current teams), Add player form, inline "Add "X" to the club", and the exact
   duplicate prompt (Use existing / Add anyway). Archived players are hidden.
 
-Still to do: filter chips, close-match duplicates, bulk add/CSV, player card, editing /
-archive / merge / delete UI, `playerIndex` Cloud Function, team age group and season,
-team picker and assignment (with eligibility in rules), Change player / Borrow, stats
-(`playerMatches` + Cloud Function), migration screen, removing teams from players on
-team delete, privacy policy wording for date of birth.
+## 15. Slice 2 (built 24 Nov 2026)
+
+- **Team age group and season** on `teams/{teamId}/metadata/info` (`ageGroup`, `season`,
+  `maxAgeOn1Jan`). Set when creating a team under a club, and editable in Team Admin
+  for existing club teams. Open has no age limit.
+- **Roster v4**: each slot may store `playerId` (and a reserved `borrowed` flag). The
+  16-slot game engine, rotations and live Game tab swipes are unchanged. `name` stays
+  in the slot as a copy.
+- **Assignment**: coaches and club admins assign from **Change player** (setup-phase
+  name tap on a club team). Eligibility is play-up only, 1 January cutoff, enforced in
+  `ClubPlayerService` and in the Firestore rules (one team added or removed per write;
+  `assignmentTeamId` names that team; `dobYear`/`dobMonth`/`dobDay` support the age
+  check). Team count is a warning only (3+ current teams). History is kept in
+  `teams` / `teamIds` (fresh each season, `removedAt` on unassign).
+- **Change player** replaces Rename Player on club teams. Nickname and local teams
+  keep Rename Player. Clearing a slot unassigns the player and restores `#NN Player`.
+- **Borrow** is not in this slice (left for the next one).
+- **Tests**: `tests/ClubPlayersTests` (eligibility + assignment history) and
+  `firestore-tests/test/club-players.test.mjs` (assign, unassign, no play-down, Open,
+  coach may only assign to their own team).
+
+Still to do: Borrow, filter chips, close-match duplicates, bulk add/CSV, player card,
+editing / archive / merge / delete UI, `playerIndex` Cloud Function, stats
+(`playerMatches` + Cloud Function), migration screen (link existing named slots),
+removing teams from players on team delete, privacy policy wording for date of birth.
