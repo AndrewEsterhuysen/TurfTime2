@@ -42,6 +42,25 @@ public interface IClubPlayerService
     /// <summary>Removes the player from <paramref name="teamId"/> for <paramref name="season"/>; history is kept.</summary>
     Task<ClubPlayerWriteResult> UnassignFromTeamAsync(string clubId, string playerId, string teamId, int season,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Unassigns the player from every current team, then sets status to archived.
+    /// Owner/admin only. The doc, stats and team history are kept; the player can be restored.
+    /// Roster slots on other teams are left showing the name (the playerId link may go stale).
+    /// </summary>
+    Task<ClubPlayerWriteResult> ArchiveAsync(string clubId, string playerId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Sets status back to active. Does not re-assign teams. Owner/admin only.</summary>
+    Task<ClubPlayerWriteResult> RestoreAsync(string clubId, string playerId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Unassigns the player from every current team, then deletes the doc. Owner/admin only.
+    /// Match reports keep the player's name; stats history on the player doc is removed.
+    /// </summary>
+    Task<ClubPlayerWriteResult> DeleteAsync(string clubId, string playerId,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class ClubPlayerAccess

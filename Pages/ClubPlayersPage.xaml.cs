@@ -6,7 +6,8 @@ using TurfTime2.Services;
 namespace TurfTime2;
 
 /// <summary>
-/// Club player list (docs/club-players-spec.md §7.1–7.3), slice 1: search and add.
+/// Club player list (docs/club-players-spec.md §7.1–7.3): search, add, and
+    /// (owners/admins) archive, restore and delete.
 /// Opened from Details → Club players for club teams; club owners/admins and coaches
 /// (Admins of one of the club's teams) only. Depends on <see cref="IClubPlayerService"/>
 /// and <see cref="ICloudTeamService"/> only — no Firebase types here.
@@ -111,14 +112,13 @@ public partial class ClubPlayersPage : ContentPage
     private void RenderList()
     {
         var query = SearchEntry.Text ?? "";
-        // Archived players stay in the club (stats kept) but are hidden here in slice 1.
         var matches = _all
             .Where(p => !p.IsArchived && ClubPlayerNames.Matches(p.NameKey, query))
             .ToList();
 
         PlayerList.Children.Clear();
         foreach (var p in matches.Take(MaxRows))
-            PlayerList.Children.Add(BuildRow(p));
+            PlayerList.Children.Add(BuildRow(p, archived: false));
 
         var active = _all.Count(p => !p.IsArchived);
         CountLabel.Text = ClubPlayerNames.Normalize(query).Length == 0
@@ -134,11 +134,34 @@ public partial class ClubPlayersPage : ContentPage
         var exact = typed.Length > 0 && _all.Any(p => ClubPlayerNames.IsExactDuplicate(typed, p.Name, p.PreferredName));
         AddFromSearchButton.IsVisible = _access.CanAdd && typed.Length > 0 && !exact;
         AddFromSearchButton.Text = $"Add \"{typed}\" to the club";
+
+        var archived = _all
+            .Where(p => p.IsArchived && ClubPlayerNames.Matches(p.NameKey, query))
+            .ToList();
+        var showArchived = _access.IsClubAdmin && ShowArchivedSwitch.IsToggled;
+        ArchivedToggleRow.IsVisible = _access.IsClubAdmin;
+        ArchivedList.Children.Clear();
+        if (showArchived)
+        {
+            foreach (var p in archived.Take(MaxRows))
+                ArchivedList.Children.Add(BuildRow(p, archived: true));
+            ArchivedCountLabel.IsVisible = true;
+            ArchivedCountLabel.Text = archived.Count == 0
+                ? (ClubPlayerNames.Normalize(query).Length == 0
+                    ? "No archived players."
+                    : "No archived players match this search.")
+                : (archived.Count == 1 ? "1 archived player" : $"{archived.Count} archived players");
+        }
+        else
+        {
+            ArchivedCountLabel.IsVisible = false;
+        }
     }
 
-    private View BuildRow(ClubPlayer p)
+    private View BuildRow(ClubPlayer p, bool archived)
     {
         var details = new List<string>();
+        if (archived) details.Add("Archived");
         if (ClubAgeGroups.TryParseDateOfBirth(p.DateOfBirth, out var dob))
         {
             details.Add(dob.ToString("d MMM yyyy", CultureInfo.CurrentCulture));
@@ -152,7 +175,7 @@ public partial class ClubPlayersPage : ContentPage
         var current = ClubPlayerAssignments.CurrentTeamNames(p.Teams, p.TeamIds);
         if (current.Count > 0) details.Add(string.Join(", ", current));
 
-        return new Border
+        var border = new Border
         {
             Style = StyleOf("PvCardTinted"),
             Padding = new Thickness(12, 8),
@@ -166,6 +189,137 @@ public partial class ClubPlayersPage : ContentPage
                 }
             }
         };
+        if (_access.IsClubAdmin)
+        {
+            var tap = new TapGestureRecognizer();
+            tap.Tapped += async (_, _) => await OnPlayerTapped(p);
+            border.GestureRecognizers.Add(tap);
+        }
+        return border;
+    }
+
+    private void OnShowArchivedToggled(object? sender, ToggledEventArgs e)
+    {
+        if (ListCard.IsVisible) RenderList();
+    }
+
+    private async Task OnPlayerTapped(ClubPlayer player)
+    {
+        if (_saving || !_access.IsClubAdmin || _players is null) return;
+
+        var restoreOrArchive = player.IsArchived ? "Restore" : "Archive";
+        var choice = await DisplayActionSheet(player.DisplayName, "Cancel", "Delete", restoreOrArchive);
+        if (string.IsNullOrEmpty(choice) || choice == "Cancel") return;
+
+        if (choice == "Archive")
+            await ArchivePlayerAsync(player);
+        else if (choice == "Restore")
+            await RestorePlayerAsync(player);
+        else if (choice == "Delete")
+            await DeletePlayerAsync(player);
+    }
+
+    private async Task ArchivePlayerAsync(ClubPlayer player)
+    {
+        var teams = ClubPlayerAssignments.CurrentTeamNames(player.Teams, player.TeamIds);
+        var teamBit = teams.Count == 0
+            ? "They will be hidden from the club list and from Change player, and can be restored later."
+            : "They will be taken off " + string.Join(", ", teams)
+              + ". They will be hidden from the club list and from Change player, and can be restored later.";
+        var go = await DisplayAlert(
+            "Archive " + player.DisplayName + "?",
+            teamBit,
+            "Archive",
+            "Cancel");
+        if (!go) return;
+
+        await RunPlayerWriteAsync(
+            () => _players!.ArchiveAsync(_clubId, player.PlayerId),
+            onSuccess: result =>
+            {
+                ReplacePlayer(result.Player ?? player, ClubPlayer.StatusArchived);
+                ShowArchivedSwitch.IsToggled = true;
+            },
+            failTitle: "Archive player",
+            failFallback: "Could not archive the player.");
+    }
+
+    private async Task RestorePlayerAsync(ClubPlayer player)
+    {
+        var go = await DisplayAlert(
+            "Restore " + player.DisplayName + "?",
+            "They will show up in the club list and in Change player again. They are not put back on a team automatically.",
+            "Restore",
+            "Cancel");
+        if (!go) return;
+
+        await RunPlayerWriteAsync(
+            () => _players!.RestoreAsync(_clubId, player.PlayerId),
+            onSuccess: result => ReplacePlayer(result.Player ?? player, ClubPlayer.StatusActive),
+            failTitle: "Restore player",
+            failFallback: "Could not restore the player.");
+    }
+
+    private async Task DeletePlayerAsync(ClubPlayer player)
+    {
+        var teams = ClubPlayerAssignments.CurrentTeamNames(player.Teams, player.TeamIds);
+        var teamBit = teams.Count == 0
+            ? ""
+            : " They will first be taken off " + string.Join(", ", teams) + ".";
+        var go = await DisplayAlert(
+            "Delete " + player.DisplayName + "?",
+            "This cannot be undone. Match reports keep the player's name, but their stats history is removed."
+            + teamBit,
+            "Delete",
+            "Cancel");
+        if (!go) return;
+
+        await RunPlayerWriteAsync(
+            () => _players!.DeleteAsync(_clubId, player.PlayerId),
+            onSuccess: _ => _all.RemoveAll(p => p.PlayerId == player.PlayerId),
+            failTitle: "Delete player",
+            failFallback: "Could not delete the player.");
+    }
+
+    private async Task RunPlayerWriteAsync(
+        Func<Task<ClubPlayerWriteResult>> action,
+        Action<ClubPlayerWriteResult> onSuccess,
+        string failTitle,
+        string failFallback)
+    {
+        if (_saving || _players is null) return;
+        _saving = true;
+        SetBusy(true);
+        try
+        {
+            var result = await action();
+            if (!result.Success)
+            {
+                await DisplayAlert(failTitle, result.Error ?? failFallback, "OK");
+                return;
+            }
+            onSuccess(result);
+            RenderList();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ClubPlayersPage] Write: {ex.Message}");
+            await DisplayAlert(failTitle, "Could not reach the server. Check your connection and try again.", "OK");
+        }
+        finally
+        {
+            _saving = false;
+            SetBusy(false);
+        }
+    }
+
+    private void ReplacePlayer(ClubPlayer updated, string status)
+    {
+        updated.Status = status;
+        var i = _all.FindIndex(p => p.PlayerId == updated.PlayerId);
+        if (i >= 0) _all[i] = updated;
+        else _all.Add(updated);
+        _all.Sort((a, b) => string.Compare(a.NameKey, b.NameKey, StringComparison.Ordinal));
     }
 
     private void OnSearchChanged(object? sender, TextChangedEventArgs e)

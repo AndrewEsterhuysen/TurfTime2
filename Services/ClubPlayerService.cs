@@ -387,7 +387,13 @@ public sealed class ClubPlayerService : IClubPlayerService
         try
         {
             var loaded = await LoadPlayerAsync(clubId, playerId, cancellationToken).ConfigureAwait(false);
-            if (loaded.Error is not null) return loaded;
+            if (loaded.Error is not null)
+            {
+                // Already gone (e.g. deleted): clearing a leftover slot is a success.
+                if (string.Equals(loaded.Error, "Player not found.", StringComparison.Ordinal))
+                    return new ClubPlayerWriteResult { Success = true };
+                return loaded;
+            }
             var current = loaded.Player!;
 
             var now = DateTimeOffset.UtcNow;
@@ -412,6 +418,112 @@ public sealed class ClubPlayerService : IClubPlayerService
             System.Diagnostics.Debug.WriteLine($"[ClubPlayers] Unassign: {ex.Message}");
             return ClubPlayerWriteResult.Fail("Could not reach the server. Check your connection.");
         }
+    }
+
+    public async Task<ClubPlayerWriteResult> ArchiveAsync(string clubId, string playerId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(playerId))
+            return ClubPlayerWriteResult.Fail("Missing player.");
+        try
+        {
+            var loaded = await LoadPlayerAsync(clubId, playerId, cancellationToken).ConfigureAwait(false);
+            if (loaded.Error is not null) return loaded;
+            var current = loaded.Player!;
+
+            var unassigned = await UnassignAllCurrentAsync(clubId, current, cancellationToken).ConfigureAwait(false);
+            if (!unassigned.Success) return unassigned;
+            current = unassigned.Player ?? current;
+
+            if (current.IsArchived)
+                return new ClubPlayerWriteResult { Success = true, Player = current };
+
+            return await UpdateAsync(clubId, playerId, new ClubPlayerUpdate { Status = ClubPlayer.StatusArchived },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ClubPlayers] Archive: {ex.Message}");
+            return ClubPlayerWriteResult.Fail("Could not reach the server. Check your connection.");
+        }
+    }
+
+    public async Task<ClubPlayerWriteResult> RestoreAsync(string clubId, string playerId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(playerId))
+            return ClubPlayerWriteResult.Fail("Missing player.");
+        return await UpdateAsync(clubId, playerId, new ClubPlayerUpdate { Status = ClubPlayer.StatusActive },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<ClubPlayerWriteResult> DeleteAsync(string clubId, string playerId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(playerId))
+            return ClubPlayerWriteResult.Fail("Missing player.");
+        try
+        {
+            var loaded = await LoadPlayerAsync(clubId, playerId, cancellationToken).ConfigureAwait(false);
+            if (loaded.Error is not null) return loaded;
+            var current = loaded.Player!;
+
+            var unassigned = await UnassignAllCurrentAsync(clubId, current, cancellationToken).ConfigureAwait(false);
+            if (!unassigned.Success) return unassigned;
+
+            var token = await GetTokenAsync().ConfigureAwait(false);
+            if (string.IsNullOrEmpty(token)) return ClubPlayerWriteResult.Fail("Sign in to delete players.");
+            var path = PlayerPath(clubId, playerId);
+            using var req = new HttpRequestMessage(HttpMethod.Delete, RestUrl(path));
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var resp = await RestHttp.SendAsync(req, cancellationToken).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            FirestoreUsageMeter.RecordRestBody("DELETE", path, body);
+            if (resp.StatusCode == HttpStatusCode.NotFound)
+                return new ClubPlayerWriteResult { Success = true };
+            if (!resp.IsSuccessStatusCode)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[ClubPlayers] DELETE {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+                return ClubPlayerWriteResult.Fail("Could not delete the player. Only a club owner or admin can delete players.");
+            }
+            return new ClubPlayerWriteResult { Success = true };
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ClubPlayers] Delete: {ex.Message}");
+            return ClubPlayerWriteResult.Fail("Could not reach the server. Check your connection.");
+        }
+    }
+
+    /// <summary>
+    /// One team per write (rules). Stops and returns the error if any unassign fails.
+    /// </summary>
+    private async Task<ClubPlayerWriteResult> UnassignAllCurrentAsync(string clubId, ClubPlayer current,
+        CancellationToken ct)
+    {
+        var ids = current.TeamIds.Count > 0
+            ? current.TeamIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList()
+            : ClubPlayerAssignments.CurrentTeamIds(current.Teams);
+        foreach (var teamId in ids)
+        {
+            var season = current.Teams.LastOrDefault(t =>
+                             string.Equals(t.TeamId, teamId, StringComparison.Ordinal) && t.RemovedAt is null)?.Season
+                         ?? ClubAgeGroups.CurrentSeason();
+            var result = await UnassignFromTeamAsync(clubId, current.PlayerId, teamId, season, ct)
+                .ConfigureAwait(false);
+            if (!result.Success)
+            {
+                var name = current.Teams.LastOrDefault(t =>
+                    string.Equals(t.TeamId, teamId, StringComparison.Ordinal))?.TeamName;
+                var label = string.IsNullOrWhiteSpace(name) ? "one of their teams" : name;
+                return ClubPlayerWriteResult.Fail(
+                    result.Error ?? $"Could not remove the player from {label}.");
+            }
+            if (result.Player is not null)
+                current = result.Player;
+        }
+        return new ClubPlayerWriteResult { Success = true, Player = current };
     }
 
     private async Task<ClubPlayerWriteResult> LoadPlayerAsync(string clubId, string playerId, CancellationToken ct)

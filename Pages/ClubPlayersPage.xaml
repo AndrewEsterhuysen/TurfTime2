@@ -78,6 +78,13 @@
                     <VerticalStackLayout x:Name="PlayerList" Spacing="6" />
                     <Button x:Name="AddFromSearchButton" Style="{StaticResource PvButtonOutline}" IsVisible="False"
                             Clicked="OnAddFromSearchClicked" />
+                    <HorizontalStackLayout x:Name="ArchivedToggleRow" IsVisible="False" Spacing="12">
+                        <Switch x:Name="ShowArchivedSwitch" Style="{StaticResource PvSwitch}"
+                                Toggled="OnShowArchivedToggled" />
+                        <Label Style="{StaticResource PvBody}" Text="Show archived" VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                    <Label x:Name="ArchivedCountLabel" Style="{StaticResource PvCaption}" IsVisible="False" />
+                    <VerticalStackLayout x:Name="ArchivedList" Spacing="6" />
                 </VerticalStackLayout>
             </Border>
 
