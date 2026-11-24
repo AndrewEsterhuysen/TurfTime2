@@ -1,8 +1,25 @@
 # Membership security (to-do item 10)
 
-Status: **built on `fix/membership-security`, 3.9.1 (74)**. Rules, app and MCP server
-are in this branch. **Do not deploy rules, run the migration against production,
-redeploy the MCP server, or merge until Andrew approves.**
+Status: **deployed 25 Nov 2026 (AEDT), 3.9.1 (74)**. PR #20 remains a draft — do not
+merge until Andrew has tested. Rollback of rules: `~/TurfRulesBackup/rollback.sh`
+(restores `e1be8d18`).
+
+Deploy record (all times Australia/Sydney, AEDT):
+
+- TestFlight upload of 3.9.1 build 74: delivery UUID `d6617b57-2cdd-4174-887b-9c5181e083b9`
+  (altool succeeded at 6:47:14 AM AEDT).
+- MCP Cloud Run: revision `turftimer-mcp-00009-hw4` (was `turftimer-mcp-00008-97w`),
+  100% traffic, health check 200 on `/.well-known/oauth-authorization-server`.
+  URL unchanged: `https://turftimer-mcp-co6qd7jw6q-ts.a.run.app`.
+- Rules backup: `~/TurfRulesBackup/firestore-prod-20261125-065358.rules` (live
+  `e1be8d18-d849-439b-9670-18855a30db07`). New live ruleset
+  `ac9ea929-147e-4901-8f27-d0040fb75fb3` (deployed 6:54:23 AM AEDT).
+- Migration (turf-timer): 11 teams, 3 clubs. Dry-run then `--apply` (11 team +
+  3 club secret writes). Verified every secrets/info doc matched metadata.
+  Then `--apply --strip` (14 strips). After strip, secrets remain and secret
+  fields are gone from metadata. One pre-existing test team,
+  `ios-simulator-vz4dyx`, has no `adminCodeHash` and no `createdBy` (not caused
+  by the migration).
 
 ## What was wrong
 
