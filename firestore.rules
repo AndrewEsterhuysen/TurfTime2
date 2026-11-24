@@ -8,6 +8,8 @@ rules_version = '2';
 //   clubs/{clubId}/members/{uid}    (role: owner | admin | member; optional coachTeamId)
 //   clubs/{clubId}/players/{playerId}  (club player list — owner/admin/coach; docs/club-players-spec.md)
 //   teams/{teamId}/metadata/info    (+ optional clubId/clubName/kind)
+//   teams/{teamId}/secrets/info     (inviteCode, adminCodeHash, creatorEmail — team admins)
+//   clubs/{clubId}/secrets/info     (ownerRecoveryCodeHash — club owner)
 //   teams/{teamId}/members/{uid}
 //   teams/{teamId}/roster/data
 //   teams/{teamId}/details/location  (match schedule / venue — admin write, member read)
@@ -37,6 +39,7 @@ service cloud.firestore {
 
     function isTeamAdmin(teamId) {
       return signedIn()
+        && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid))
         && get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role == 'admin';
     }
 
@@ -82,6 +85,81 @@ service cloud.firestore {
         || (signedIn() && exists(clubMemberPath(clubId)));
     }
 
+    function teamMetaPath(teamId) {
+      return /databases/$(database)/documents/teams/$(teamId)/metadata/info;
+    }
+
+    function teamSecretsPath(teamId) {
+      return /databases/$(database)/documents/teams/$(teamId)/secrets/info;
+    }
+
+    function clubSecretsPath(clubId) {
+      return /databases/$(database)/documents/clubs/$(clubId)/secrets/info;
+    }
+
+    function inviteDocPath(code) {
+      return /databases/$(database)/documents/invite_codes/$(code);
+    }
+
+    function inviteProofOk(teamId) {
+      let code = request.resource.data.get('joinInviteCode', '');
+      return request.resource.data.role == 'member'
+        && code is string
+        && code != ''
+        && exists(inviteDocPath(code))
+        && get(inviteDocPath(code)).data.teamId == teamId;
+    }
+
+    function teamAdminHashMatches(teamId, hash) {
+      return hash is string && hash != ''
+        && exists(teamSecretsPath(teamId))
+        && get(teamSecretsPath(teamId)).data.get('adminCodeHash', '') == hash;
+    }
+
+    function clubRecoveryHashMatches(clubId, hash) {
+      return hash is string && hash != ''
+        && exists(clubSecretsPath(clubId))
+        && get(clubSecretsPath(clubId)).data.get('ownerRecoveryCodeHash', '') == hash;
+    }
+
+    // Secret fields belong on secrets/info only. Ban them on world-readable metadata.
+    function teamMetaHasNoSecrets() {
+      return !request.resource.data.keys()
+        .hasAny(['inviteCode', 'adminCodeHash', 'creatorEmail']);
+    }
+
+    function clubMetaHasNoSecrets() {
+      return !request.resource.data.keys()
+        .hasAny(['ownerRecoveryCodeHash']);
+    }
+
+    function clubIdUnchanged() {
+      return resource.data.get('clubId', '') == request.resource.data.get('clubId', '');
+    }
+
+    function teamBelongsToClub(teamId, clubId) {
+      return teamId is string && teamId != ''
+        && exists(teamMetaPath(teamId))
+        && get(teamMetaPath(teamId)).data.get('clubId', '') == clubId;
+    }
+
+    function clubJoinViaTeamOk(clubId) {
+      let t = request.resource.data.get('joinedViaTeamId', '');
+      return request.resource.data.role == 'member'
+        && t is string
+        && t != ''
+        && isTeamMember(t)
+        && teamBelongsToClub(t, clubId);
+    }
+
+
+    function isClubOwnerOfTeam(teamId) {
+      return exists(teamMetaPath(teamId))
+        && get(teamMetaPath(teamId)).data.get('clubId', '') != ''
+        && isClubOwner(get(teamMetaPath(teamId)).data.clubId);
+    }
+
+
     // Club metadata — create any signed-in; updates by Owner.
     // Recovery: signed-in user may rebind createdBy to self when only ownership
     // recovery fields change (client validates Club Owner Recovery Code first).
@@ -89,8 +167,9 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn()
         && request.resource.data.keys().hasAll(['clubName', 'createdBy'])
-        && request.resource.data.createdBy == request.auth.uid;
-      allow update: if signedIn() && (
+        && request.resource.data.createdBy == request.auth.uid
+        && clubMetaHasNoSecrets();
+      allow update: if signedIn() && clubMetaHasNoSecrets() && (
         (
           isClubOwner(clubId)
           && request.resource.data.createdBy == resource.data.createdBy
@@ -98,28 +177,46 @@ service cloud.firestore {
         || (
           request.resource.data.createdBy == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['createdBy', 'previousOwnerUid', 'ownershipRecoveredAt'])
+              .hasOnly(['createdBy', 'previousOwnerUid', 'ownershipRecoveredAt', 'recoveryHash'])
+          && clubRecoveryHashMatches(clubId, request.resource.data.get('recoveryHash', ''))
         )
       );
       allow delete: if isClubOwner(clubId);
     }
 
-    // Club members — Owner elevates Admins; self-join as member (via team invite path).
+    // Club secrets — recovery hash. Owner only. Written at club create; migration copies existing.
+    match /clubs/{clubId}/secrets/{docId} {
+      allow read, create, update, delete: if isClubOwner(clubId);
+    }
+
+    // Club members — owner only via club create (metadata.createdBy); members via a
+    // club-team membership; admins granted only by the owner (update).
     match /clubs/{clubId}/members/{userId} {
       allow read: if isClubMember(clubId)
         || (signedIn() && request.auth.uid == userId);
 
       allow create: if signedIn() && request.auth.uid == userId
-        && request.resource.data.role in ['owner', 'admin', 'member'];
+        && (
+          (
+            request.resource.data.role == 'owner'
+            && isClubOwner(clubId)
+          )
+          || clubJoinViaTeamOk(clubId)
+        );
 
-      // Self-updates: profile fields, plus coachTeamId (which team makes them a club coach;
-      // isClubCoach re-checks it live, so a stale or false value grants nothing).
-      allow update: if isClubOwner(clubId)
+      // Owner may promote/demote (admin/member). A second owner can only be the caller
+      // (already the metadata owner). Self-updates: profile / coachTeamId / joinedViaTeamId.
+      allow update: if (
+          isClubOwner(clubId)
+          && request.resource.data.role in ['owner', 'admin', 'member']
+          && (request.resource.data.role != 'owner' || userId == request.auth.uid)
+        )
         || (
           signedIn()
           && request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['displayName', 'addedAt', 'coachTeamId'])
+              .hasOnly(['displayName', 'addedAt', 'coachTeamId', 'joinedViaTeamId', 'uid', 'rejoinedAt'])
+          && request.resource.data.role == resource.data.role
         );
 
       allow delete: if isClubOwner(clubId)
@@ -131,10 +228,6 @@ service cloud.firestore {
     // client records the team on the caller's club membership (coachTeamId) and the
     // rule checks it live: caller is Admin of that team AND that team belongs to this
     // club. Losing team Admin (or the team leaving the club) removes coach access at once.
-    function teamMetaPath(teamId) {
-      return /databases/$(database)/documents/teams/$(teamId)/metadata/info;
-    }
-
     function coachTeamOk(clubId, t) {
       return t is string && t != ''
         && exists(/databases/$(database)/documents/teams/$(t)/members/$(request.auth.uid))
@@ -186,12 +279,6 @@ service cloud.firestore {
     // Age on 1 January of season (decision 1): born 1 Jan counts as already that age.
     function ageOn1Jan(y, m, d, season) {
       return season - y - ((m == 1 && d == 1) ? 0 : 1);
-    }
-
-    function teamBelongsToClub(teamId, clubId) {
-      return teamId is string && teamId != ''
-        && exists(teamMetaPath(teamId))
-        && get(teamMetaPath(teamId)).data.get('clubId', '') == clubId;
     }
 
     // Play up, never down. Open has no limit. Requires season + maxAgeOn1Jan on the team
@@ -338,12 +425,18 @@ service cloud.firestore {
 
     // O(1) invite lookup (root collection)
     match /invite_codes/{inviteCode} {
-      allow read: if signedIn();
+      // Get-by-id only: you must already know the code. Listing the collection
+      // (or querying all codes) is denied so invite codes cannot be harvested.
+      allow get: if signedIn();
+      allow list: if false;
       allow create: if signedIn()
         && request.resource.data.keys().hasAll(['teamId', 'teamName', 'createdBy'])
         && request.resource.data.createdBy == request.auth.uid;
       allow update, delete: if signedIn()
-        && resource.data.createdBy == request.auth.uid;
+        && (
+          resource.data.createdBy == request.auth.uid
+          || (resource.data.teamId is string && isTeamAdmin(resource.data.teamId))
+        );
     }
 
     // Firebase data reads: presence index for releaseStaleGameControllers (avoids
@@ -360,13 +453,15 @@ service cloud.firestore {
     // (client validates Team Owner Recovery Code; only ownership fields may change).
     match /teams/{teamId}/metadata/info {
       allow read: if signedIn();
-      allow create: if signedIn() && (
+      allow create: if signedIn() && teamMetaHasNoSecrets() && (
         !('clubId' in request.resource.data)
         || request.resource.data.clubId == null
         || request.resource.data.clubId == ''
         || isClubOwnerOrAdmin(request.resource.data.clubId)
       );
-      allow update: if signedIn() && (
+      // clubId is immutable after create (including by team admins). Club linkage
+      // is set only at create, by a club owner/admin when the team is club-managed.
+      allow update: if signedIn() && clubIdUnchanged() && teamMetaHasNoSecrets() && (
         (
           isTeamAdmin(teamId)
           && (
@@ -375,7 +470,8 @@ service cloud.firestore {
           )
         )
         || (
-          // Owner recovery reclaim (after client validates recovery code)
+          // Owner recovery reclaim (after client proves the recovery code by
+          // writing an admin membership with adminCodeHash).
           isTeamAdmin(teamId)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys()
@@ -383,6 +479,15 @@ service cloud.firestore {
         )
       );
       allow delete: if isTeamAdmin(teamId);
+    }
+
+    // Team secrets — invite code, admin recovery hash, creator email.
+    // Readable by team admins and the metadata creator (so the creator can write
+    // this during Create Team, and recoverers can read it once they are admin).
+    match /teams/{teamId}/secrets/{docId} {
+      allow read: if isTeamAdmin(teamId) || isTeamOwner(teamId);
+      allow create, update: if isTeamAdmin(teamId) || isTeamOwner(teamId);
+      allow delete: if isTeamOwner(teamId);
     }
 
     // Optional public invite doc under the team (for collection-group join)
@@ -402,21 +507,37 @@ service cloud.firestore {
       allow read: if isTeamMember(teamId)
         || (signedIn() && request.auth.uid == userId);
 
-      // Self join / self create (new team admin or invite join)
-      allow create: if signedIn() && request.auth.uid == userId;
-
-      // Admins manage members; users may update their own profile/token fields
-      allow update: if isTeamAdmin(teamId)
-        || (
-          signedIn()
-          && request.auth.uid == userId
-          && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['displayName', 'fcmTokens', 'tokenUpdatedAt', 'joinedAt', 'rejoinedAt', 'uid'])
-          && (!('uid' in request.resource.data) || request.resource.data.uid == userId)
+      // Creator may take admin when they just created the team (metadata.createdBy).
+      // Everyone else joins as member with a valid invite code on the write, or as
+      // admin by presenting adminCodeHash that matches team secrets (or metadata
+      // until secrets are migrated). Existing memberships are grandfathered (update/delete only).
+      allow create: if signedIn() && request.auth.uid == userId
+        && request.resource.data.role in ['admin', 'member']
+        && (!('uid' in request.resource.data) || request.resource.data.uid == userId)
+        && (
+          (request.resource.data.role == 'admin' && isTeamOwner(teamId))
+          || inviteProofOk(teamId)
+          || (request.resource.data.role == 'admin'
+              && teamAdminHashMatches(teamId, request.resource.data.get('adminCodeHash', '')))
+          || (request.resource.data.role == 'admin' && isClubOwnerOfTeam(teamId))
         );
 
-      allow delete: if isTeamAdmin(teamId)
-        || (signedIn() && request.auth.uid == userId);
+      // Admins may promote/demote (admin/member only) and may not change uid.
+      // Self may update profile fields (including stripping join proof fields).
+      // Self may become admin only by presenting a matching adminCodeHash.
+      allow update: if signedIn()
+        && (!('uid' in request.resource.data) || request.resource.data.uid == userId)
+        && (
+          (isTeamAdmin(teamId) && request.resource.data.role in ['admin', 'member'])
+          || (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+          || (request.auth.uid == userId && request.resource.data.role == 'admin'
+              && teamAdminHashMatches(teamId, request.resource.data.get('adminCodeHash', '')))
+          || (request.auth.uid == userId && request.resource.data.role == 'admin'
+              && isClubOwnerOfTeam(teamId))
+        );
+
+      allow delete: if signedIn()
+        && (request.auth.uid == userId || isTeamAdmin(teamId));
     }
 
     // Select Team discovery: collection-group query members where uid == me.
@@ -497,7 +618,7 @@ service cloud.firestore {
     match /teams/{teamId}/sessions/{sessionId} {
       allow read: if canReadTeam(teamId);
       allow create, update: if isTeamMember(teamId);
-      allow delete: if isTeamAdmin(teamId) || isTeamOwner(teamId);
+      allow delete: if isTeamOwner(teamId) || isTeamAdmin(teamId);
     }
 
     // Player of the match nominations (docs/nominations-spec.md §5).

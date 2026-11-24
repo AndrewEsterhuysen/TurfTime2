@@ -38,8 +38,9 @@ export function fakeFirestore(docs: Record<string, Record<string, Val>>, tokens:
     if (commitWrite || method === "PATCH" || (method === "POST" && !url.endsWith(":runQuery"))) {
       // Write rule mirror (coarse), including bootstrap creates that production rules allow:
       //   metadata/info of a nickname team or (if club Owner/Admin) a clubbed team;
+      //   secrets/info after metadata (createdBy == uid) or once the caller is a member;
       //   self member doc; public/invite by createdBy; invite_codes by createdBy;
-      //   club metadata (createdBy == uid) and self club-member doc.
+      //   club metadata (createdBy == uid), club secrets (owner), and self club-member doc.
       // Roster still requires membership, so create_team must write members before roster (same as the app).
       const data = decodeFields(commitWrite ? commitWrite.update.fields : JSON.parse(init!.body!).fields) as Record<string, Val>;
       const clubOwnerOrAdmin = (clubId: string) => {
@@ -53,18 +54,23 @@ export function fakeFirestore(docs: Record<string, Record<string, Val>>, tokens:
       } else if (rel.startsWith("clubs/")) {
         const clubMeta = /^clubs\/([^/]+)\/metadata\/info$/.exec(rel);
         const clubMem = /^clubs\/([^/]+)\/members\/([^/]+)$/.exec(rel);
+        const clubSec = /^clubs\/([^/]+)\/secrets\//.exec(rel);
         if (clubMeta) { if (data.createdBy !== uid) return reply(403, {}); }
         else if (clubMem) { if (clubMem[2] !== uid) return reply(403, {}); }
+        else if (clubSec) { if (!clubOwnerOrAdmin(clubSec[1])) return reply(403, {}); }
         else return reply(403, {});
       } else if (teamM && !isMember(teamM[1])) {
         const isMeta = /^teams\/[^/]+\/metadata\/info$/.test(rel);
+        const teamSec = /^teams\/([^/]+)\/secrets\//.exec(rel);
         const selfMem = /^teams\/[^/]+\/members\/([^/]+)$/.exec(rel);
         const isPublic = /^teams\/[^/]+\/public\//.test(rel);
         const clubId = typeof data.clubId === "string" ? data.clubId : "";
         const okMeta = isMeta && data.createdBy === uid && (!clubId || clubOwnerOrAdmin(clubId));
+        const metaOwner = !!(teamSec && docs[`teams/${teamSec[1]}/metadata/info`]?.createdBy === uid);
+        const okSec = !!teamSec && metaOwner;
         const okMem = !!(selfMem && selfMem[1] === uid);
         const okPub = isPublic && data.createdBy === uid;
-        if (!okMeta && !okMem && !okPub) return reply(403, {});
+        if (!okMeta && !okSec && !okMem && !okPub) return reply(403, {});
       }
       if (method === "POST" && !commitWrite) {
         if (rel.endsWith("/messages") && data.userId !== uid) return reply(403, {});

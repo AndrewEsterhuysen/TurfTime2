@@ -236,9 +236,13 @@ test("create_team: standalone nickname team matches the app (metadata, admin mem
   assert.equal(m.kind, "nickname");
   assert.equal(m.createdBy, "admin");
   assert.equal(m.isActive, true);
-  assert.equal(m.inviteCode, data.inviteCode);
-  assert.equal(m.adminCodeHash, hashAdminCode(data.ownerRecoveryCode));
-  assert.equal(m.creatorEmail, "andy@example.com");
+  assert.equal("inviteCode" in m, false);
+  assert.equal("adminCodeHash" in m, false);
+  assert.equal("creatorEmail" in m, false);
+  const sec = fake.docs[`teams/${t}/secrets/info`];
+  assert.equal(sec.inviteCode, data.inviteCode);
+  assert.equal(sec.adminCodeHash, hashAdminCode(data.ownerRecoveryCode));
+  assert.equal(sec.creatorEmail, "andy@example.com");
   assert.ok(m.createdAt); assert.ok(m.lastActivityUtc);
   assert.equal("clubId" in m, false);
   assert.deepEqual(memberOf(t), { role: "admin", displayName: "Coach Andy", uid: "admin" });
@@ -262,7 +266,8 @@ test("create_club then create_team under that club: docs match the app; club mem
   assert.equal(cm.clubName, "Cape Crusaders");
   assert.equal(cm.createdBy, "admin");
   assert.equal(cm.isActive, true);
-  assert.equal(cm.ownerRecoveryCodeHash, hashAdminCode(club.ownerRecoveryCode));
+  assert.equal("ownerRecoveryCodeHash" in cm, false);
+  assert.equal(fake.docs[`clubs/${c}/secrets/info`].ownerRecoveryCodeHash, hashAdminCode(club.ownerRecoveryCode));
   assert.deepEqual({ role: fake.docs[`clubs/${c}/members/admin`].role, displayName: fake.docs[`clubs/${c}/members/admin`].displayName },
     { role: "owner", displayName: "Coach Andy" });
 

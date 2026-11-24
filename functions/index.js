@@ -2,6 +2,10 @@ const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { initializeApp } = require('firebase-admin/app');
+const { setGlobalOptions } = require('firebase-functions/v2');
+
+// Node.js 20 was decommissioned on 2026-10-30; new deploys must use 22.
+setGlobalOptions({ runtime: 'nodejs22' });
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 
@@ -296,8 +300,21 @@ exports.requestAdminRecoveryEmail = onCall(async (request) => {
 
         const metadata = metadataSnap.data();
         const teamName = metadata.teamName || teamId;
-        const creatorEmail = metadata.creatorEmail || null;
         const createdBy = metadata.createdBy || null;
+        let creatorEmail = null;
+        try {
+            const secretsSnap = await db
+                .collection('teams')
+                .doc(teamId)
+                .collection('secrets')
+                .doc('info')
+                .get();
+            if (secretsSnap.exists) {
+                creatorEmail = secretsSnap.data().creatorEmail || null;
+            }
+        } catch (secErr) {
+            console.warn(`[requestAdminRecoveryEmail] secrets/info: ${secErr.message}`);
+        }
 
         console.log(`[requestAdminRecoveryEmail] Recovery reminder requested for team ${teamId} (${teamName}) by uid ${createdBy}`);
 
@@ -409,10 +426,23 @@ async function deleteSubcollection(db, teamId, subName) {
 
 /**
  * Hard-delete a team tree (admin SDK — bypasses client security rules).
- * Mirrors client owner-delete: invite indexes + members/messages/sessions/logs/public/roster/metadata.
+ * Mirrors client owner-delete: invite indexes + members/messages/sessions/logs/public/roster/metadata/secrets.
  */
 async function hardDeleteTeam(db, teamId, meta) {
-    const inviteCode = (meta.inviteCode && String(meta.inviteCode).trim().toUpperCase()) || '';
+    let inviteCode = '';
+    try {
+        const secretsSnap = await db
+            .collection('teams')
+            .doc(teamId)
+            .collection('secrets')
+            .doc('info')
+            .get();
+        if (secretsSnap.exists) {
+            inviteCode = (secretsSnap.data().inviteCode && String(secretsSnap.data().inviteCode).trim().toUpperCase()) || '';
+        }
+    } catch (secErr) {
+        console.warn(`[cleanupDormantTeams] secrets/info ${teamId}:`, secErr.message);
+    }
     const compact = inviteCode.replace(/[^A-Z0-9]/g, '');
 
     for (const code of [compact, inviteCode]) {
@@ -424,7 +454,7 @@ async function hardDeleteTeam(db, teamId, meta) {
         }
     }
 
-    for (const sub of ['members', 'messages', 'sessions', 'logs', 'public', 'roster', 'metadata']) {
+    for (const sub of ['members', 'messages', 'sessions', 'logs', 'public', 'roster', 'metadata', 'secrets']) {
         try {
             const n = await deleteSubcollection(db, teamId, sub);
             if (n > 0) {
@@ -440,6 +470,7 @@ async function hardDeleteTeam(db, teamId, meta) {
         ['roster', 'data'],
         ['public', 'invite'],
         ['metadata', 'info'],
+        ['secrets', 'info'],
     ]) {
         try {
             await db.collection('teams').doc(teamId).collection(path[0]).doc(path[1]).delete();

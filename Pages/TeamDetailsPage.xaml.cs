@@ -2347,7 +2347,7 @@ private void RegisterTeamId(string teamId)
 		QrCodeService.ApplySharedJoinLocalState(
 			teamId, teamName, displayName, inviteCode, role, isOwner, clubId, clubName);
 
-		// If join did not carry a code, pull metadata.inviteCode (Owner/Admin panel + Share).
+		// If join did not carry a code, pull secrets/info.inviteCode (Owner/Admin panel + Share).
 		if (string.IsNullOrWhiteSpace(Preferences.Get($"{teamId}_invite_code", string.Empty)))
 			await EnsureLocalInviteCodeAsync(teamId);
 
@@ -3610,7 +3610,7 @@ private void RegisterTeamId(string teamId)
 	}
 
 	/// <summary>
-	/// Loads <c>metadata.inviteCode</c> from Firestore into Preferences.
+	/// Loads <c>secrets/info.inviteCode</c> from Firestore into Preferences.
 	/// Cloud wins when available so regenerated codes sync across Admin devices.
 	/// Falls back to the local cache if cloud is unreachable or empty.
 	/// </summary>
@@ -3768,12 +3768,7 @@ private void RegisterTeamId(string teamId)
 	}
 
 	/// <summary>Returns the SHA-256 hex digest of the given plain-text code (uppercase-normalised).</summary>
-	private static string HashAdminCode(string code)
-	{
-		var bytes = System.Security.Cryptography.SHA256.HashData(
-			System.Text.Encoding.UTF8.GetBytes(code.ToUpperInvariant()));
-		return Convert.ToHexString(bytes).ToLowerInvariant();
-	}
+	private static string HashAdminCode(string code) => TurfTime2.Helpers.InviteCodes.HashAdminCode(code);
 
 	// Trigger AppShell to refresh menu item availability
 	private void RefreshAppShellMenu()

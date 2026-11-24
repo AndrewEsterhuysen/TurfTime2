@@ -4,13 +4,14 @@
  * CreateTeamUnderClubAsync / CreateNicknameTeamAsync, and Pages/TeamDetailsPage.xaml.cs generators).
  *
  * Club (caller becomes Owner, the app's club-admin role):
- *   clubs/{clubId}/metadata/info  — clubName, createdBy, createdAt, isActive, ownerRecoveryCodeHash
+ *   clubs/{clubId}/metadata/info  — clubName, createdBy, createdAt, isActive
+ *   clubs/{clubId}/secrets/info   — ownerRecoveryCodeHash (club owner only)
  *   clubs/{clubId}/members/{uid}  — role "owner", displayName, addedAt
  *   clubId is "club-{slug}-{6 char}" like GenerateTeamId("club", clubName).
  *
  * Standalone (nickname) team:
- *   teams/{id}/metadata/info — teamName, inviteCode, adminCodeHash, creatorEmail, createdBy, kind "nickname",
- *                              isActive, createdAt, lastActivityUtc
+ *   teams/{id}/metadata/info — teamName, createdBy, kind "nickname", isActive, createdAt, lastActivityUtc
+ *   teams/{id}/secrets/info  — inviteCode, adminCodeHash, creatorEmail (team admin / creator only)
  *   teams/{id}/members/{uid} — role "admin", displayName, uid   (makes the creator admin; Select Team finds this)
  *   teams/{id}/roster/data   — version 2, players []            (the app writes an empty list at create)
  *   invite_codes/{compact}   — teamId, teamName, clubId, clubName, inviteCode, inviteCodeCompact, createdBy
@@ -152,6 +153,8 @@ export async function createClub(ctx: WriteContext, a: { clubName: string; displ
   try {
     await writeNew(ctx, `clubs/${clubId}/metadata/info`, {
       clubName, createdBy: ctx.uid, createdAt: now, isActive: true,
+    });
+    await writeNew(ctx, `clubs/${clubId}/secrets/info`, {
       ownerRecoveryCodeHash: hashAdminCode(ownerRecoveryCode),
     });
     await writeNew(ctx, `clubs/${clubId}/members/${ctx.uid}`, {
@@ -261,8 +264,7 @@ export async function createTeam(ctx: WriteContext, a: CreateTeamArgs) {
   const compact = compactInvite(inviteCode);
 
   const meta: Record<string, unknown> = {
-    teamName, inviteCode, adminCodeHash: hashAdminCode(ownerRecoveryCode),
-    creatorEmail, createdBy: ctx.uid, kind, isActive: true, createdAt: now, lastActivityUtc: now,
+    teamName, createdBy: ctx.uid, kind, isActive: true, createdAt: now, lastActivityUtc: now,
   };
   if (kind === "clubbed") { meta.clubId = clubId; meta.clubName = clubName; }
 
@@ -275,8 +277,11 @@ export async function createTeam(ctx: WriteContext, a: CreateTeamArgs) {
     : { version: 2, players: [] as unknown[] };
 
   try {
-    // Same order as CreateTeamCoreAsync: metadata, members, roster, then invite index (non-fatal).
+    // Same order as CreateTeamCoreAsync: metadata, secrets, members, roster, then invite index (non-fatal).
     await writeNew(ctx, `teams/${teamId}/metadata/info`, meta);
+    await writeNew(ctx, `teams/${teamId}/secrets/info`, {
+      inviteCode, adminCodeHash: hashAdminCode(ownerRecoveryCode), creatorEmail,
+    });
     await writeNew(ctx, `teams/${teamId}/members/${ctx.uid}`, { role: "admin", displayName, uid: ctx.uid });
     await writeNew(ctx, `teams/${teamId}/roster/data`, roster);
     try { await writeNew(ctx, `invite_codes/${compact}`, invitePayload); } catch (e) {

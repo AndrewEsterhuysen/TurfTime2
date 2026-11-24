@@ -22,7 +22,8 @@ beforeEach(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
-    await setDoc(doc(db, `teams/${T}/metadata/info`), { teamName: 'U10', inviteCode: 'XYZ-789', createdBy: 'owner', isActive: true });
+    await setDoc(doc(db, `teams/${T}/metadata/info`), { teamName: 'U10', createdBy: 'owner', isActive: true });
+    await setDoc(doc(db, `teams/${T}/secrets/info`), { inviteCode: 'XYZ-789', adminCodeHash: 'a'.repeat(64), creatorEmail: '' });
     await setDoc(doc(db, `teams/${T}/members/owner`), { uid: 'owner', role: 'admin', displayName: 'Owner' });
     await setDoc(doc(db, `teams/${T}/members/coach2`), { uid: 'coach2', role: 'admin', displayName: 'Coach2' });
     await setDoc(doc(db, `teams/${T}/members/mem`), { uid: 'mem', role: 'member', displayName: 'Mem' });
@@ -44,7 +45,8 @@ const M = { merge: true };
 
 test('app: coach creates a new nickname team (CreateTeam order: metadata, members, roster, invite)', async () => {
   const db = as('newcoach'); const t = 'teamNew';
-  await assertSucceeds(setDoc(doc(db, `teams/${t}/metadata/info`), { teamName: 'New', inviteCode: 'NEW-111', createdBy: 'newcoach', kind: 'nickname', isActive: true }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/metadata/info`), { teamName: 'New', createdBy: 'newcoach', kind: 'nickname', isActive: true }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/secrets/info`), { inviteCode: 'NEW-111', adminCodeHash: 'b'.repeat(64), creatorEmail: '' }, M));
   await assertSucceeds(setDoc(doc(db, `teams/${t}/members/newcoach`), { role: 'admin', displayName: 'NC', uid: 'newcoach' }, M));
   await assertSucceeds(setDoc(doc(db, `teams/${t}/roster/data`), { version: 2, players: [] }, M));
   await assertSucceeds(setDoc(doc(db, `invite_codes/NEW111`), { teamId: t, teamName: 'New', createdBy: 'newcoach' }, M));
@@ -62,10 +64,11 @@ test('app: club owner creates club + team under club', async () => {
 test('app: join by invite code, then use team as member', async () => {
   const db = as('joiner');
   await assertSucceeds(getDoc(doc(db, `invite_codes/XYZ789`)));
-  await assertSucceeds(getDocs(query(collection(db, 'invite_codes'), where('teamId', '==', T))));
+  // Listing/querying invite_codes is denied so codes cannot be harvested; get-by-id still works.
+  await assertFails(getDocs(query(collection(db, 'invite_codes'), where('teamId', '==', T))));
   await assertSucceeds(getDoc(doc(db, `teams/${T}/metadata/info`)));
   await assertSucceeds(getDoc(doc(db, `teams/${T}/members/joiner`)));
-  await assertSucceeds(setDoc(doc(db, `teams/${T}/members/joiner`), { role: 'member', displayName: 'J', uid: 'joiner', joinedAt: 1 }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${T}/members/joiner`), { role: 'member', displayName: 'J', uid: 'joiner', joinedAt: 1, joinInviteCode: 'XYZ789' }, M));
   await assertSucceeds(getDoc(doc(db, `teams/${T}/roster/data`)));
   await assertSucceeds(getDocs(query(collection(db, `teams/${T}/messages`), orderBy('timestamp', 'desc'), limit(50))));
   await assertSucceeds(setDoc(doc(db, `teams/${T}/messages/j1`), { text: 'hello', userId: 'joiner', senderName: 'J', timestamp: 5 }));

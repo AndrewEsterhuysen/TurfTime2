@@ -97,7 +97,9 @@ test("emulator+real rules: create_club and create_team (nickname and under the c
   assert.equal(cmeta.clubName.stringValue, "Cape Crusaders");
   assert.equal(cmeta.createdBy.stringValue, "admin");
   assert.equal(cmeta.isActive.booleanValue, true);
-  assert.equal(cmeta.ownerRecoveryCodeHash.stringValue, hashAdminCode(club.ownerRecoveryCode));
+  assert.equal("ownerRecoveryCodeHash" in cmeta, false);
+  const csec = await get(`clubs/${club.clubId}/secrets/info`);
+  assert.equal(csec.ownerRecoveryCodeHash.stringValue, hashAdminCode(club.ownerRecoveryCode));
   assert.ok(cmeta.createdAt.timestampValue);
   const cmem = await get(`clubs/${club.clubId}/members/admin`);
   assert.equal(cmem.role.stringValue, "owner");
@@ -109,8 +111,11 @@ test("emulator+real rules: create_club and create_team (nickname and under the c
   assert.equal(nmeta.teamName.stringValue, "Hunter Hunters");
   assert.equal(nmeta.kind.stringValue, "nickname");
   assert.equal(nmeta.createdBy.stringValue, "admin");
-  assert.equal(nmeta.adminCodeHash.stringValue, hashAdminCode(nick.ownerRecoveryCode));
-  assert.equal(nmeta.inviteCode.stringValue, nick.inviteCode);
+  assert.equal("adminCodeHash" in nmeta, false);
+  assert.equal("inviteCode" in nmeta, false);
+  const nsec = await get(`teams/${nick.teamId}/secrets/info`);
+  assert.equal(nsec.adminCodeHash.stringValue, hashAdminCode(nick.ownerRecoveryCode));
+  assert.equal(nsec.inviteCode.stringValue, nick.inviteCode);
   assert.equal("clubId" in nmeta, false);
   const nmem = await get(`teams/${nick.teamId}/members/admin`);
   assert.equal(nmem.role.stringValue, "admin");
