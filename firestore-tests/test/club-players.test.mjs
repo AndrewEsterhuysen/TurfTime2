@@ -294,3 +294,50 @@ test('club players: coach cannot assign to another club team, and cannot swap te
 test('club players: parents cannot assign players', async () => {
   await assertFails(updateDoc(doc(as('parent'), `${P}/p1`), assignUpdate({ updatedBy: 'parent' })));
 });
+
+
+// ── Per-match player stats (clubs/{c}/players/{p}/matches/{sessionId}) ────
+
+const matchPath = (playerId, sessionId) => `${P}/${playerId}/matches/${sessionId}`;
+const matchDoc = (extra = {}) => ({
+  sessionId: 's1', playerId: 'p1', clubId: C, teamId: 't1', teamName: 'U10 Red',
+  matchDate: Timestamp.now(), season: 2027, minutes: 45, goals: 1, assists: 1, potm: false,
+  playerName: 'Sam Lee', updatedAt: Timestamp.now(), updatedBy: 'coach',
+  ...extra,
+});
+
+test('club player matches: owner, admin and coach can read; parents cannot', async () => {
+  await seed(async (db) => setDoc(doc(db, matchPath('p1', 's1')), matchDoc()));
+  for (const uid of ['owner', 'cadmin', 'coach']) {
+    await assertSucceeds(getDoc(doc(as(uid), matchPath('p1', 's1'))));
+    await assertSucceeds(getDocs(collection(as(uid), `${P}/p1/matches`)));
+  }
+  await assertFails(getDoc(doc(as('parent'), matchPath('p1', 's1'))));
+  await assertFails(getDocs(collection(as('parent'), `${P}/p1/matches`)));
+  await assertFails(getDoc(doc(as('stranger'), matchPath('p1', 's1'))));
+});
+
+test('club player matches: team member or club admin can write for their club team', async () => {
+  // Re-save (idempotent overwrite) and first write.
+  await assertSucceeds(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc()));
+  await assertSucceeds(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ goals: 2, potm: true })));
+  await assertSucceeds(setDoc(doc(as('parent'), matchPath('p1', 's2')), matchDoc({ sessionId: 's2' })));
+  await assertSucceeds(setDoc(doc(as('owner'), matchPath('p1', 's3')), matchDoc({ sessionId: 's3' })));
+});
+
+test('club player matches: other-club coach cannot write; path fields must match', async () => {
+  await assertFails(setDoc(doc(as('othercoach'), matchPath('p1', 's1')), matchDoc()));
+  await assertFails(setDoc(doc(as('stranger'), matchPath('p1', 's1')), matchDoc()));
+  await assertFails(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ playerId: 'other' })));
+  await assertFails(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ clubId: OTHER })));
+  await assertFails(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ sessionId: 's-other' })));
+  await assertFails(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ teamId: 'tx' })));
+  await assertFails(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ season: 1999 })));
+});
+
+test('club player matches: team member or club owner can delete a match row', async () => {
+  await seed(async (db) => setDoc(doc(db, matchPath('p1', 's1')), matchDoc()));
+  await assertSucceeds(deleteDoc(doc(as('coach'), matchPath('p1', 's1'))));
+  await seed(async (db) => setDoc(doc(db, matchPath('p1', 's1')), matchDoc()));
+  await assertSucceeds(deleteDoc(doc(as('owner'), matchPath('p1', 's1'))));
+});
