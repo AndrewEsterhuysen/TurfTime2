@@ -62,10 +62,11 @@ test('app: club owner creates club + team under club', async () => {
 test('app: join by invite code, then use team as member', async () => {
   const db = as('joiner');
   await assertSucceeds(getDoc(doc(db, `invite_codes/XYZ789`)));
-  await assertSucceeds(getDocs(query(collection(db, 'invite_codes'), where('teamId', '==', T))));
+  // Listing/querying invite_codes is denied so codes cannot be harvested; get-by-id still works.
+  await assertFails(getDocs(query(collection(db, 'invite_codes'), where('teamId', '==', T))));
   await assertSucceeds(getDoc(doc(db, `teams/${T}/metadata/info`)));
   await assertSucceeds(getDoc(doc(db, `teams/${T}/members/joiner`)));
-  await assertSucceeds(setDoc(doc(db, `teams/${T}/members/joiner`), { role: 'member', displayName: 'J', uid: 'joiner', joinedAt: 1 }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${T}/members/joiner`), { role: 'member', displayName: 'J', uid: 'joiner', joinedAt: 1, joinInviteCode: 'XYZ789' }, M));
   await assertSucceeds(getDoc(doc(db, `teams/${T}/roster/data`)));
   await assertSucceeds(getDocs(query(collection(db, `teams/${T}/messages`), orderBy('timestamp', 'desc'), limit(50))));
   await assertSucceeds(setDoc(doc(db, `teams/${T}/messages/j1`), { text: 'hello', userId: 'joiner', senderName: 'J', timestamp: 5 }));
