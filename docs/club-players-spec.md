@@ -1,9 +1,9 @@
 # Club-level player list and team assignment — specification
 
-Status: **slice 2 built** (list + add, age group and season, assignment to the 16
-roster slots, Change player). Branch `feature/club-players`. Updated 24 Nov 2026.
+Status: **slice 3 built** (list + add, assignment, Change player, archive/delete,
+and per-player match stats). Branch `feature/player-stats`. Updated 24 Nov 2026.
 Nothing here is deployed; any Firestore rules or Cloud Function change needs
-Andrew's approval before deploy. See §14 for what is built and what is still to do.
+Andrew's approval before deploy. See §14–§16 for what is built and what is still to do.
 
 Proposed feature id: `ClubPlayerList` (club / shared teams only; part of a future
 club subscription, decision 13). Add it to [`FEATURES.md`](FEATURES.md) when built.
@@ -151,32 +151,28 @@ read them) and adds `scorerPlayerId` / `assistPlayerId` when the slot has a `pla
 
 ## 6. How stats add up
 
-1. **During the match**: nothing new; goals are logged as today, now with player ids.
-2. **End game** (club team, shared mode): after the session is saved, the app writes one
-   `playerMatches` document per player who was present (plus anyone who scored or assisted),
-   in one batch. Offline: Firestore queues the batch and sends it when back online.
-3. **Cloud Function** `onPlayerMatchWritten`: compares the old and new document and adds
-   the **difference** to the appropriate maps. If `borrowed` is false, it updates `totals`
-   and `byTeam[teamId]`. If `borrowed` is true, it updates only the `borrowed` map and
-   `borrowedByTeam[teamId]` — **never** `totals` or `byTeam`, and never the borrowing
-   team's totals. Because it works on the difference, re-saving or editing a match
-   corrects the totals instead of adding twice. It also updates `lastUsedAt` and the
-   player index.
-4. **Reading**:
-   - Player card: `totals`, `byTeam`, `borrowed` and `borrowedByTeam` straight from the
-     player document (1 read). Borrowed figures are shown separately and marked
-     "borrowed".
-   - Match-by-match history: query `playerMatches` where `playerId == X`, newest first,
-     filterable by season (decision 8). Borrowed matches are marked "borrowed".
-   - Club or team leaderboard: sort the player index (add `goals` / `assists` to the
-     index). Leaderboards use non-borrowed totals only.
+**As built (slice 3, no Cloud Function):**
 
-There is **no backfill** of past goals or assists from existing match reports
-(decision 10).
+1. **During the match**: goal events still store scorer/assist **names** (so existing
+   reports are unchanged). New events also store `scorerPlayerId` / `assistPlayerId`
+   when the slot is linked to a club player. The session summary's `PlayerStats`
+   includes `PlayerId` going forward.
+2. **End game** (club team, shared mode): after the session document is saved, the app
+   upserts one document per linked club player who was present (or who scored / assisted)
+   at `clubs/{clubId}/players/{playerId}/matches/{sessionId}`. Re-saving the same
+   session overwrites the same document (idempotent). Players without a `playerId` on
+   the slot are skipped — there is **no backfill** of past reports (decision 10).
+3. **Totals** are computed on the client from those match documents, filtered by season
+   (decision 8). Clients still never write `totals` / `byTeam` / `borrowed` /
+   `borrowedByTeam` on the player document. A Cloud Function and the flat
+   `playerMatches` collection in the earlier draft are not used.
+4. **POTM**: written onto the same match documents once voting has closed (an Admin
+   closes it, or the first time someone on the team opens Nominations or Reports after
+   the 24-hour window). Until then the match row has `potm: false`.
+5. **Borrow** was dropped and is not recorded.
 
-v1 stats are matches, minutes, goals, assists and POTM. Others (goalie minutes, clean
-sheets, cards) come later (decision 7). `goalieMinutes` may be stored on `playerMatches`
-for later use but is not rolled into v1 totals.
+v1 stats are matches, minutes (field time, whole minutes), goals, assists and POTM
+(decision 7).
 
 ## 7. Screens and flows
 
@@ -411,12 +407,25 @@ club teams (older versions writing the roster would drop `playerId`).
   `teams` / `teamIds` (fresh each season, `removedAt` on unassign).
 - **Change player** replaces Rename Player on club teams. Nickname and local teams
   keep Rename Player. Clearing a slot unassigns the player and restores `#NN Player`.
-- **Borrow** is not in this slice (left for the next one).
+- **Borrow** was later dropped (not built).
 - **Tests**: `tests/ClubPlayersTests` (eligibility + assignment history) and
   `firestore-tests/test/club-players.test.mjs` (assign, unassign, no play-down, Open,
   coach may only assign to their own team).
+- Archive, restore and delete for owners/admins were added after slice 2 (tap a player
+  row). Coaches do not see those actions.
 
-Still to do: Borrow, filter chips, close-match duplicates, bulk add/CSV, player card,
-editing / archive / merge / delete UI, `playerIndex` Cloud Function, stats
-(`playerMatches` + Cloud Function), migration screen (link existing named slots),
+## 16. Slice 3 (player stats, built 24 Nov 2026)
+
+- Per-match rows at `clubs/{clubId}/players/{playerId}/matches/{sessionId}` (§6).
+- Details → Club players → tap a player → **Stats** (owners, admins and coaches).
+  Season filter, totals, and a per-match list (team, date, minutes, goals, assists,
+  POTM).
+- Rules: club managers may read; a member of the match's team (or a club owner/admin)
+  may write. Tests in `firestore-tests/test/club-players.test.mjs`. Helper tests in
+  `tests/ClubPlayersTests`.
+- Production rules for this subcollection are **not deployed** until Andrew approves.
+
+Still to do: filter chips, close-match duplicates, bulk add/CSV, a fuller player card,
+merge UI, `playerIndex` Cloud Function, migration screen (link existing named slots),
 removing teams from players on team delete, privacy policy wording for date of birth.
+Borrow was dropped.
