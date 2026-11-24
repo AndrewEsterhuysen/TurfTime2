@@ -73,14 +73,14 @@
                         </Grid>
                     </Border>
                     <Label x:Name="CountLabel" Style="{StaticResource PvCaption}" />
+                    <Button x:Name="AddButton" Style="{StaticResource PvButtonPrimary}" Text="Add player"
+                            IsVisible="False" Clicked="OnAddClicked" />
                     <VerticalStackLayout x:Name="PlayerList" Spacing="6" />
                     <Button x:Name="AddFromSearchButton" Style="{StaticResource PvButtonOutline}" IsVisible="False"
                             Clicked="OnAddFromSearchClicked" />
                 </VerticalStackLayout>
             </Border>
 
-            <Button x:Name="AddButton" Style="{StaticResource PvButtonPrimary}" Text="Add player"
-                    IsVisible="False" Clicked="OnAddClicked" />
             <ActivityIndicator x:Name="Busy" IsRunning="False" IsVisible="False" />
         </VerticalStackLayout>
     </ScrollView>

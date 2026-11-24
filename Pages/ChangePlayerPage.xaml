@@ -43,10 +43,10 @@
                                TextChanged="OnSearchChanged" />
                     </Border>
                     <Label x:Name="CountLabel" Style="{StaticResource PvCaption}" />
-                    <VerticalStackLayout x:Name="PlayerList" Spacing="8" />
-                    <Label x:Name="IneligibleLabel" Style="{StaticResource PvCaption}" />
                     <Button x:Name="ClearButton" Style="{StaticResource PvButtonOutline}" Text="Clear this slot"
                             IsVisible="False" Clicked="OnClearClicked" />
+                    <VerticalStackLayout x:Name="PlayerList" Spacing="8" />
+                    <Label x:Name="IneligibleLabel" Style="{StaticResource PvCaption}" />
                 </VerticalStackLayout>
             </Border>
         </VerticalStackLayout>
