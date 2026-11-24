@@ -1806,7 +1806,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             ControllerHeartbeatUtc = IsGameController
                 ? DateTimeOffset.UtcNow
                 : _controllerHeartbeatUtc,
-            Version                = 3,
+            Version                = 4,
             Players                = Players.Select(p => new PlayerSnapshot
             {
                 SlotId         = p.SlotId,
@@ -1818,7 +1818,9 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                 CounterSeconds = p.FieldSeconds,
                 FieldCell      = p.Position == PlayerPosition.Field
                     ? (p.FieldCell ?? 0)
-                    : 0
+                    : 0,
+                PlayerId       = p.PlayerId ?? "",
+                Borrowed       = false
             }).ToList()
         };
     }
@@ -2058,7 +2060,8 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
                     Name = string.IsNullOrWhiteSpace(ps.Name) ? Player.DefaultName(Players.Count + 1) : ps.Name,
                     FieldSeconds = ps.CounterSeconds,
                     Position = pos,
-                    FieldCell = pos == PlayerPosition.Field ? FieldGrid.Normalize(ps.FieldCell) : null
+                    FieldCell = pos == PlayerPosition.Field ? FieldGrid.Normalize(ps.FieldCell) : null,
+                    PlayerId = ps.PlayerId ?? ""
                 });
             }
             return true;
@@ -2096,6 +2099,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
             if (!string.IsNullOrWhiteSpace(ps.Name) && p.Name != ps.Name)
                 p.Name = ps.Name;
 
+            p.PlayerId = ps.PlayerId ?? "";
             p.FieldSeconds = ps.CounterSeconds;
         }
 
@@ -4291,6 +4295,57 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         if (string.IsNullOrWhiteSpace(trimmed) || trimmed == player.Name) return;
 
         player.Name = trimmed;
+        _ = AutoSaveAsync();
+    }
+
+    /// <summary>True when the current team belongs to a club (Preferences club_id).</summary>
+    public bool IsClubTeam
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_currentTeamId)) return false;
+            var clubId = Preferences.Get($"{_currentTeamId}_club_id", string.Empty);
+            return !string.IsNullOrWhiteSpace(clubId);
+        }
+    }
+
+    public string CurrentClubId =>
+        string.IsNullOrWhiteSpace(_currentTeamId)
+            ? ""
+            : Preferences.Get($"{_currentTeamId}_club_id", string.Empty);
+
+    /// <summary>
+    /// Link a club player to this roster slot (and clear any other slot already holding them).
+    /// Does not change live-game swipe behaviour; setup / Change player only.
+    /// </summary>
+    public void LinkClubPlayer(Player slot, string playerId, string displayName)
+    {
+        if (IsMember || slot is null) return;
+        var id = (playerId ?? "").Trim();
+        var name = (displayName ?? "").Trim();
+        if (id.Length == 0 || name.Length == 0) return;
+
+        foreach (var p in Players)
+        {
+            if (p == slot) continue;
+            if (string.Equals(p.PlayerId, id, StringComparison.Ordinal))
+            {
+                p.PlayerId = "";
+                p.Name = Player.DefaultName(p.SlotId);
+            }
+        }
+
+        slot.PlayerId = id;
+        slot.Name = name;
+        _ = AutoSaveAsync();
+    }
+
+    /// <summary>Clear the club player link and restore the default slot name.</summary>
+    public void UnlinkClubPlayer(Player slot)
+    {
+        if (IsMember || slot is null) return;
+        slot.PlayerId = "";
+        slot.Name = Player.DefaultName(slot.SlotId);
         _ = AutoSaveAsync();
     }
 

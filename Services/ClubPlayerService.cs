@@ -218,6 +218,9 @@ public sealed class ClubPlayerService : IClubPlayerService
                 ["preferredName"] = player.PreferredName is null ? Null() : Str(player.PreferredName),
                 ["nameKey"] = Str(player.NameKey),
                 ["dateOfBirth"] = Str(player.DateOfBirth),
+                ["dobYear"] = Int(dateOfBirth.Year),
+                ["dobMonth"] = Int(dateOfBirth.Month),
+                ["dobDay"] = Int(dateOfBirth.Day),
                 ["teams"] = EmptyArray(),
                 ["teamIds"] = EmptyArray(),
                 ["status"] = Str(ClubPlayer.StatusActive),
@@ -305,6 +308,9 @@ public sealed class ClubPlayerService : IClubPlayerService
             {
                 current.DateOfBirth = ClubAgeGroups.ToIso(dob);
                 fields["dateOfBirth"] = Str(current.DateOfBirth);
+                fields["dobYear"] = Int(dob.Year);
+                fields["dobMonth"] = Int(dob.Month);
+                fields["dobDay"] = Int(dob.Day);
             }
             if (update.Status is not null)
             {
@@ -331,6 +337,113 @@ public sealed class ClubPlayerService : IClubPlayerService
         }
     }
 
+    // ── Assign / unassign ─────────────────────────────────────────────────
+
+    public async Task<ClubPlayerWriteResult> AssignToTeamAsync(string clubId, string playerId, string teamId,
+        string teamName, string ageGroup, int season, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(playerId) || string.IsNullOrWhiteSpace(teamId))
+            return ClubPlayerWriteResult.Fail("Missing team or player.");
+        if (season < 2000 || season > 2100)
+            return ClubPlayerWriteResult.Fail("Set a valid season year.");
+        if (!ClubAgeGroups.IsKnownAgeGroup(ageGroup))
+            return ClubPlayerWriteResult.Fail("Set this team's age group before assigning players.");
+
+        var loaded = await LoadPlayerAsync(clubId, playerId, cancellationToken).ConfigureAwait(false);
+        if (loaded.Error is not null) return loaded;
+        var current = loaded.Player!;
+
+        if (!ClubAgeGroups.TryParseDateOfBirth(current.DateOfBirth, out var dob))
+            return ClubPlayerWriteResult.Fail("This player needs a date of birth before they can be assigned.");
+        if (!ClubAgeGroups.IsEligibleToAssign(dob, ageGroup, season))
+            return ClubPlayerWriteResult.Fail(ClubAgeGroups.IneligibilityReason(dob, ageGroup, season)
+                                              ?? "This player is not eligible for the team.");
+
+        var warning = ClubPlayerAssignments.ShouldWarnTeamCount(current.Teams, teamId)
+            ? $"This player is already assigned to {ClubPlayerAssignments.TeamCountWarningAt} or more teams this season."
+            : null;
+
+        var now = DateTimeOffset.UtcNow;
+        var teams = ClubPlayerAssignments.Assign(current.Teams, teamId, teamName ?? "", season, now);
+        var teamIds = ClubPlayerAssignments.CurrentTeamIds(teams);
+        return await PatchAssignmentAsync(clubId, current, teams, teamIds, teamId, dob, now, warning, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<ClubPlayerWriteResult> UnassignFromTeamAsync(string clubId, string playerId, string teamId,
+        int season, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(playerId) || string.IsNullOrWhiteSpace(teamId))
+            return ClubPlayerWriteResult.Fail("Missing team or player.");
+
+        var loaded = await LoadPlayerAsync(clubId, playerId, cancellationToken).ConfigureAwait(false);
+        if (loaded.Error is not null) return loaded;
+        var current = loaded.Player!;
+
+        var now = DateTimeOffset.UtcNow;
+        var teams = ClubPlayerAssignments.Unassign(current.Teams, teamId, season, now);
+        var teamIds = ClubPlayerAssignments.CurrentTeamIds(teams);
+        ClubAgeGroups.TryParseDateOfBirth(current.DateOfBirth, out var dob);
+        return await PatchAssignmentAsync(clubId, current, teams, teamIds, teamId, dob, now, warning: null, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<ClubPlayerWriteResult> LoadPlayerAsync(string clubId, string playerId, CancellationToken ct)
+    {
+        var token = await GetTokenAsync().ConfigureAwait(false);
+        if (string.IsNullOrEmpty(token)) return ClubPlayerWriteResult.Fail("Sign in to assign players.");
+        var path = PlayerPath(clubId, playerId);
+        using var get = new HttpRequestMessage(HttpMethod.Get, RestUrl(path));
+        get.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var resp = await RestHttp.SendAsync(get, ct).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        FirestoreUsageMeter.RecordRestBody("GET", path, body);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return ClubPlayerWriteResult.Fail("Player not found.");
+        if (!resp.IsSuccessStatusCode) return ClubPlayerWriteResult.Fail("Could not load the player.");
+        using var json = JsonDocument.Parse(body);
+        var player = ParsePlayer(json.RootElement);
+        return player is null
+            ? ClubPlayerWriteResult.Fail("Could not load the player.")
+            : new ClubPlayerWriteResult { Success = true, Player = player };
+    }
+
+    private async Task<ClubPlayerWriteResult> PatchAssignmentAsync(
+        string clubId, ClubPlayer current, List<ClubPlayerTeamEntry> teams, List<string> teamIds,
+        string assignmentTeamId, DateOnly dob, DateTimeOffset now, string? warning, CancellationToken ct)
+    {
+        var token = await GetTokenAsync().ConfigureAwait(false);
+        if (string.IsNullOrEmpty(token)) return ClubPlayerWriteResult.Fail("Sign in to assign players.");
+        var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false) ?? "";
+
+        current.Teams = teams;
+        current.TeamIds = teamIds;
+        current.UpdatedAt = now;
+        current.LastUsedAt = now;
+
+        var fields = new Dictionary<string, object>
+        {
+            ["teams"] = TeamsArray(teams),
+            ["teamIds"] = StringArray(teamIds),
+            ["assignmentTeamId"] = Str(assignmentTeamId),
+            ["updatedAt"] = Ts(now),
+            ["updatedBy"] = Str(uid),
+            ["lastUsedAt"] = Ts(now),
+        };
+        if (dob != default)
+        {
+            fields["dobYear"] = Int(dob.Year);
+            fields["dobMonth"] = Int(dob.Month);
+            fields["dobDay"] = Int(dob.Day);
+        }
+
+        var path = PlayerPath(clubId, current.PlayerId);
+        var ok = await PatchAsync(path, fields, fields.Keys.ToArray(), mustExist: true, token, ct)
+            .ConfigureAwait(false);
+        if (!ok)
+            return ClubPlayerWriteResult.Fail("Could not update the assignment. Check the team's age group and try again.");
+        return new ClubPlayerWriteResult { Success = true, Player = current, Warning = warning };
+    }
+
     // ── REST helpers ──────────────────────────────────────────────────────
 
     private static async Task<bool> PatchAsync(string path, Dictionary<string, object> fields, string[] mask,
@@ -353,6 +466,41 @@ public sealed class ClubPlayerService : IClubPlayerService
     private static Dictionary<string, object> Str(string? v) => new() { ["stringValue"] = v ?? "" };
     private static Dictionary<string, object> Null() => new() { ["nullValue"] = null! };
     private static Dictionary<string, object> EmptyArray() => new() { ["arrayValue"] = new Dictionary<string, object>() };
+    private static Dictionary<string, object> Int(int v) => new() { ["integerValue"] = v.ToString(CultureInfo.InvariantCulture) };
+
+    private static Dictionary<string, object> StringArray(IEnumerable<string> ids) =>
+        new()
+        {
+            ["arrayValue"] = new Dictionary<string, object>
+            {
+                ["values"] = ids.Select(id => (object)Str(id)).ToList()
+            }
+        };
+
+    private static Dictionary<string, object> TeamsArray(IEnumerable<ClubPlayerTeamEntry> teams) =>
+        new()
+        {
+            ["arrayValue"] = new Dictionary<string, object>
+            {
+                ["values"] = teams.Select(entry => (object)new Dictionary<string, object>
+                {
+                    ["mapValue"] = new Dictionary<string, object> { ["fields"] = TeamEntryFields(entry) }
+                }).ToList()
+            }
+        };
+
+    private static Dictionary<string, object> TeamEntryFields(ClubPlayerTeamEntry t)
+    {
+        var fields = new Dictionary<string, object>
+        {
+            ["teamId"] = Str(t.TeamId),
+            ["teamName"] = Str(t.TeamName),
+            ["season"] = Int(t.Season)
+        };
+        if (t.AssignedAt is { } assigned) fields["assignedAt"] = Ts(assigned);
+        if (t.RemovedAt is { } removed) fields["removedAt"] = Ts(removed);
+        return fields;
+    }
     private static Dictionary<string, object> Ts(DateTimeOffset v) =>
         new() { ["timestampValue"] = v.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture) };
 

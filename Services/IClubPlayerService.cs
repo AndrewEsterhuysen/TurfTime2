@@ -31,6 +31,17 @@ public interface IClubPlayerService
     /// </summary>
     Task<ClubPlayerWriteResult> UpdateAsync(string clubId, string playerId, ClubPlayerUpdate update,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Assigns the player to <paramref name="teamId"/> for <paramref name="season"/> (play up only).
+    /// Team-count over the warning threshold is returned in <see cref="ClubPlayerWriteResult.Warning"/>, not as a failure.
+    /// </summary>
+    Task<ClubPlayerWriteResult> AssignToTeamAsync(string clubId, string playerId, string teamId, string teamName,
+        string ageGroup, int season, CancellationToken cancellationToken = default);
+
+    /// <summary>Removes the player from <paramref name="teamId"/> for <paramref name="season"/>; history is kept.</summary>
+    Task<ClubPlayerWriteResult> UnassignFromTeamAsync(string clubId, string playerId, string teamId, int season,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class ClubPlayerAccess
@@ -55,6 +66,7 @@ public sealed class ClubPlayerWriteResult
 {
     public bool Success { get; init; }
     public string? Error { get; init; }
+    public string? Warning { get; init; }
     public ClubPlayer? Player { get; init; }
 
     public static ClubPlayerWriteResult Fail(string error) => new() { Error = error };

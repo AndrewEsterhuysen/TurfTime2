@@ -26,6 +26,8 @@ public partial class TeamDetailsPage : ContentPage
 		InitializeComponent();
 		BindableLayout.SetItemsSource(LocalTeamsCollection, _localTeams);
 		BindableLayout.SetItemsSource(SharedTeamsCollection, _sharedTeams);
+		EnsureAgePickerItems(UnderClubAgePicker);
+		UnderClubSeasonEntry.Text = ClubAgeGroups.CurrentSeason().ToString();
 		LoadCurrentTeam();
 	}
 
@@ -166,6 +168,7 @@ public partial class TeamDetailsPage : ContentPage
 		{
 			CurrentTeamLabel.Text = "No team selected";
 			TeamTypeLabel.Text = "Type: Not configured";
+			TeamAgeSection.IsVisible = false;
 			DisplayNameSection.IsVisible = false;
 			SharedAdminTools.IsVisible = false;
 			ViewTeamMembersButton.IsVisible = false;
@@ -179,6 +182,7 @@ public partial class TeamDetailsPage : ContentPage
 			CurrentTeamLabel.Text = string.IsNullOrEmpty(teamName) ? "(unnamed team)" : teamName;
 			TeamTypeLabel.Text = FormatCurrentTeamTypeLabel(isShared, isLocal);
 			ShareTeamButton.IsVisible = true;
+			BindTeamAgeSection(isShared, isShared && userRole == "admin");
 
 			DisplayNameSection.IsVisible = isShared;
 			if (isShared)
@@ -222,6 +226,128 @@ public partial class TeamDetailsPage : ContentPage
 		Preferences.Set($"{teamId}_club_id", clubId ?? "");
 		Preferences.Set($"{teamId}_club_name", clubName ?? "");
 		Preferences.Set($"{teamId}_kind", ClubTeamNames.ResolveKind(kind, clubId));
+	}
+
+	private static void CacheTeamAgePrefs(string teamId, string ageGroup, int season)
+	{
+		if (string.IsNullOrWhiteSpace(teamId)) return;
+		Preferences.Set($"{teamId}_age_group", ageGroup);
+		Preferences.Set($"{teamId}_season", season.ToString(System.Globalization.CultureInfo.InvariantCulture));
+	}
+
+	private static bool TryReadAgeGroup(Picker picker, Entry seasonEntry, out string ageGroup, out int season, out string error)
+	{
+		ageGroup = "";
+		season = 0;
+		error = "";
+		EnsureAgePickerItems(picker);
+		var idx = picker.SelectedIndex;
+		if (idx < 0 || idx >= ClubAgeGroups.StandardLabels.Length)
+		{
+			error = "Choose an age group for this club team.";
+			return false;
+		}
+		if (!int.TryParse(seasonEntry.Text?.Trim(), out season) || season < 2000 || season > 2100)
+		{
+			error = "Enter a valid season year.";
+			return false;
+		}
+		ageGroup = ClubAgeGroups.StandardLabels[idx];
+		return true;
+	}
+
+	private static void EnsureAgePickerItems(Picker picker)
+	{
+		if (picker.Items.Count == ClubAgeGroups.StandardLabels.Length) return;
+		picker.Items.Clear();
+		foreach (var label in ClubAgeGroups.StandardLabels)
+			picker.Items.Add(label);
+	}
+
+	private void BindTeamAgeSection(bool isShared, bool isAdmin)
+	{
+		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		var clubId = Preferences.Get($"{teamId}_club_id", string.Empty);
+		var isClub = isShared && !string.IsNullOrWhiteSpace(clubId);
+		TeamAgeSection.IsVisible = isClub;
+		if (!isClub) return;
+
+		EnsureAgePickerItems(TeamAgePicker);
+		EnsureAgePickerItems(UnderClubAgePicker);
+		if (string.IsNullOrWhiteSpace(UnderClubSeasonEntry.Text))
+			UnderClubSeasonEntry.Text = ClubAgeGroups.CurrentSeason().ToString();
+
+		var age = ClubAgeGroups.CanonicalAgeGroup(Preferences.Get($"{teamId}_age_group", ""));
+		if (age is not null)
+			TeamAgePicker.SelectedIndex = Array.IndexOf(ClubAgeGroups.StandardLabels, age);
+		var seasonText = Preferences.Get($"{teamId}_season", "");
+		TeamSeasonEntry.Text = int.TryParse(seasonText, out var season) && season >= 2000
+			? season.ToString()
+			: ClubAgeGroups.CurrentSeason().ToString();
+		TeamAgePicker.IsEnabled = isAdmin;
+		TeamSeasonEntry.IsEnabled = isAdmin;
+		SaveTeamAgeButton.IsVisible = isAdmin;
+		if (isAdmin)
+			_ = RefreshTeamAgeFromCloudAsync(teamId);
+	}
+
+	private async Task RefreshTeamAgeFromCloudAsync(string teamId)
+	{
+		try
+		{
+			var cloud = ResolveCloudTeam();
+			if (cloud is null) return;
+			var settings = await cloud.GetTeamAgeSettingsAsync(teamId);
+			if (settings is not { IsSet: true }) return;
+			CacheTeamAgePrefs(teamId, settings.AgeGroup, settings.Season);
+			await MainThread.InvokeOnMainThreadAsync(() =>
+			{
+				EnsureAgePickerItems(TeamAgePicker);
+				var age = ClubAgeGroups.CanonicalAgeGroup(settings.AgeGroup);
+				if (age is not null)
+					TeamAgePicker.SelectedIndex = Array.IndexOf(ClubAgeGroups.StandardLabels, age);
+				TeamSeasonEntry.Text = settings.Season.ToString();
+			});
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[TeamDetails] RefreshTeamAge: {ex.Message}");
+		}
+	}
+
+	private async void OnSaveTeamAgeClicked(object sender, EventArgs e)
+	{
+		var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
+		if (string.IsNullOrWhiteSpace(teamId)) return;
+		if (!TryReadAgeGroup(TeamAgePicker, TeamSeasonEntry, out var age, out var season, out var error))
+		{
+			await DisplayAlert("Age group", error, "OK");
+			return;
+		}
+		var cloud = ResolveCloudTeam();
+		if (cloud is null)
+		{
+			await DisplayAlert("Age group", "Cloud team service not available.", "OK");
+			return;
+		}
+		SaveTeamAgeButton.IsEnabled = false;
+		try
+		{
+			var result = await cloud.UpdateTeamAgeSettingsAsync(teamId, age, season);
+			if (result != "success")
+			{
+				await DisplayAlert("Age group", result.StartsWith("error:", StringComparison.OrdinalIgnoreCase)
+					? result[6..].Trim()
+					: result, "OK");
+				return;
+			}
+			CacheTeamAgePrefs(teamId, age, season);
+			await DisplayAlert("Age group", $"Saved {age} for season {season}.", "OK");
+		}
+		finally
+		{
+			SaveTeamAgeButton.IsEnabled = true;
+		}
 	}
 
 	private async void OnSaveDisplayNameClicked(object sender, EventArgs e)
@@ -1591,8 +1717,16 @@ public partial class TeamDetailsPage : ContentPage
 				clubName = _managedClubChoices[idx].ClubName;
 				teamName = UnderClubTeamEntry.Text!.Trim();
 				teamId = GenerateTeamId(teamName, clubName);
+				if (!TryReadAgeGroup(UnderClubAgePicker, UnderClubSeasonEntry, out var newAge, out var newSeason, out var ageError))
+				{
+					await DisplayAlert("Age group", ageError, "OK");
+					return;
+				}
 				result = await cloud.CreateTeamUnderClubAsync(
-					clubId, teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName);
+					clubId, teamId, teamName, inviteCode, adminCodeHash, creatorEmail, displayName,
+					newAge, newSeason);
+				if (result == "success")
+					CacheTeamAgePrefs(teamId, newAge, newSeason);
 			}
 
 			if (result == "success")

@@ -535,7 +535,9 @@ public sealed class CloudRosterService : ICloudRosterService
                     ["goalie"] = new Dictionary<string, object> { ["booleanValue"] = p.Goalie },
                     ["inactive"] = new Dictionary<string, object> { ["booleanValue"] = p.Inactive },
                     ["counterSeconds"] = new Dictionary<string, object> { ["integerValue"] = p.CounterSeconds.ToString() },
-                    ["fieldCell"] = new Dictionary<string, object> { ["integerValue"] = p.FieldCell.ToString() }
+                    ["fieldCell"] = new Dictionary<string, object> { ["integerValue"] = p.FieldCell.ToString() },
+                    ["playerId"] = new Dictionary<string, object> { ["stringValue"] = p.PlayerId ?? "" },
+                    ["borrowed"] = new Dictionary<string, object> { ["booleanValue"] = p.Borrowed }
                 }
             }
         }).ToList();
@@ -814,7 +816,9 @@ public sealed class CloudRosterService : ICloudRosterService
             ["goalie"] = p.Goalie,
             ["inactive"] = p.Inactive,
             ["counterSeconds"] = p.CounterSeconds,
-            ["fieldCell"] = p.FieldCell
+            ["fieldCell"] = p.FieldCell,
+            ["playerId"] = p.PlayerId ?? "",
+            ["borrowed"] = p.Borrowed
         }).ToList();
 
         var utc = s.LastModifiedUtc;
@@ -925,7 +929,9 @@ public sealed class CloudRosterService : ICloudRosterService
                             Goalie = ReadBool(map, "goalie", false),
                             Inactive = ReadBool(map, "inactive", false),
                             CounterSeconds = ReadInt(map, "counterSeconds", 0),
-                            FieldCell = ReadInt(map, "fieldCell", 0)
+                            FieldCell = ReadInt(map, "fieldCell", 0),
+                            PlayerId = ReadString(map, "playerId", string.Empty),
+                            Borrowed = ReadBool(map, "borrowed", false)
                         });
                     }
                 }
@@ -1019,7 +1025,9 @@ public sealed class CloudRosterService : ICloudRosterService
                         Goalie = ReadRestBool(pf, "goalie", false),
                         Inactive = ReadRestBool(pf, "inactive", false),
                         CounterSeconds = ReadRestInt(pf, "counterSeconds", 0),
-                        FieldCell = ReadRestInt(pf, "fieldCell", 0)
+                        FieldCell = ReadRestInt(pf, "fieldCell", 0),
+                        PlayerId = ReadRestString(pf, "playerId", ""),
+                        Borrowed = ReadRestBool(pf, "borrowed", false)
                     });
                 }
             }

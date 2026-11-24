@@ -40,6 +40,14 @@
                                          Spacing="8">
                         <Label Style="{StaticResource PvBodyStrong}" x:Name="CurrentTeamLabel" Text="No team selected"/>
 
+                        <VerticalStackLayout x:Name="TeamAgeSection" IsVisible="False" Spacing="8">
+                            <Label Style="{StaticResource PvBodyStrong}" Text="Age group and season"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Used when assigning club players. Players may play up, never down (age on 1 January of the season year)."/>
+                            <Picker Style="{StaticResource PvPicker}" x:Name="TeamAgePicker" Title="Age group"/>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="TeamSeasonEntry" Placeholder="Season year (e.g. 2026)" Keyboard="Numeric" MaxLength="4"/>
+                            <Button Style="{StaticResource PvButtonSecondary}" x:Name="SaveTeamAgeButton" Text="Save age group" Clicked="OnSaveTeamAgeClicked"/>
+                        </VerticalStackLayout>
+
                         <StackLayout x:Name="DisplayNameSection"
                                      IsVisible="False"
                                      Spacing="8">
@@ -392,6 +400,9 @@
                             <Label Style="{StaticResource PvBodyStrong}" Text="Add team under a club you manage"/>
                             <Picker Style="{StaticResource PvPicker}" x:Name="ManagedClubPicker" Title="Select managed club" SelectedIndexChanged="OnManagedClubPickerChanged"/>
                             <Entry Style="{StaticResource PvEntry}" x:Name="UnderClubTeamEntry" Placeholder="New team name under selected club" TextChanged="OnUnderClubTeamChanged"/>
+                            <Label Style="{StaticResource PvCaption}" Text="Age group and season (required for a club team)"/>
+                            <Picker Style="{StaticResource PvPicker}" x:Name="UnderClubAgePicker" Title="Age group"/>
+                            <Entry Style="{StaticResource PvEntry}" x:Name="UnderClubSeasonEntry" Placeholder="Season year (e.g. 2026)" Keyboard="Numeric" MaxLength="4"/>
 
                             <Label Style="{StaticResource PvBodyStrong}" Text="OR nickname (standalone — no club)" HorizontalOptions="Center" Margin="0,6,0,0"/>
                             <Entry Style="{StaticResource PvEntry}" x:Name="NicknameEntry" Placeholder="Team nickname (e.g., Socceroos)" TextChanged="OnNicknameChanged"/>
