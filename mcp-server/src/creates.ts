@@ -154,6 +154,9 @@ export async function createClub(ctx: WriteContext, a: { clubName: string; displ
       clubName, createdBy: ctx.uid, createdAt: now, isActive: true,
       ownerRecoveryCodeHash: hashAdminCode(ownerRecoveryCode),
     });
+    await writeNew(ctx, `clubs/${clubId}/secrets/info`, {
+      ownerRecoveryCodeHash: hashAdminCode(ownerRecoveryCode),
+    });
     await writeNew(ctx, `clubs/${clubId}/members/${ctx.uid}`, {
       role: "owner", displayName, addedAt: now,
     });
@@ -277,6 +280,9 @@ export async function createTeam(ctx: WriteContext, a: CreateTeamArgs) {
   try {
     // Same order as CreateTeamCoreAsync: metadata, members, roster, then invite index (non-fatal).
     await writeNew(ctx, `teams/${teamId}/metadata/info`, meta);
+    await writeNew(ctx, `teams/${teamId}/secrets/info`, {
+      inviteCode, adminCodeHash: hashAdminCode(ownerRecoveryCode), creatorEmail,
+    });
     await writeNew(ctx, `teams/${teamId}/members/${ctx.uid}`, { role: "admin", displayName, uid: ctx.uid });
     await writeNew(ctx, `teams/${teamId}/roster/data`, roster);
     try { await writeNew(ctx, `invite_codes/${compact}`, invitePayload); } catch (e) {
