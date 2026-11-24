@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:svc="clr-namespace:TurfTime2.Services"
              x:Class="TurfTime2.AiConnectPage"
              Title="AI assistant">
     <ContentPage.Resources>
@@ -19,7 +20,25 @@
             <Label Style="{StaticResource PvCaption}"
                    Text="Shared (online) teams only. Local teams stay on this phone." />
             <Label Style="{StaticResource PvBody}"
-                   Text="Add the TurfTimer connector in your assistant, then tap Get code and enter it on the Connect TurfTimer page." />
+                   Text="In your AI assistant, add a custom MCP connector with this address (no API key needed):" />
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <VerticalStackLayout Spacing="8">
+                    <Editor x:Name="McpUrlEditor"
+                            Text="{x:Static svc:AiConnectConfig.McpUrl}"
+                            IsReadOnly="True"
+                            AutoSize="TextChanges"
+                            FontFamily="Inter"
+                            FontSize="15"
+                            TextColor="{AppThemeBinding Light={StaticResource PvTextLight}, Dark={StaticResource PvTextDark}}"
+                            BackgroundColor="Transparent" />
+                    <HorizontalStackLayout Spacing="8">
+                        <Button x:Name="CopyUrlButton" Style="{StaticResource PvButtonOutline}" Text="Copy" Clicked="OnCopyUrlClicked" />
+                        <Label x:Name="CopiedLabel" Style="{StaticResource PvCaption}" Text="Copied" IsVisible="False" VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+            <Label Style="{StaticResource PvBody}"
+                   Text="Then tap Get code and enter it on the Connect TurfTimer page." />
             <Border Style="{StaticResource PvCard}" Padding="16,12">
                 <VerticalStackLayout Spacing="8">
                     <Label x:Name="CodeLabel" Style="{StaticResource PvTitle}" Text="—" HorizontalOptions="Center" />
