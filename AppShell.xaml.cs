@@ -27,6 +27,7 @@ namespace TurfTime2
             Routing.RegisterRoute("details/nominations", typeof(NominationsPage));
             Routing.RegisterRoute("details/reports", typeof(ReportsPage));
             Routing.RegisterRoute("details/clubplayers", typeof(ClubPlayersPage));
+            Routing.RegisterRoute("details/clubplayerstats", typeof(ClubPlayerStatsPage));
             Routing.RegisterRoute("game/changeplayer", typeof(ChangePlayerPage));
             Routing.RegisterRoute("details/comingsoon", typeof(ComingSoonPage));
 

@@ -189,7 +189,7 @@ public partial class ClubPlayersPage : ContentPage
                 }
             }
         };
-        if (_access.IsClubAdmin)
+        if (_access.CanView)
         {
             var tap = new TapGestureRecognizer();
             tap.Tapped += async (_, _) => await OnPlayerTapped(p);
@@ -205,18 +205,32 @@ public partial class ClubPlayersPage : ContentPage
 
     private async Task OnPlayerTapped(ClubPlayer player)
     {
-        if (_saving || !_access.IsClubAdmin || _players is null) return;
+        if (_saving || !_access.CanView) return;
+
+        if (!_access.IsClubAdmin)
+        {
+            await OpenStatsAsync(player);
+            return;
+        }
 
         var restoreOrArchive = player.IsArchived ? "Restore" : "Archive";
-        var choice = await DisplayActionSheet(player.DisplayName, "Cancel", "Delete", restoreOrArchive);
+        var choice = await DisplayActionSheet(player.DisplayName, "Cancel", "Delete", "Stats", restoreOrArchive);
         if (string.IsNullOrEmpty(choice) || choice == "Cancel") return;
 
-        if (choice == "Archive")
+        if (choice == "Stats")
+            await OpenStatsAsync(player);
+        else if (choice == "Archive")
             await ArchivePlayerAsync(player);
         else if (choice == "Restore")
             await RestorePlayerAsync(player);
         else if (choice == "Delete")
             await DeletePlayerAsync(player);
+    }
+
+    private async Task OpenStatsAsync(ClubPlayer player)
+    {
+        ClubPlayerStatsPage.Begin(_clubId, player);
+        await Shell.Current.GoToAsync("details/clubplayerstats");
     }
 
     private async Task ArchivePlayerAsync(ClubPlayer player)
