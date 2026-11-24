@@ -235,5 +235,14 @@ legacy.Events.Add(Ev(1, "Old Name"));
 Check(ClubPlayerMatchBuilder.FromSession(legacy, "club-1", "team-1", "U10 Green", 2027).Count == 0,
       "legacy session without playerId is not backfilled");
 
+
+// 11. Invite / recovery code helpers (membership security)
+Check(InviteCodes.Normalize(" tqaq-tn2k ") == "TQAQ-TN2K", "normalize invite: upper, trim, keep hyphen");
+Check(InviteCodes.Compact("TQAQ-TN2K") == "TQAQTN2K", "compact invite strips hyphen");
+Check(InviteCodes.HashAdminCode("abcd-efgh-ijkl-mnop") == InviteCodes.HashAdminCode("ABCD-EFGH-IJKL-MNOP"), "hash is case-insensitive");
+Check(InviteCodes.HashAdminCode("TEST-CODE").Length == 64, "hash is 64 hex chars");
+Check(InviteCodes.HashAdminCode("TEST-CODE") != InviteCodes.HashAdminCode("TEST-CODF"), "different codes hash differently");
+Check(InviteCodes.Normalize("") == "" && InviteCodes.Compact(null) == "", "empty/null codes");
+
 Console.WriteLine(fails == 0 ? "ALL PASS" : $"{fails} FAILED");
 return fails;

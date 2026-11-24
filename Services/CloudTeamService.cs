@@ -135,6 +135,9 @@ public sealed class CloudTeamService : ICloudTeamService
             await _db.GetDocument($"clubs/{clubId}/metadata/info")
                 .SetDataAsync(clubMeta, SetOptions.Merge()).ConfigureAwait(false);
 
+            if (!string.IsNullOrWhiteSpace(clubOwnerRecoveryCodeHash))
+                await WriteClubSecretsAsync(clubId, clubOwnerRecoveryCodeHash).ConfigureAwait(false);
+
             await _db.GetDocument($"clubs/{clubId}/members/{uid}")
                 .SetDataAsync(new Dictionary<object, object>
                 {
@@ -270,6 +273,8 @@ public sealed class CloudTeamService : ICloudTeamService
 
             await _db.GetDocument($"teams/{teamId}/metadata/info")
                 .SetDataAsync(meta, SetOptions.Merge()).ConfigureAwait(false);
+
+            await WriteTeamSecretsAsync(teamId, code, adminCodeHash, creatorEmail).ConfigureAwait(false);
 
             await _db.GetDocument($"teams/{teamId}/members/{uid}")
                 .SetDataAsync(new Dictionary<object, object>
@@ -733,7 +738,7 @@ public sealed class CloudTeamService : ICloudTeamService
             if (existing?.Data is not null)
             {
                 await EnsureClubMembershipOnJoinAsync(
-                    lookup.ClubId, uid, displayName, asNewMember: false).ConfigureAwait(false);
+                    lookup.ClubId, uid, displayName, asNewMember: false, teamId).ConfigureAwait(false);
                 return new CloudTeamJoinResult
                 {
                     Status = "already_member",
@@ -744,17 +749,19 @@ public sealed class CloudTeamService : ICloudTeamService
                 };
             }
 
+            var joinCode = Helpers.InviteCodes.Compact(Helpers.InviteCodes.Normalize(inviteCode));
             await _db.GetDocument($"teams/{teamId}/members/{uid}")
                 .SetDataAsync(new Dictionary<object, object>
                 {
                     ["role"] = "member",
                     ["displayName"] = displayName ?? "",
                     ["uid"] = uid,
-                    ["joinedAt"] = DateTimeOffset.UtcNow
+                    ["joinedAt"] = DateTimeOffset.UtcNow,
+                    ["joinInviteCode"] = joinCode
                 }, SetOptions.Merge()).ConfigureAwait(false);
 
             await EnsureClubMembershipOnJoinAsync(
-                lookup.ClubId, uid, displayName, asNewMember: true).ConfigureAwait(false);
+                lookup.ClubId, uid, displayName, asNewMember: true, teamId).ConfigureAwait(false);
 
             return new CloudTeamJoinResult
             {
@@ -841,6 +848,20 @@ public sealed class CloudTeamService : ICloudTeamService
             }
             catch { /* optional fill-in */ }
 
+            try
+            {
+                var secretHash = await GetTeamSecretStringAsync(teamId, "adminCodeHash").ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(secretHash))
+                    storedTeamHash = secretHash;
+                if (string.IsNullOrEmpty(inviteCode))
+                {
+                    var secretInvite = await GetTeamSecretStringAsync(teamId, "inviteCode").ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(secretInvite))
+                        inviteCode = NormalizeInviteCode(secretInvite);
+                }
+            }
+            catch { /* secrets may not exist yet or are not readable until after rejoin */ }
+
             var suppliedHash = hashAdminCode(adminCode.Trim());
 
             // 1) Team Owner Recovery Code
@@ -848,7 +869,8 @@ public sealed class CloudTeamService : ICloudTeamService
                 && string.Equals(suppliedHash, storedTeamHash, StringComparison.OrdinalIgnoreCase))
             {
                 await RestoreTeamOwnerAsync(
-                    teamId, teamName, uid, displayName, previousOwnerUid, inviteCode, clubId, clubName)
+                    teamId, teamName, uid, displayName, previousOwnerUid, inviteCode, clubId, clubName,
+                    suppliedHash)
                     .ConfigureAwait(false);
 
                 System.Diagnostics.Debug.WriteLine(
@@ -894,6 +916,13 @@ public sealed class CloudTeamService : ICloudTeamService
                 clubName = ReadString(clubData, "clubName");
 
             var storedClubHash = ReadString(clubData, "ownerRecoveryCodeHash");
+            try
+            {
+                var secretClubHash = await GetClubSecretStringAsync(clubId, "ownerRecoveryCodeHash").ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(secretClubHash))
+                    storedClubHash = secretClubHash;
+            }
+            catch { /* optional */ }
             if (string.IsNullOrEmpty(storedClubHash))
             {
                 return new CloudOwnerRecoveryResult
@@ -944,16 +973,20 @@ public sealed class CloudTeamService : ICloudTeamService
         string previousOwnerUid,
         string inviteCode,
         string? clubId,
-        string? clubName)
+        string? clubName,
+        string? adminCodeHash = null)
     {
+        var member = new Dictionary<object, object>
+        {
+            ["role"] = "admin",
+            ["displayName"] = displayName ?? "",
+            ["uid"] = uid,
+            ["rejoinedAt"] = DateTimeOffset.UtcNow
+        };
+        if (!string.IsNullOrEmpty(adminCodeHash))
+            member["adminCodeHash"] = adminCodeHash;
         await _db.GetDocument($"teams/{teamId}/members/{uid}")
-            .SetDataAsync(new Dictionary<object, object>
-            {
-                ["role"] = "admin",
-                ["displayName"] = displayName ?? "",
-                ["uid"] = uid,
-                ["rejoinedAt"] = DateTimeOffset.UtcNow
-            }, SetOptions.Merge()).ConfigureAwait(false);
+            .SetDataAsync(member, SetOptions.Merge()).ConfigureAwait(false);
 
         var ownershipFields = new Dictionary<object, object>
         {
@@ -989,7 +1022,7 @@ public sealed class CloudTeamService : ICloudTeamService
         // If clubbed, ensure club membership exists (do not elevate to club owner via team code).
         if (!string.IsNullOrWhiteSpace(clubId))
         {
-            await EnsureClubMembershipOnJoinAsync(clubId, uid, displayName, asNewMember: false)
+            await EnsureClubMembershipOnJoinAsync(clubId, uid, displayName, asNewMember: false, teamId)
                 .ConfigureAwait(false);
         }
     }
@@ -1009,6 +1042,12 @@ public sealed class CloudTeamService : ICloudTeamService
             ["createdBy"] = uid,
             ["ownershipRecoveredAt"] = DateTimeOffset.UtcNow
         };
+        var clubHash = ReadString(clubData, "ownerRecoveryCodeHash");
+        // Prefer the hash already verified by the caller; also try secrets.
+        if (string.IsNullOrEmpty(clubHash))
+            clubHash = await GetClubSecretStringAsync(clubId, "ownerRecoveryCodeHash").ConfigureAwait(false) ?? "";
+        if (!string.IsNullOrEmpty(clubHash))
+            clubOwnership["recoveryHash"] = clubHash;
         if (!string.IsNullOrEmpty(previousClubOwner)
             && !string.Equals(previousClubOwner, uid, StringComparison.Ordinal))
         {
@@ -1099,6 +1138,16 @@ public sealed class CloudTeamService : ICloudTeamService
                 {
                     ["inviteCode"] = code
                 }, SetOptions.Merge()).ConfigureAwait(false);
+            try
+            {
+                await _db.GetDocument($"teams/{teamId}/secrets/info")
+                    .SetDataAsync(new Dictionary<object, object> { ["inviteCode"] = code }, SetOptions.Merge())
+                    .ConfigureAwait(false);
+            }
+            catch (Exception secEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] UpdateInvite secrets: {secEx.Message}");
+            }
 
             // Clear previous public invite pointer (overwrite below) and legacy root docs.
             var oldNorm = NormalizeInviteCode(oldCode);
@@ -1296,6 +1345,75 @@ public sealed class CloudTeamService : ICloudTeamService
     {
         var meta = await GetTeamMetadataViaRestAsync(teamId).ConfigureAwait(false);
         return meta?.CreatedBy;
+    }
+
+
+    private async Task WriteTeamSecretsAsync(string teamId, string inviteCode, string adminCodeHash, string? creatorEmail)
+    {
+        try
+        {
+            await _db.GetDocument($"teams/{teamId}/secrets/info")
+                .SetDataAsync(new Dictionary<object, object>
+                {
+                    ["inviteCode"] = inviteCode ?? "",
+                    ["adminCodeHash"] = adminCodeHash ?? "",
+                    ["creatorEmail"] = creatorEmail ?? ""
+                }, SetOptions.Merge()).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] WriteTeamSecrets: {ex.Message}");
+        }
+    }
+
+    private async Task WriteClubSecretsAsync(string clubId, string ownerRecoveryCodeHash)
+    {
+        try
+        {
+            await _db.GetDocument($"clubs/{clubId}/secrets/info")
+                .SetDataAsync(new Dictionary<object, object>
+                {
+                    ["ownerRecoveryCodeHash"] = ownerRecoveryCodeHash ?? ""
+                }, SetOptions.Merge()).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[CloudTeam] WriteClubSecrets: {ex.Message}");
+        }
+    }
+
+    private async Task<string?> GetTeamSecretStringAsync(string teamId, string field)
+        => await GetSecretStringAsync($"teams/{teamId}/secrets/info", field).ConfigureAwait(false);
+
+    private async Task<string?> GetClubSecretStringAsync(string clubId, string field)
+        => await GetSecretStringAsync($"clubs/{clubId}/secrets/info", field).ConfigureAwait(false);
+
+    private async Task<string?> GetSecretStringAsync(string path, string field)
+    {
+        try
+        {
+            var snap = await _db.GetDocument(path)
+                .GetDocumentSnapshotAsync<Dictionary<string, object>>()
+                .ConfigureAwait(false);
+            var v = ReadString(snap?.Data, field);
+            if (!string.IsNullOrEmpty(v)) return v;
+        }
+        catch { /* try REST */ }
+
+        var idToken = await _auth.GetIdTokenAsync(forceRefresh: false).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken))
+            idToken = await _auth.GetIdTokenAsync(forceRefresh: true).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(idToken)) return null;
+        var url = $"https://firestore.googleapis.com/v1/projects/{FirebaseProjectId}/databases/(default)/documents/{path}";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", idToken);
+        using var resp = await SendTrackedAsync(req).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) return null;
+        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        using var json = JsonDocument.Parse(body);
+        if (!json.RootElement.TryGetProperty("fields", out var fields)) return null;
+        var s = ReadFirestoreRestString(fields, field).Trim();
+        return string.IsNullOrEmpty(s) ? null : s;
     }
 
     private sealed class TeamMetadataRest
@@ -1816,6 +1934,10 @@ public sealed class CloudTeamService : ICloudTeamService
 
         try
         {
+            var secretCode = NormalizeInviteCode(await GetTeamSecretStringAsync(teamId, "inviteCode").ConfigureAwait(false));
+            if (!string.IsNullOrEmpty(secretCode))
+                return secretCode;
+
             var meta = await GetTeamMetadataViaRestAsync(teamId).ConfigureAwait(false);
             var code = NormalizeInviteCode(meta?.InviteCode);
             if (!string.IsNullOrEmpty(code))
@@ -2562,7 +2684,8 @@ public sealed class CloudTeamService : ICloudTeamService
         string? clubId,
         string uid,
         string? displayName,
-        bool asNewMember)
+        bool asNewMember,
+        string? teamId = null)
     {
         if (string.IsNullOrWhiteSpace(clubId) || string.IsNullOrWhiteSpace(uid))
             return;
@@ -2576,13 +2699,17 @@ public sealed class CloudTeamService : ICloudTeamService
             if (existing?.Data is not null)
                 return; // do not downgrade owner/admin
 
+            var payload = new Dictionary<object, object>
+            {
+                ["role"] = "member",
+                ["displayName"] = displayName ?? "",
+                ["uid"] = uid,
+                ["addedAt"] = DateTimeOffset.UtcNow
+            };
+            if (!string.IsNullOrWhiteSpace(teamId))
+                payload["joinedViaTeamId"] = teamId;
             await _db.GetDocument(path)
-                .SetDataAsync(new Dictionary<object, object>
-                {
-                    ["role"] = "member",
-                    ["displayName"] = displayName ?? "",
-                    ["addedAt"] = DateTimeOffset.UtcNow
-                }, SetOptions.Merge()).ConfigureAwait(false);
+                .SetDataAsync(payload, SetOptions.Merge()).ConfigureAwait(false);
 
             System.Diagnostics.Debug.WriteLine(
                 $"[CloudTeam] Club member upsert club={clubId} uid={uid[..Math.Min(6, uid.Length)]}… new={asNewMember}");

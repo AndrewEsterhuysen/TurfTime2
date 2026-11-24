@@ -3768,12 +3768,7 @@ private void RegisterTeamId(string teamId)
 	}
 
 	/// <summary>Returns the SHA-256 hex digest of the given plain-text code (uppercase-normalised).</summary>
-	private static string HashAdminCode(string code)
-	{
-		var bytes = System.Security.Cryptography.SHA256.HashData(
-			System.Text.Encoding.UTF8.GetBytes(code.ToUpperInvariant()));
-		return Convert.ToHexString(bytes).ToLowerInvariant();
-	}
+	private static string HashAdminCode(string code) => TurfTime2.Helpers.InviteCodes.HashAdminCode(code);
 
 	// Trigger AppShell to refresh menu item availability
 	private void RefreshAppShellMenu()

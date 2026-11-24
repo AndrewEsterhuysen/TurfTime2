@@ -2,6 +2,6 @@
   <!-- Console checks for the club player list helpers (name key, 1 January age groups). Run with dotnet run from this folder -->
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../Helpers/ClubPlayerNames.cs;../../Helpers/ClubAgeGroups.cs;../../Helpers/ClubTeamNames.cs;../../Helpers/ClubPlayerAssignments.cs;../../Helpers/ClubPlayerMatchBuilder.cs;../../Models/ClubPlayer.cs;../../Models/ClubPlayerMatch.cs;../../Models/GameSession.cs;../../Models/GameEvent.cs;../../Models/GameEventType.cs" />
+    <Compile Include="../../Helpers/ClubPlayerNames.cs;../../Helpers/ClubAgeGroups.cs;../../Helpers/ClubTeamNames.cs;../../Helpers/ClubPlayerAssignments.cs;../../Helpers/ClubPlayerMatchBuilder.cs;../../Helpers/InviteCodes.cs;../../Models/ClubPlayer.cs;../../Models/ClubPlayerMatch.cs;../../Models/GameSession.cs;../../Models/GameEvent.cs;../../Models/GameEventType.cs" />
   </ItemGroup>
 </Project>
