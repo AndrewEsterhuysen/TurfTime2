@@ -66,11 +66,31 @@ which self-heals the doc). Until then, members who already have the code cached
 from joining can still share; members without a cache see N/A.
 
 Do **not** deploy these rules or run `--apply --member-invite` until Andrew
-approves. Dry-run:
+approves. Dry-run (25 Nov 2026, AEDT): scanned 12 teams, 3 clubs. Member-invite
+copy planned for all 12 teams (`copy=12`, `already_ok=0`, `missing_source=0`,
+`conflicts=0`, `writes=0`). The leftover-metadata scan also noted an empty
+`creatorEmail` key still present on 9 team metadata docs (not stripped in this
+run).
 
 ```
 python3 scripts/migrate_membership_secrets.py --project turf-timer --member-invite
 ```
+
+Build 77 delivery (Australia/Sydney, AEDT):
+
+- TestFlight upload of 3.9.1 build 77: delivery UUID
+  `30dd08e4-a7e0-40d0-a28b-f49f248ef712` (altool succeeded at 10:08:36 AM AEDT).
+- MCP Cloud Run: revision `turftimer-mcp-00011-wvv` (was `turftimer-mcp-00010-bk8`),
+  100% traffic, health check 200 on `/.well-known/oauth-authorization-server`.
+  URL unchanged: `https://turftimer-mcp-co6qd7jw6q-ts.a.run.app`.
+  Writing `secrets/invite` is allowed under the live `f0f39fe1` admin/owner
+  secrets rules, so this deploy is backward compatible.
+- Cloud Functions: all five updated again (Node.js 22). `hardDeleteTeam` also
+  deletes `secrets/invite` and will read it if `secrets/info` has no invite.
+  Same Artifact Registry cleanup-policy warning in `australia-southeast1` as
+  before (left unchanged).
+- Firestore rules were **not** deployed. Live rules remain `f0f39fe1`. The
+  member-invite migration was **not** applied.
 
 ## What was wrong
 
