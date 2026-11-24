@@ -171,8 +171,9 @@ read them) and adds `scorerPlayerId` / `assistPlayerId` when the slot has a `pla
    the 24-hour window). Until then the match row has `potm: false`.
 5. **Borrow** was dropped and is not recorded.
 
-v1 stats are matches, minutes (field time, whole minutes), goals, assists and POTM
-(decision 7).
+v1 stats are matches, field time (stored as `secondsPlayed`, shown as m:ss like the
+match report; `minutes` is also written as truncated whole minutes for compatibility),
+goals, assists and POTM (decision 7).
 
 ## 7. Screens and flows
 
@@ -418,12 +419,14 @@ club teams (older versions writing the roster would drop `playerId`).
 
 - Per-match rows at `clubs/{clubId}/players/{playerId}/matches/{sessionId}` (§6).
 - Details → Club players → tap a player → **Stats** (owners, admins and coaches).
-  Season filter, totals, and a per-match list (team, date, minutes, goals, assists,
-  POTM).
+  Season filter, totals, and a per-match list (team, date, field time as m:ss, goals,
+  assists, POTM).
 - Rules: club managers may read; a member of the match's team (or a club owner/admin)
   may write. Tests in `firestore-tests/test/club-players.test.mjs`. Helper tests in
   `tests/ClubPlayersTests`.
-- Production rules for this subcollection are **not deployed** until Andrew approves.
+- Production rules for the match subcollection were deployed with 3.9.0 (72).
+  `secondsPlayed` needs a further rules deploy before new writes of that field succeed
+  (the client retries without it until then). Do not deploy until Andrew approves.
 
 Still to do: filter chips, close-match duplicates, bulk add/CSV, a fuller player card,
 merge UI, `playerIndex` Cloud Function, migration screen (link existing named slots),
