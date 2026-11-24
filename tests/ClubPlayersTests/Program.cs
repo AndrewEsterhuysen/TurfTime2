@@ -124,5 +124,87 @@ Check(ClubPlayerAssignments.CurrentTeamNames(staleOpen, []).Count == 0,
 Check(ClubPlayerAssignments.CurrentTeamNames(staleOpen, ["t1"]).SequenceEqual(["U10 Green"]),
       "teamIds still containing t1 still shows the name");
 
+
+// 10. Per-match club player stats (playerId on the session, no backfill of nameless slots)
+GameEvent Ev(int delta, string? scorer = null, string? scorerId = null, string? assist = null, string? assistId = null)
+{
+    var d = new Dictionary<string, object?> { ["delta"] = delta };
+    if (scorer is not null) d["scorer"] = scorer;
+    if (scorerId is not null) d["scorerPlayerId"] = scorerId;
+    if (assist is not null) d["assist"] = assist;
+    if (assistId is not null) d["assistPlayerId"] = assistId;
+    return new GameEvent("e", DateTimeOffset.UtcNow, GameEventType.ScoreUs, "Goal", scorer, d);
+}
+
+var kickoff = new DateTimeOffset(2027, 3, 14, 9, 0, 0, TimeSpan.Zero);
+var sess = new GameSession
+{
+    SessionId = "game-1",
+    StartTime = kickoff,
+    TeamName = "U10 Green",
+    Summary = new GameSessionSummary(0, 3600, [
+        new PlayerStats("Wayne Rooney", 2700, 900, 0, 0, 0, SlotId: 1, WasPresent: true, PlayerId: "p-rooney"),
+        new PlayerStats("Ada Hegerberg", 1800, 1800, 0, 0, 0, SlotId: 2, WasPresent: true, PlayerId: "p-ada"),
+        new PlayerStats("Guest", 600, 0, 0, 0, 0, SlotId: 3, WasPresent: true, PlayerId: ""),
+        new PlayerStats("Absent Kid", 0, 0, 0, 0, 0, SlotId: 4, WasPresent: false, PlayerId: "p-absent"),
+    ])
+};
+sess.Events.Add(Ev(1, "Wayne Rooney", "p-rooney", "Ada Hegerberg", "p-ada"));
+sess.Events.Add(Ev(1, "Wayne Rooney", "p-rooney"));
+sess.Events.Add(Ev(-1)); // correction drops the second Rooney goal
+sess.Events.Add(new GameEvent("them", DateTimeOffset.UtcNow, GameEventType.ScoreThem, "Goal", null,
+    new Dictionary<string, object?> { ["delta"] = 1 }));
+
+var built = ClubPlayerMatchBuilder.FromSession(sess, "club-1", "team-1", "U10 Green", 2027);
+Check(built.Count == 2, "guest and absent skipped; two linked players present");
+var rooney = built.Single(m => m.PlayerId == "p-rooney");
+Check(rooney.Goals == 1 && rooney.Assists == 0 && rooney.Minutes == 45 && rooney.Season == 2027, "Rooney: 1 goal after correction, 45 min");
+Check(rooney.SessionId == "game-1" && rooney.TeamName == "U10 Green" && rooney.MatchDate == kickoff, "match identity");
+var ada = built.Single(m => m.PlayerId == "p-ada");
+Check(ada.Goals == 0 && ada.Assists == 1 && ada.Minutes == 30 && !ada.Potm, "Ada: 1 assist, 30 min");
+
+// Idempotent rebuild is identical
+var built2 = ClubPlayerMatchBuilder.FromSession(sess, "club-1", "team-1", "U10 Green", 2027);
+Check(built2.Count == 2 && built2.Single(m => m.PlayerId == "p-rooney").Goals == 1, "re-build of the same session is a no-op (same counts)");
+
+// Name-only goals still attribute to the linked player on this session (ids missing mid-match)
+var nameOnly = new GameSession
+{
+    SessionId = "game-2",
+    StartTime = kickoff,
+    Summary = new GameSessionSummary(0, 0, [
+        new PlayerStats("Wayne Rooney", 600, 0, 0, 0, 0, SlotId: 1, WasPresent: true, PlayerId: "p-rooney"),
+    ])
+};
+nameOnly.Events.Add(Ev(1, "Wayne Rooney", scorerId: null));
+var named = ClubPlayerMatchBuilder.FromSession(nameOnly, "club-1", "team-1", "U10 Green", 2027);
+Check(named.Count == 1 && named[0].Goals == 1 && named[0].PlayerId == "p-rooney", "fallback to name when scorerPlayerId is missing");
+
+// POTM by slot, and a player with no minutes still counted if they won
+var potmIds = ClubPlayerMatchBuilder.PotmPlayerIds(sess, [1]);
+Check(potmIds.SetEquals(["p-rooney"]), "POTM slot 1 -> Rooney's playerId");
+var withPotm = ClubPlayerMatchBuilder.FromSession(sess, "club-1", "team-1", "U10 Green", 2027, potmIds);
+Check(withPotm.Single(m => m.PlayerId == "p-rooney").Potm && !withPotm.Single(m => m.PlayerId == "p-ada").Potm, "POTM flag on the winner only");
+
+// Totals and season filter
+var s2026 = new ClubPlayerMatch { SessionId = "a", Season = 2026, Minutes = 40, Goals = 1, Assists = 0, Potm = true };
+var s2027a = new ClubPlayerMatch { SessionId = "b", Season = 2027, Minutes = 45, Goals = 1, Assists = 1, Potm = false };
+var s2027b = new ClubPlayerMatch { SessionId = "c", Season = 2027, Minutes = 50, Goals = 2, Assists = 0, Potm = true };
+var all = ClubPlayerSeasonTotals.From([s2026, s2027a, s2027b]);
+Check(all.Matches == 3 && all.Minutes == 135 && all.Goals == 4 && all.Assists == 1 && all.Potm == 2, "all-seasons totals");
+var y2027 = ClubPlayerSeasonTotals.From(new[] { s2026, s2027a, s2027b }.Where(m => m.Season == 2027));
+Check(y2027.Matches == 2 && y2027.Goals == 3 && y2027.Potm == 1 && y2027.Minutes == 95, "season 2027 filter");
+
+// No playerId on the summary -> no row (no backfill)
+var legacy = new GameSession
+{
+    SessionId = "old",
+    StartTime = kickoff,
+    Summary = new GameSessionSummary(0, 0, [new PlayerStats("Old Name", 900, 0, 0, 0, 0, SlotId: 1, WasPresent: true)])
+};
+legacy.Events.Add(Ev(1, "Old Name"));
+Check(ClubPlayerMatchBuilder.FromSession(legacy, "club-1", "team-1", "U10 Green", 2027).Count == 0,
+      "legacy session without playerId is not backfilled");
+
 Console.WriteLine(fails == 0 ? "ALL PASS" : $"{fails} FAILED");
 return fails;

@@ -15,7 +15,8 @@ public sealed record PlayerStats(
     int RotationsIn,
     int RotationsOut,
     int SlotId = 0,
-    bool? WasPresent = null);
+    bool? WasPresent = null,
+    string PlayerId = "");
 
 /// <summary>Summary computed at the end of a game session (statistics/analytics).</summary>
 public sealed record GameSessionSummary(
