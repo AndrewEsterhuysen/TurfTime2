@@ -65,6 +65,10 @@ def str_val(fields: dict, key: str) -> str:
     v = fields.get(key, {})
     return (v.get("stringValue") or "").strip()
 
+def field_present(fields: dict, key: str) -> bool:
+    """True if the key exists, even when the string is empty (still a metadata leak)."""
+    return key in fields
+
 def to_firestore(vals: dict[str, str]) -> dict:
     return {k: {"stringValue": v} for k, v in vals.items() if v}
 
@@ -109,39 +113,39 @@ def main() -> int:
         if kind == "teams":
             teams += 1
             payload = {k: str_val(fields, k) for k in TEAM_FIELDS}
-            if not any(payload.values()):
+            present = [k for k in TEAM_FIELDS if field_present(fields, k)]
+            if not present:
                 continue
             secret_path = f"projects/{args.project}/databases/(default)/documents/teams/{ident}/secrets/info"
-            print(f"  team {ident}: { {k: ('set' if v else '') for k,v in payload.items()} }")
+            print(f"  team {ident}: { {k: ('set' if payload[k] else 'empty') for k in present} }")
             if args.apply:
-                url = f"{BASE}/{secret_path}?currentDocument.exists=false"
-                # Merge always (doc may already exist)
-                mask = "&".join(f"updateMask.fieldPaths={urllib.parse.quote(k)}" for k, v in payload.items() if v)
-                url = f"{BASE}/{secret_path}?{mask}"
-                req("PATCH", url, tok, {"fields": to_firestore(payload)}, args.project)
-                team_writes += 1
+                # Merge always (doc may already exist). Only copy non-empty values into secrets.
+                nonempty = {k: v for k, v in payload.items() if v}
+                if nonempty:
+                    mask = "&".join(f"updateMask.fieldPaths={urllib.parse.quote(k)}" for k in nonempty)
+                    url = f"{BASE}/{secret_path}?{mask}"
+                    req("PATCH", url, tok, {"fields": to_firestore(nonempty)}, args.project)
+                    team_writes += 1
                 if args.strip:
-                    dels = {k: None for k in TEAM_FIELDS if str_val(fields, k)}
-                    # Firestore REST delete via updateMask and empty fields? Use update with FieldTransform isn't trivial.
-                    # PATCH with updateMask and omit fields does not delete. Need {:} skip.
-                    # Use commit with FieldTransform? Simpler: document in comments that strip uses a second tool.
-                    # Implement via commits: update + field deletes.
-                    strip_team_metadata(tok, args.project, ident, [k for k in TEAM_FIELDS if str_val(fields, k)])
+                    strip_team_metadata(tok, args.project, ident, present)
                     strips += 1
         else:
             clubs += 1
             payload = {k: str_val(fields, k) for k in CLUB_FIELDS}
-            if not any(payload.values()):
+            present = [k for k in CLUB_FIELDS if field_present(fields, k)]
+            if not present:
                 continue
-            print(f"  club {ident}: ownerRecoveryCodeHash={'set' if payload.get('ownerRecoveryCodeHash') else ''}")
+            print(f"  club {ident}: { {k: ('set' if payload[k] else 'empty') for k in present} }")
             if args.apply:
-                secret_path = f"projects/{args.project}/databases/(default)/documents/clubs/{ident}/secrets/info"
-                mask = "&".join(f"updateMask.fieldPaths={urllib.parse.quote(k)}" for k, v in payload.items() if v)
-                url = f"{BASE}/{secret_path}?{mask}"
-                req("PATCH", url, tok, {"fields": to_firestore(payload)}, args.project)
-                club_writes += 1
+                nonempty = {k: v for k, v in payload.items() if v}
+                if nonempty:
+                    secret_path = f"projects/{args.project}/databases/(default)/documents/clubs/{ident}/secrets/info"
+                    mask = "&".join(f"updateMask.fieldPaths={urllib.parse.quote(k)}" for k in nonempty)
+                    url = f"{BASE}/{secret_path}?{mask}"
+                    req("PATCH", url, tok, {"fields": to_firestore(nonempty)}, args.project)
+                    club_writes += 1
                 if args.strip:
-                    strip_club_metadata(tok, args.project, ident, [k for k in CLUB_FIELDS if str_val(fields, k)])
+                    strip_club_metadata(tok, args.project, ident, present)
                     strips += 1
 
     print(f"Scanned teams={teams} clubs={clubs}. Writes teams={team_writes} clubs={club_writes} strips={strips}.")

@@ -2,6 +2,10 @@ const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { initializeApp } = require('firebase-admin/app');
+const { setGlobalOptions } = require('firebase-functions/v2');
+
+// Node.js 20 was decommissioned on 2026-10-30; new deploys must use 22.
+setGlobalOptions({ runtime: 'nodejs22' });
 const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 

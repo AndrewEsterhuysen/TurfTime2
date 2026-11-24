@@ -1,9 +1,9 @@
 # Membership security (to-do item 10)
 
-Status: **deployed 25 Nov 2026 (AEDT), 3.9.1 (74)**; dual-write removal follows in
-3.9.1 (76). PR #20 remains a draft — do not merge until Andrew has tested.
-Rollback of rules: `~/TurfRulesBackup/rollback.sh` (points at the previous live
-ruleset; after the 76 rules deploy it should restore `ac9ea929`).
+Status: **deployed 25 Nov 2026 (AEDT), 3.9.1 (74), then dual-write removal in
+3.9.1 (76)**. PR #20 and PR #21 remain drafts — do not merge until Andrew has
+tested. Rollback of rules: `~/TurfRulesBackup/rollback.sh` (restores `ac9ea929`,
+the 74 ruleset).
 
 Deploy record (all times Australia/Sydney, AEDT):
 
@@ -21,6 +21,30 @@ Deploy record (all times Australia/Sydney, AEDT):
   fields are gone from metadata. One pre-existing test team,
   `ios-simulator-vz4dyx`, has no `adminCodeHash` and no `createdBy` (not caused
   by the migration).
+
+Dual-write removal (3.9.1 build 76, same day):
+
+- TestFlight upload of 3.9.1 build 76 (from `feature/ai-connect-url`, which
+  includes this fix and the Connect AI URL page): delivery UUID
+  `774bbe56-424f-40e7-a8b2-51d3eba26b68` (altool succeeded at 9:24:54 AM AEDT).
+- MCP Cloud Run: revision `turftimer-mcp-00010-bk8` (was `turftimer-mcp-00009-hw4`),
+  100% traffic, health check 200 on `/.well-known/oauth-authorization-server`.
+  URL unchanged: `https://turftimer-mcp-co6qd7jw6q-ts.a.run.app`.
+- Rules backup: `~/TurfRulesBackup/firestore-prod-20261125-092029.rules` (live
+  `ac9ea929-147e-4901-8f27-d0040fb75fb3`). New live ruleset
+  `f0f39fe1-4524-409c-b94e-37dc417e7efb` (deployed 9:20:29 AM AEDT).
+  `rollback.sh` now restores `ac9ea929`.
+- Cloud Functions: all five updated to Node.js 22 (Node 20 was decommissioned
+  30 Oct 2026). `requestAdminRecoveryEmail` and dormant-team cleanup now read
+  `secrets/info` and delete the secrets subcollection. Deploy warning only:
+  no Artifact Registry cleanup policy in `australia-southeast1`.
+- Follow-up `--apply --strip`: scanned 12 teams, 3 clubs. Only
+  `qr-test-25-nov-i7jzry` still had secret fields on metadata (created by the
+  still-dual-writing build 75). Invite and admin hash were stripped; an empty
+  leftover `creatorEmail` was then deleted (the script now also strips empty
+  present fields). After that, metadata has no secret keys; `secrets/info`
+  remains; `invite_codes/KVD4HQCJ` and `invite_codes/KVD4-HQCJ` still exist and
+  point at that team.
 
 ## What was wrong
 
