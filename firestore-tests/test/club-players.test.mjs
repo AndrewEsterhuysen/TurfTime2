@@ -44,7 +44,7 @@ beforeEach(async () => {
     await setDoc(doc(db, `clubs/${C}/members/parent`), { uid: 'parent', role: 'member' });
     await setDoc(doc(db, `clubs/${OTHER}/metadata/info`), { clubName: 'Club B', createdBy: 'bowner' });
 
-    await setDoc(doc(db, `teams/t1/metadata/info`), { teamName: 'U10 Red', createdBy: 'owner', clubId: C });
+    await setDoc(doc(db, `teams/t1/metadata/info`), { teamName: 'U10 Red', createdBy: 'owner', clubId: C, ageGroup: 'U10', season: 2027, maxAgeOn1Jan: 9 });
     await setDoc(doc(db, `teams/t1/members/coach`), { uid: 'coach', role: 'admin' });
     await setDoc(doc(db, `teams/t1/members/coach2`), { uid: 'coach2', role: 'admin' });
     await setDoc(doc(db, `teams/t1/members/fakecoach`), { uid: 'fakecoach', role: 'member' });
@@ -54,6 +54,7 @@ beforeEach(async () => {
 
     await setDoc(doc(db, `${P}/p1`), {
       playerId: 'p1', name: 'Sam Lee', preferredName: null, nameKey: 'sam lee', dateOfBirth: '2017-03-12',
+      dobYear: 2017, dobMonth: 3, dobDay: 12,
       teams: [], teamIds: [], status: 'active', createdBy: 'owner', createdAt: Timestamp.now(),
       totals: { matches: 3, goals: 2, assists: 1, potm: 0, minutes: 90 },
     });
@@ -158,4 +159,138 @@ test('club members: self-update may set coachTeamId but not role', async () => {
   await assertFails(updateDoc(doc(as('parent'), `clubs/${C}/members/parent`), { role: 'admin' }));
   // A parent pointing coachTeamId at a team they don't admin still gets nothing.
   await assertFails(getDocs(collection(as('parent'), P)));
+});
+
+const assignUpdate = (extra = {}) => ({
+  teamIds: ['t1'],
+  teams: [{ teamId: 't1', teamName: 'U10 Red', season: 2027, assignedAt: Timestamp.now() }],
+  assignmentTeamId: 't1',
+  updatedAt: Timestamp.now(),
+  updatedBy: 'coach',
+  lastUsedAt: Timestamp.now(),
+  ...extra,
+});
+
+test('club players: coach can assign an eligible player to their team and unassign them', async () => {
+  const db = as('coach');
+  await assertSucceeds(updateDoc(doc(db, `${P}/p1`), assignUpdate()));
+  await assertSucceeds(updateDoc(doc(db, `${P}/p1`), {
+    teamIds: [],
+    teams: [{ teamId: 't1', teamName: 'U10 Red', season: 2027, assignedAt: Timestamp.now(), removedAt: Timestamp.now() }],
+    assignmentTeamId: 't1',
+    updatedAt: Timestamp.now(),
+    updatedBy: 'coach',
+    lastUsedAt: Timestamp.now(),
+  }));
+});
+
+test('club players: owner and club admin can assign an eligible player', async () => {
+  await assertSucceeds(updateDoc(doc(as('owner'), `${P}/p1`), assignUpdate({ updatedBy: 'owner' })));
+  await seed(async (db) => {
+    await setDoc(doc(db, `${P}/p1`), {
+      playerId: 'p1', name: 'Sam Lee', preferredName: null, nameKey: 'sam lee', dateOfBirth: '2017-03-12',
+      dobYear: 2017, dobMonth: 3, dobDay: 12,
+      teams: [], teamIds: [], status: 'active', createdBy: 'owner', createdAt: Timestamp.now(),
+    });
+  });
+  await assertSucceeds(updateDoc(doc(as('cadmin'), `${P}/p1`), assignUpdate({ updatedBy: 'cadmin' })));
+});
+
+test('club players: cannot assign a player who is too old (no playing down)', async () => {
+  await seed(async (db) => {
+    await setDoc(doc(db, `${P}/pOld`), {
+      playerId: 'pOld', name: 'Older Kid', nameKey: 'older kid', dateOfBirth: '2016-12-31',
+      dobYear: 2016, dobMonth: 12, dobDay: 31,
+      teams: [], teamIds: [], status: 'active', createdBy: 'owner', createdAt: Timestamp.now(),
+    });
+  });
+  await assertFails(updateDoc(doc(as('coach'), `${P}/pOld`), {
+    ...assignUpdate(),
+  }));
+  await assertFails(updateDoc(doc(as('owner'), `${P}/pOld`), {
+    ...assignUpdate({ updatedBy: 'owner' }),
+  }));
+});
+
+test('club players: Open teams accept older players; missing age group rejects assignment', async () => {
+  await seed(async (db) => {
+    await setDoc(doc(db, `teams/tOpen/metadata/info`), {
+      teamName: 'Seniors', createdBy: 'owner', clubId: C, ageGroup: 'Open', season: 2027, maxAgeOn1Jan: 99,
+    });
+    await setDoc(doc(db, `teams/tOpen/members/owner`), { uid: 'owner', role: 'admin' });
+    await setDoc(doc(db, `teams/tBare/metadata/info`), { teamName: 'No Age', createdBy: 'owner', clubId: C });
+    await setDoc(doc(db, `${P}/pOld`), {
+      playerId: 'pOld', name: 'Older Kid', nameKey: 'older kid', dateOfBirth: '2010-06-15',
+      dobYear: 2010, dobMonth: 6, dobDay: 15,
+      teams: [], teamIds: [], status: 'active', createdBy: 'owner', createdAt: Timestamp.now(),
+    });
+  });
+  await assertSucceeds(updateDoc(doc(as('owner'), `${P}/pOld`), {
+    teamIds: ['tOpen'],
+    teams: [{ teamId: 'tOpen', teamName: 'Seniors', season: 2027, assignedAt: Timestamp.now() }],
+    assignmentTeamId: 'tOpen',
+    updatedAt: Timestamp.now(),
+    updatedBy: 'owner',
+    lastUsedAt: Timestamp.now(),
+  }));
+  await seed(async (db) => {
+    await setDoc(doc(db, `${P}/pOld`), {
+      playerId: 'pOld', name: 'Older Kid', nameKey: 'older kid', dateOfBirth: '2010-06-15',
+      dobYear: 2010, dobMonth: 6, dobDay: 15,
+      teams: [], teamIds: [], status: 'active', createdBy: 'owner', createdAt: Timestamp.now(),
+    });
+  });
+  await assertFails(updateDoc(doc(as('owner'), `${P}/pOld`), {
+    teamIds: ['tBare'],
+    teams: [{ teamId: 'tBare', teamName: 'No Age', season: 2027, assignedAt: Timestamp.now() }],
+    assignmentTeamId: 'tBare',
+    updatedAt: Timestamp.now(),
+    updatedBy: 'owner',
+    lastUsedAt: Timestamp.now(),
+  }));
+});
+
+test('club players: coach cannot assign to another club team, and cannot swap teamIds in one write', async () => {
+  await seed(async (db) => {
+    await setDoc(doc(db, `teams/t2/metadata/info`), {
+      teamName: 'U11 Blue', createdBy: 'owner', clubId: C, ageGroup: 'U11', season: 2027, maxAgeOn1Jan: 10,
+    });
+    await setDoc(doc(db, `${P}/p1`), {
+      playerId: 'p1', name: 'Sam Lee', nameKey: 'sam lee', dateOfBirth: '2017-03-12',
+      dobYear: 2017, dobMonth: 3, dobDay: 12,
+      teams: [{ teamId: 't2', teamName: 'U11 Blue', season: 2027, assignedAt: Timestamp.now() }],
+      teamIds: ['t2'], status: 'active', createdBy: 'owner', createdAt: Timestamp.now(),
+    });
+  });
+  // Adding t1 and dropping t2 in one write (size unchanged / not addedOnly).
+  await assertFails(updateDoc(doc(as('coach'), `${P}/p1`), {
+    teamIds: ['t1'],
+    teams: [
+      { teamId: 't2', teamName: 'U11 Blue', season: 2027, assignedAt: Timestamp.now(), removedAt: Timestamp.now() },
+      { teamId: 't1', teamName: 'U10 Red', season: 2027, assignedAt: Timestamp.now() },
+    ],
+    assignmentTeamId: 't1',
+    updatedAt: Timestamp.now(),
+    updatedBy: 'coach',
+    lastUsedAt: Timestamp.now(),
+  }));
+  await seed(async (db) => {
+    await setDoc(doc(db, `${P}/p1`), {
+      playerId: 'p1', name: 'Sam Lee', nameKey: 'sam lee', dateOfBirth: '2017-03-12',
+      dobYear: 2017, dobMonth: 3, dobDay: 12,
+      teams: [], teamIds: [], status: 'active', createdBy: 'owner', createdAt: Timestamp.now(),
+    });
+  });
+  await assertFails(updateDoc(doc(as('coach'), `${P}/p1`), {
+    teamIds: ['t2'],
+    teams: [{ teamId: 't2', teamName: 'U11 Blue', season: 2027, assignedAt: Timestamp.now() }],
+    assignmentTeamId: 't2',
+    updatedAt: Timestamp.now(),
+    updatedBy: 'coach',
+    lastUsedAt: Timestamp.now(),
+  }));
+});
+
+test('club players: parents cannot assign players', async () => {
+  await assertFails(updateDoc(doc(as('parent'), `${P}/p1`), assignUpdate({ updatedBy: 'parent' })));
 });

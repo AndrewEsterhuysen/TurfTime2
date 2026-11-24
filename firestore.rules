@@ -160,7 +160,8 @@ service cloud.firestore {
 
     function clubPlayerFieldsOk(d) {
       return d.keys().hasOnly(['playerId', 'name', 'preferredName', 'nameKey', 'dateOfBirth',
-          'teams', 'teamIds', 'status', 'totals', 'byTeam', 'borrowed', 'borrowedByTeam',
+          'dobYear', 'dobMonth', 'dobDay',
+          'teams', 'teamIds', 'assignmentTeamId', 'status', 'totals', 'byTeam', 'borrowed', 'borrowedByTeam',
           'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'lastUsedAt'])
         && d.name is string && d.name.trim().size() > 0 && d.name.size() <= 80
         && (d.get('preferredName', null) == null
@@ -169,7 +170,85 @@ service cloud.firestore {
         && (d.get('dateOfBirth', null) == null || isIsoDate(d.dateOfBirth))
         && d.status in ['active', 'archived']
         && (!('teamIds' in d) || d.teamIds is list)
-        && (!('teams' in d) || d.teams is list);
+        && (!('teams' in d) || d.teams is list)
+        && (!('assignmentTeamId' in d) || d.assignmentTeamId is string)
+        && (
+          !d.keys().hasAny(['dobYear', 'dobMonth', 'dobDay'])
+          || (
+            d.dobYear is int && d.dobMonth is int && d.dobDay is int
+            && d.dobYear >= 1950 && d.dobYear <= 2100
+            && d.dobMonth >= 1 && d.dobMonth <= 12
+            && d.dobDay >= 1 && d.dobDay <= 31
+          )
+        );
+    }
+
+    // Age on 1 January of season (decision 1): born 1 Jan counts as already that age.
+    function ageOn1Jan(y, m, d, season) {
+      return season - y - ((m == 1 && d == 1) ? 0 : 1);
+    }
+
+    function teamBelongsToClub(teamId, clubId) {
+      return teamId is string && teamId != ''
+        && exists(teamMetaPath(teamId))
+        && get(teamMetaPath(teamId)).data.get('clubId', '') == clubId;
+    }
+
+    // Play up, never down. Open has no limit. Requires season + maxAgeOn1Jan on the team
+    // and dobYear/Month/Day on the player (mirrors dateOfBirth for rules arithmetic).
+    function playerEligibleForTeam(player, teamId) {
+      return exists(teamMetaPath(teamId))
+        && playerEligibleForMeta(player, get(teamMetaPath(teamId)).data);
+    }
+
+    function playerEligibleForMeta(player, meta) {
+      return meta.get('ageGroup', '') in ['Open', 'open']
+        || (
+          meta.get('season', 0) is int
+          && meta.get('maxAgeOn1Jan', -1) is int
+          && player.get('dobYear', 0) is int
+          && player.get('dobMonth', 0) is int
+          && player.get('dobDay', 0) is int
+          && ageOn1Jan(player.dobYear, player.dobMonth, player.dobDay, meta.season)
+            <= meta.maxAgeOn1Jan
+        );
+    }
+
+    function addedOnlyTeam(beforeIds, afterIds, t) {
+      return t is string && t != ''
+        && !beforeIds.hasAll([t]) && afterIds.hasAll([t])
+        && afterIds.size() == beforeIds.size() + 1
+        && afterIds.hasAll(beforeIds);
+    }
+
+    function removedOnlyTeam(beforeIds, afterIds, t) {
+      return t is string && t != ''
+        && beforeIds.hasAll([t]) && !afterIds.hasAll([t])
+        && beforeIds.size() == afterIds.size() + 1
+        && beforeIds.hasAll(afterIds);
+    }
+
+    function canAssignToTeam(clubId, t) {
+      return isClubOwnerOrAdmin(clubId)
+        || (isClubCoach(clubId) && get(clubMemberPath(clubId)).data.get('coachTeamId', '') == t);
+    }
+
+    // One team added or removed per write. assignmentTeamId names that team so rules
+    // can check eligibility without walking the list for the new id.
+    function assignmentWriteOk(clubId) {
+      let beforeIds = resource.data.get('teamIds', []);
+      let afterIds = request.resource.data.get('teamIds', []);
+      let t = request.resource.data.get('assignmentTeamId', '');
+      let keys = request.resource.data.diff(resource.data).affectedKeys();
+      return keys.hasOnly(['teamIds', 'teams', 'updatedAt', 'updatedBy', 'lastUsedAt',
+              'assignmentTeamId', 'dobYear', 'dobMonth', 'dobDay'])
+        && teamBelongsToClub(t, clubId)
+        && canAssignToTeam(clubId, t)
+        && (
+          removedOnlyTeam(beforeIds, afterIds, t)
+          || (addedOnlyTeam(beforeIds, afterIds, t)
+              && playerEligibleForTeam(request.resource.data, t))
+        );
     }
 
     // Stats maps are written only by the Cloud Function (Admin SDK), never by clients.
@@ -180,8 +259,7 @@ service cloud.firestore {
     match /clubs/{clubId}/players/{playerId} {
       allow read: if isClubManager(clubId);
 
-      // New players: date of birth required; no team assignments yet in this slice
-      // (assignment + eligibility checks arrive with the team picker).
+      // New players: date of birth required; no team assignments on create.
       allow create: if isClubManager(clubId)
         && clubPlayerFieldsOk(request.resource.data)
         && noClientStats(request.resource.data)
@@ -192,17 +270,29 @@ service cloud.firestore {
         && request.resource.data.get('teamIds', []).size() == 0
         && request.resource.data.get('teams', []).size() == 0;
 
-      // Owner/Admin: any field except stats and creation stamps (date of birth, archive, merge).
-      // Coach: name / preferred name (and their search key + stamps) only.
+      // Owner/Admin: profile fields (date of birth, archive) except stats and creation stamps.
+      // Coach: name / preferred name only, unless this write is an assignment to their team.
+      // Assign / unassign (owner, admin, or the team's coach): one team per write, play-up only.
       allow update: if clubPlayerFieldsOk(request.resource.data)
         && !request.resource.data.diff(resource.data).affectedKeys()
             .hasAny(['totals', 'byTeam', 'borrowed', 'borrowedByTeam', 'createdAt', 'createdBy', 'playerId'])
         && (
-          isClubOwnerOrAdmin(clubId)
+          (
+            request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['teamIds', 'teams'])
+            && assignmentWriteOk(clubId)
+          )
           || (
-            isClubCoach(clubId)
-            && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['name', 'preferredName', 'nameKey', 'updatedAt', 'updatedBy', 'lastUsedAt'])
+            !request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['teamIds', 'teams'])
+            && (
+              isClubOwnerOrAdmin(clubId)
+              || (
+                isClubCoach(clubId)
+                && request.resource.data.diff(resource.data).affectedKeys()
+                    .hasOnly(['name', 'preferredName', 'nameKey', 'updatedAt', 'updatedBy', 'lastUsedAt'])
+              )
+            )
           )
         );
 
