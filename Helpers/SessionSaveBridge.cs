@@ -38,7 +38,12 @@ public static class SessionSaveBridge
                 return;
             }
 
-            await storage.SaveSessionAsync(teamId, session).ConfigureAwait(false);
+            if (await storage.SaveSessionAsync(teamId, session).ConfigureAwait(false))
+            {
+                var stats = services?.GetService<IClubPlayerStatsService>();
+                if (stats is not null)
+                    await stats.RecordSessionAsync(teamId, session).ConfigureAwait(false);
+            }
             System.Diagnostics.Debug.WriteLine($"[SessionSaveBridge] ✅ Session saved via SDK for {teamId}");
         }
         catch (Exception ex)

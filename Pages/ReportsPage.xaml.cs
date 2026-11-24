@@ -330,8 +330,23 @@ public partial class ReportsPage : ContentPage
         {
             var svc = Application.Current?.Handler?.MauiContext?.Services.GetService<INominationService>();
             if (svc is null) return null;
-            var tally = await svc.GetTallyAsync(Preferences.Get("team_id", ""), sessionId);
-            return tally is { IsOpen: false } && tally.Winners.Count > 0 ? tally : null;
+            var teamId = Preferences.Get("team_id", "");
+            var tally = await svc.GetTallyAsync(teamId, sessionId);
+            if (tally is { IsOpen: false } && tally.Winners.Count > 0)
+            {
+                try
+                {
+                    var stats = Application.Current?.Handler?.MauiContext?.Services.GetService<IClubPlayerStatsService>();
+                    if (stats is not null)
+                        await stats.ApplyPotmAsync(teamId, sessionId, tally.Winners.Select(w => w.NomineeSlotId));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ReportsPage] PlayerStats POTM: {ex.Message}");
+                }
+                return tally;
+            }
+            return null;
         }
         catch (Exception ex)
         {
