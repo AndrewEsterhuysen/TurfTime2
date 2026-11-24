@@ -27,6 +27,24 @@ public partial class AiConnectPage : ContentPage
         await LoadGrantsAsync();
     }
 
+    private async void OnCopyUrlClicked(object sender, EventArgs e)
+    {
+        try
+        {
+            await Clipboard.Default.SetTextAsync(AiConnectConfig.McpUrl);
+            CopiedLabel.IsVisible = true;
+            await Task.Delay(2000);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[AiConnect] copy url: {ex.Message}");
+        }
+        finally
+        {
+            CopiedLabel.IsVisible = false;
+        }
+    }
+
     private async void OnGetCodeClicked(object sender, EventArgs e)
     {
         var svc = Svc();

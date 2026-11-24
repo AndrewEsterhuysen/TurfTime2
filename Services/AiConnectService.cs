@@ -13,6 +13,8 @@ public static class AiConnectConfig
 {
     // Cloud Run service turftimer-mcp (OAuth issuer URL; do not use the -846410659178 alias).
     public const string BaseUrl = "https://turftimer-mcp-co6qd7jw6q-ts.a.run.app";
+    // Custom MCP connector address to paste into an AI assistant (same host as BaseUrl).
+    public const string McpUrl = BaseUrl + "/mcp";
     public static bool IsEnabled => !string.IsNullOrWhiteSpace(BaseUrl);
 }
 
