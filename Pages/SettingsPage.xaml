@@ -31,6 +31,22 @@
 
             <Border Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnClubAdminTapped" />
+                </Border.GestureRecognizers>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                    <Border Style="{StaticResource PvIconTile}">
+                        <Label Style="{StaticResource PvIcon}" Text="{StaticResource PvIconGroups}" />
+                    </Border>
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label Style="{StaticResource PvCardTitle}" Text="Club admin" />
+                        <Label Style="{StaticResource PvCaption}" Text="Club teams, club admin invites, and redeeming an invite" />
+                    </VerticalStackLayout>
+                    <Label Grid.Column="2" Style="{StaticResource PvIconMuted}" Text="{StaticResource PvIconChevron}" />
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource PvCard}" Padding="16,12">
+                <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnTimersTapped" />
                 </Border.GestureRecognizers>
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">

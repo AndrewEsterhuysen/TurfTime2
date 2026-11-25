@@ -365,6 +365,13 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         RefreshDisplayItems();
     }
 
+    /// <summary>
+    /// Role used by the game. Club admins who are not team Admins (local role <c>clubadmin</c>)
+    /// can never run a game (item 8 rule 4), so the game treats them exactly like members (view only).
+    /// </summary>
+    public static string? GameRole(string? role) =>
+        string.Equals(role, "clubadmin", StringComparison.OrdinalIgnoreCase) ? "member" : role;
+
     /// <summary>Cloud role is admin (ignores temporary Watch Only / controller lock on this device).</summary>
     public bool IsCloudAdmin => !string.Equals(_userRole, "member", StringComparison.Ordinal);
 
@@ -520,7 +527,7 @@ public sealed class GameViewModel : INotifyPropertyChanged, IDisposable
         StopCloudMirror();
 
         _currentTeamId = teamId;
-        _userRole      = userRole;
+        _userRole      = GameRole(userRole);
         TeamName       = Preferences.Get("team_name", string.Empty);
         _lastAppliedCloudUtc = DateTimeOffset.MinValue;
         _lastShownControlRequestId = "";

@@ -93,7 +93,7 @@ public partial class TeamDetailsPage : ContentPage
 		var normalized = string.IsNullOrWhiteSpace(role)
 			? "member"
 			: role.Trim().ToLowerInvariant();
-		if (normalized is not ("admin" or "member"))
+		if (normalized is not ("admin" or "member" or "clubadmin"))
 			normalized = "member";
 
 		Preferences.Set($"{teamId}_role", normalized);
@@ -121,6 +121,14 @@ public partial class TeamDetailsPage : ContentPage
 			var cloudRole = await cloud.GetMyRoleAsync(teamId);
 			if (string.IsNullOrWhiteSpace(cloudRole))
 			{
+				// Not a team member: a club admin of the team's club (item 8)?
+				var effective = await (ResolveClubAdmin()?.GetEffectiveRoleAsync(teamId) ?? Task.FromResult<Services.ClubTeamEffectiveRole?>(null));
+				if (effective is { Role: "clubadmin" })
+				{
+					ApplyLocalRoleCache(teamId, "clubadmin");
+					Preferences.Set($"{teamId}_club_access", effective.Access);
+					return "clubadmin";
+				}
 				System.Diagnostics.Debug.WriteLine(
 					$"[TeamDetails] GetMyRole empty for team={teamId}");
 				return null;
@@ -183,9 +191,16 @@ public partial class TeamDetailsPage : ContentPage
 			CurrentTeamLabel.Text = string.IsNullOrEmpty(teamName) ? "(unnamed team)" : teamName;
 			TeamTypeLabel.Text = FormatCurrentTeamTypeLabel(isShared, isLocal);
 			ShareTeamButton.IsVisible = true;
-			BindTeamAgeSection(isShared, isShared && userRole == "admin");
+			var teamIdForRole = Preferences.Get(TEAM_ID_KEY, string.Empty);
+			var clubAdminOnly = isShared && userRole == "clubadmin";
+			var clubFull = clubAdminOnly && HasClubFullControl(teamIdForRole);
+			if (clubAdminOnly)
+				TeamTypeLabel.Text += clubFull
+					? "\nYou: club admin · full control (no games)"
+					: "\nYou: club admin · view only, Details editable";
+			BindTeamAgeSection(isShared, isShared && (userRole == "admin" || clubFull));
 
-			DisplayNameSection.IsVisible = isShared;
+			DisplayNameSection.IsVisible = isShared && !clubAdminOnly;
 			if (isShared)
 				CurrentDisplayNameEntry.Text = savedDisplayName;
 
@@ -204,7 +219,8 @@ public partial class TeamDetailsPage : ContentPage
 			var isOwner = isShared && Preferences.Get($"{teamId}_isOwner", false);
 			TransferOwnershipButton.IsVisible = isOwner;
 
-			LeaveTeamButton.IsVisible = isShared;
+			// Club admins are not on the team, so there is nothing to leave (Club admin page manages it).
+			LeaveTeamButton.IsVisible = isShared && !clubAdminOnly;
 			DeleteLocalTeamButton.IsVisible = isLocal;
 		}
 
@@ -1417,7 +1433,11 @@ public partial class TeamDetailsPage : ContentPage
 
 			try
 			{
-				var remote = await cloud.ListManagedClubsAsync().ConfigureAwait(false);
+				// Includes clubs where you are a Club Admin by invite (no team on this device yet).
+				var clubAdmin = ResolveClubAdmin();
+				var remote = clubAdmin is not null
+					? await clubAdmin.ListMyAdminClubsAsync().ConfigureAwait(false)
+					: await cloud.ListManagedClubsAsync().ConfigureAwait(false);
 				foreach (var c in remote)
 					QrCodeService.RegisterManagedClub(c.ClubId, c.ClubName);
 			}
@@ -1904,6 +1924,44 @@ private static Services.ICloudTeamService? ResolveCloudTeam()
 	}
 	catch { return null; }
 }
+
+private static Services.IClubAdminService? ResolveClubAdmin()
+{
+	try
+	{
+		return Application.Current?.Handler?.MauiContext?.Services.GetService<Services.IClubAdminService>();
+	}
+	catch { return null; }
+}
+
+/// <summary>
+/// Club Admin (item 8): make a club team the current team without joining it. The app treats
+/// the user as <c>clubadmin</c>: Game is view only (never run a game), Chat is hidden, Details
+/// pages are editable, and team tools follow <paramref name="access"/> (full / limited).
+/// </summary>
+internal static void OpenTeamAsClubAdmin(string teamId, string teamName, string clubId, string clubName, string access)
+{
+	FindGamePage()?.ResetMatchState();
+	Preferences.Set(TEAM_MODE_KEY, "shared");
+	Preferences.Set(TEAM_ID_KEY, teamId);
+	Preferences.Set(TEAM_NAME_KEY, teamName);
+	ApplyLocalRoleCache(teamId, "clubadmin");
+	Preferences.Set($"{teamId}_club_access", access);
+	Preferences.Set($"{teamId}_isOwner", false);
+	CacheTeamClubPrefs(teamId, clubId, clubName, ClubTeamNames.KindClubbed);
+	try
+	{
+		if (Application.Current?.MainPage is AppShell appShell) appShell.RefreshMenu();
+	}
+	catch { /* ignore */ }
+}
+
+internal static bool IsClubAdminOnly(string teamId) =>
+	string.Equals(Preferences.Get($"{teamId}_role", string.Empty), "clubadmin", StringComparison.OrdinalIgnoreCase);
+
+internal static bool HasClubFullControl(string teamId) =>
+	IsClubAdminOnly(teamId)
+	&& string.Equals(Preferences.Get($"{teamId}_club_access", string.Empty), Services.ClubTeamAccess.Full, StringComparison.Ordinal);
 
 private static Services.IFirebaseAuthService? ResolveAuth()
 {

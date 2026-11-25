@@ -127,6 +127,8 @@ public partial class ChatPage : ContentPage
 			var list = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? [];
 			var ids = list
 				.Where(id => !string.IsNullOrWhiteSpace(id) && !id.StartsWith("local_", StringComparison.Ordinal))
+				// Chat is team-members only: skip club teams opened as a club admin (item 8).
+				.Where(id => !string.Equals(Preferences.Get($"{id}_role", string.Empty), "clubadmin", StringComparison.OrdinalIgnoreCase))
 				.Distinct(StringComparer.Ordinal)
 				.ToList();
 

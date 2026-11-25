@@ -39,6 +39,19 @@ public partial class SettingsPage : ContentPage
         }
     }
 
+    private async void OnClubAdminTapped(object sender, EventArgs e)
+    {
+        try
+        {
+            await Shell.Current.GoToAsync("settings/clubadmin");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Navigation error: {ex.Message}");
+            await DisplayAlert("Error", "Could not open Club admin.", "OK");
+        }
+    }
+
     private async void OnTimersTapped(object sender, EventArgs e)
     {
         try

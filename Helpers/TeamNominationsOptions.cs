@@ -24,6 +24,9 @@ public static class TeamNominationsOptions
         if (string.Equals(mode, "local", StringComparison.OrdinalIgnoreCase))
             return true;
         var role = Preferences.Get("user_role", "admin") ?? "admin";
+        // Club admin (not a team member): team settings only with full control (item 8).
+        if (string.Equals(role, "clubadmin", StringComparison.OrdinalIgnoreCase))
+            return string.Equals(Preferences.Get($"{CurrentTeamId()}_club_access", ""), "full", StringComparison.Ordinal);
         return !string.Equals(role, "member", StringComparison.OrdinalIgnoreCase);
     }
 

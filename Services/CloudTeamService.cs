@@ -247,7 +247,9 @@ public sealed class CloudTeamService : ICloudTeamService
                 ["kind"] = kind,
                 ["isActive"] = true,
                 ["createdAt"] = now,
-                ["lastActivityUtc"] = now
+                ["lastActivityUtc"] = now,
+                // Club Admin rules (item 8): starts at 0; the syncTeamAdminCount function keeps it current.
+                ["teamAdminCount"] = 0
             };
 
             if (!string.IsNullOrWhiteSpace(clubId))
@@ -2368,6 +2370,16 @@ public sealed class CloudTeamService : ICloudTeamService
                     $"[CloudTeam] DeleteTeamAsOwner not_owner caller={uid[..Math.Min(8, uid.Length)]}… " +
                     $"createdBy={(string.IsNullOrEmpty(createdBy) ? "(empty)" : createdBy[..Math.Min(8, createdBy.Length)] + "…")}");
                 return "error: not_owner";
+            }
+
+            // Club team (item 8): the creator has no standing owner powers, so delete only the
+            // metadata (team Admin, or club admin with full control); the deleteClubTeamTree
+            // Cloud Function removes the rest of the team tree, chat and invite indexes.
+            if (!string.IsNullOrWhiteSpace(restMeta?.ClubId))
+            {
+                await DeleteDocumentViaRestAsync($"teams/{teamId}/metadata/info").ConfigureAwait(false);
+                System.Diagnostics.Debug.WriteLine($"[CloudTeam] DeleteTeamAsOwner club team metadata deleted team={teamId}");
+                return "success";
             }
 
             var inviteCode = NormalizeInviteCode(inviteRaw);
