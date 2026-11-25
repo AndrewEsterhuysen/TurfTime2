@@ -266,6 +266,8 @@ export async function createTeam(ctx: WriteContext, a: CreateTeamArgs) {
 
   const meta: Record<string, unknown> = {
     teamName, createdBy: ctx.uid, kind, isActive: true, createdAt: now, lastActivityUtc: now,
+    // Club Admin rules (item 8): starts at 0; the syncTeamAdminCount function keeps it current.
+    teamAdminCount: 0,
   };
   if (kind === "clubbed") { meta.clubId = clubId; meta.clubName = clubName; }
 
