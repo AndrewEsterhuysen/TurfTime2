@@ -1,4 +1,4 @@
-const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentWritten, onDocumentDeleted } = require('firebase-functions/v2/firestore');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { initializeApp } = require('firebase-admin/app');
@@ -738,4 +738,42 @@ exports.syncTeamAdminCount = onDocumentWritten('teams/{teamId}/members/{memberUi
         if (err && err.code === 5) return;
         throw err;
     }
+});
+
+/**
+ * Club Admin role (to-do item 8): when a CLUB team's metadata/info is deleted (team Admin or a
+ * club admin with full control deleting the team), remove the rest of the team tree, including
+ * chat, which club admins may not read or delete themselves, plus its invite_codes entries.
+ * Nickname teams keep the existing client-side owner delete.
+ */
+exports.deleteClubTeamTree = onDocumentDeleted('teams/{teamId}/metadata/info', async (event) => {
+    const before = event.data;
+    const clubId = before && before.exists !== false ? String(before.get('clubId') || '') : '';
+    if (!clubId) return;
+    const { teamId } = event.params;
+    const db = getFirestore();
+    const teamRef = db.collection('teams').doc(teamId);
+    const codes = new Set();
+    for (const id of ['info', 'invite']) {
+        try {
+            const snap = await teamRef.collection('secrets').doc(id).get();
+            const code = snap.exists ? String(snap.get('inviteCode') || '').trim().toUpperCase() : '';
+            if (code) {
+                codes.add(code);
+                codes.add(code.replace(/[^A-Z0-9]/g, ''));
+            }
+        } catch (err) {
+            console.warn(`[deleteClubTeamTree] secrets/${id} ${teamId}:`, err.message);
+        }
+    }
+    const byTeam = await db.collection('invite_codes').where('teamId', '==', teamId).get();
+    byTeam.forEach((d) => codes.add(d.id));
+    for (const code of codes) {
+        if (!code) continue;
+        const ref = db.collection('invite_codes').doc(code);
+        const snap = await ref.get();
+        if (snap.exists && snap.get('teamId') === teamId) await ref.delete();
+    }
+    await db.recursiveDelete(teamRef);
+    console.log(`[deleteClubTeamTree] deleted club team ${teamId} (club ${clubId})`);
 });

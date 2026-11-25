@@ -177,8 +177,8 @@ test('invite_codes: get-by-id works for signed-in; list/query is denied', async 
   await assertFails(getDocs(collection(as('stranger'), 'invite_codes')));
 });
 
-test('club owner can take a team admin seat on a club team (recovery path)', async () => {
-  await assertSucceeds(setDoc(doc(as('cowner'), `teams/${T}/members/cowner`), {
+test('club owner cannot take a team admin seat on a club team that has a team admin (no override, item 8)', async () => {
+  await assertFails(setDoc(doc(as('cowner'), `teams/${T}/members/cowner`), {
     role: 'admin', uid: 'cowner', displayName: 'CO',
   }, M));
 });
@@ -214,7 +214,7 @@ test('metadata cannot contain secret fields on create or update', async () => {
 });
 
 test('admin recovery fails when secrets/info is missing (no metadata hash fallback)', async () => {
-  await assertSucceeds(deleteDoc(doc(as('owner'), `teams/${T}/secrets/info`)));
+  await env.withSecurityRulesDisabled((ctx) => deleteDoc(doc(ctx.firestore(), `teams/${T}/secrets/info`)));
   await assertFails(setDoc(doc(as('recover2'), `teams/${T}/members/recover2`), {
     role: 'admin', uid: 'recover2', displayName: 'R2', adminCodeHash: HASH,
   }, M));
@@ -225,9 +225,10 @@ test('member can read secrets/invite', async () => {
   await assertSucceeds(getDoc(doc(as('owner'), `teams/${T}/secrets/invite`)));
 });
 
-test('non-member cannot read secrets/invite', async () => {
+test('non-member cannot read secrets/invite (club admins of the team\'s club can, item 8)', async () => {
   await assertFails(getDoc(doc(as('stranger'), `teams/${T}/secrets/invite`)));
-  await assertFails(getDoc(doc(as('cadmin'), `teams/${T}/secrets/invite`)));
+  await assertSucceeds(getDoc(doc(as('cadmin'), `teams/${T}/secrets/invite`)));
+  await assertFails(getDoc(doc(as('cadmin'), `teams/${T}/secrets/info`)));
 });
 
 test('member cannot read secrets/info', async () => {

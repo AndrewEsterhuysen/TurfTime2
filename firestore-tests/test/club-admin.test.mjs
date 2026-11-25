@@ -1,20 +1,23 @@
-// Club Admin role (to-do item 8, design agreed 24 Nov 2026). Run via npm test (emulator only).
-//   - Only the club Owner grants Club Admin (single-use invite, no team invite needed).
-//   - Club team with no team Admin (teamAdminCount 0) is club-managed: club Owner/Admins edit it.
-//   - Once a team Admin exists it is handed over: club Owner/Admins read matches/stats/reports only.
-//   - Club Owner may remove a team's Admins; a team Admin may leave.
+// Club Admin role (to-do item 8, final rules 25 Nov 2026). Run via npm test (emulator only).
+// "Club admin" = club Owner or Club Admin.
+//   1. Only the club Owner grants/removes Club Admin (promote, or single-use invite <= 7 days).
+//   2. No team Admin other than the caller: club admin has full control (no games).
+//   3. Another team Admin exists: club admin reads all but chat; edits only Details (location, kit, duties).
+//   4. Club admins never run a game.  5. Player assignment follows 2 and 3.
+//   7. Club admin who is also team Admin has full team Admin rights.
 import { test, before, after, beforeEach } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, setDoc, getDocs, collection, deleteDoc, updateDoc, writeBatch, Timestamp,
+  doc, getDoc, setDoc, getDocs, collection, collectionGroup, query, where, deleteDoc, updateDoc, writeBatch, Timestamp,
 } from 'firebase/firestore';
 
 let env;
 const C = 'c1';
 const C2 = 'c2';
-const MANAGED = 'tm';   // club team, no team Admin
-const HANDED = 'th';    // club team with a team Admin (coach)
+const FREE = 'tfree';   // club team, no team Admin (teamAdminCount 0)
+const SOLO = 'tsolo';   // club team whose only team Admin is cadmin
+const OTHER = 'tother'; // club team with another team Admin (coach); created by cadmin
 const M = { merge: true };
 const inDays = (d) => Timestamp.fromMillis(Date.now() + d * 86400000);
 
@@ -38,9 +41,9 @@ beforeEach(async () => {
     await setDoc(doc(db, `clubs/${C2}/metadata/info`), { clubName: 'Other', createdBy: 'o2' });
     await setDoc(doc(db, `clubs/${C2}/members/admin2`), { uid: 'admin2', role: 'admin' });
 
-    for (const [t, count] of [[MANAGED, 0], [HANDED, 1]]) {
+    for (const [t, count] of [[FREE, 0], [SOLO, 1], [OTHER, 1]]) {
       await setDoc(doc(db, `teams/${t}/metadata/info`), {
-        teamName: t, createdBy: 'creator', clubId: C, clubName: 'FC', kind: 'clubbed', teamAdminCount: count,
+        teamName: t, createdBy: 'cadmin', clubId: C, clubName: 'FC', kind: 'clubbed', teamAdminCount: count,
       });
       await setDoc(doc(db, `teams/${t}/roster/data`), { version: 2, players: [] });
       await setDoc(doc(db, `teams/${t}/secrets/info`), { inviteCode: 'X', adminCodeHash: 'a'.repeat(64) });
@@ -51,8 +54,13 @@ beforeEach(async () => {
       await setDoc(doc(db, `teams/${t}/logs/l1`), { x: 1 });
       await setDoc(doc(db, `teams/${t}/messages/m1`), { userId: 'parent', text: 'hi' });
       await setDoc(doc(db, `teams/${t}/details/kit`), { shirt: 'red' });
+      await setDoc(doc(db, `teams/${t}/details/settings`), { nominationsEnabled: 'true' });
     }
-    await setDoc(doc(db, `teams/${HANDED}/members/coach`), { uid: 'coach', role: 'admin' });
+    await setDoc(doc(db, `teams/${OTHER}/members/coach`), { uid: 'coach', role: 'admin' });
+    await setDoc(doc(db, `teams/${SOLO}/members/cadmin`), { uid: 'cadmin', role: 'admin' });
+    // Open nominations on OTHER (session ended 1 hour ago).
+    await setDoc(doc(db, `teams/${OTHER}/sessions/s2`), { endTime: Timestamp.fromMillis(Date.now() - 3600000) });
+    await setDoc(doc(db, `teams/${OTHER}/sessions/s2/nominations/parent`), { nominatorId: 'parent' });
     // Legacy club team: no teamAdminCount yet (treated as handed over until backfilled).
     await setDoc(doc(db, 'teams/tlegacy/metadata/info'), { teamName: 'Old', createdBy: 'x', clubId: C });
     await setDoc(doc(db, 'teams/tlegacy/roster/data'), { version: 2, players: [] });
@@ -129,134 +137,186 @@ test('club admin: only the owner can grant or remove the role; club admins canno
   await assertSucceeds(deleteDoc(doc(as('cowner'), `clubs/${C}/members/cmember`)));
 });
 
-// ── Club-managed team ──────────────────────────────────────────────────────
+// ── Rule 2: full control when no other team Admin ────────────────────────
 
-test('club-managed: club admin creates a team without joining it (teamAdminCount must start at 0)', async () => {
-  const db = as('cadmin');
-  await assertFails(setDoc(doc(db, 'teams/tnew/metadata/info'), {
+test('create (build 78 order): club admin creates a club team, writes secrets, takes the Admin seat', async () => {
+  const db = as('cadmin'); const t = 'tnew';
+  await assertFails(setDoc(doc(db, `teams/${t}/metadata/info`), {
     teamName: 'New', createdBy: 'cadmin', clubId: C, kind: 'clubbed', teamAdminCount: 1,
-  }));
-  await assertSucceeds(setDoc(doc(db, 'teams/tnew/metadata/info'), {
-    teamName: 'New', createdBy: 'cadmin', clubId: C, kind: 'clubbed', teamAdminCount: 0,
-  }));
-  await assertSucceeds(setDoc(doc(db, 'teams/tnew/roster/data'), { version: 2, players: [] }));
-  await assertSucceeds(setDoc(doc(db, 'teams/tnew/secrets/invite'), { inviteCode: 'NEW1' }));
-  // Non-club user cannot create a team in this club.
+  }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/metadata/info`), {
+    teamName: 'New', createdBy: 'cadmin', clubId: C, clubName: 'FC', kind: 'clubbed', teamAdminCount: 0,
+  }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/secrets/info`), { inviteCode: 'N-1', adminCodeHash: 'c'.repeat(64), creatorEmail: '' }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/secrets/invite`), { inviteCode: 'N-1' }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/members/cadmin`), { role: 'admin', uid: 'cadmin', displayName: 'CA' }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/roster/data`), { version: 2, players: [] }, M));
+  await assertSucceeds(setDoc(doc(db, `invite_codes/N1`), { teamId: t, teamName: 'New', createdBy: 'cadmin' }, M));
   await assertFails(setDoc(doc(as('stranger'), 'teams/tbad/metadata/info'), {
     teamName: 'Bad', createdBy: 'stranger', clubId: C, teamAdminCount: 0,
   }));
 });
 
-test('club-managed: club owner and admin edit name, age group, season, roster and details', async () => {
+test('create (older builds, no teamAdminCount): only the creator may take the Admin seat', async () => {
+  await seed((db) => setDoc(doc(db, `clubs/${C}/members/cadmin2`), { uid: 'cadmin2', role: 'admin' }));
+  const db = as('cadmin'); const t = 'told';
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/metadata/info`), { teamName: 'Old', createdBy: 'cadmin', clubId: C, clubName: 'FC' }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/secrets/info`), { inviteCode: 'O-1', adminCodeHash: 'd'.repeat(64), creatorEmail: '' }, M));
+  await assertFails(setDoc(doc(as('cadmin2'), `teams/${t}/members/cadmin2`), { role: 'admin', uid: 'cadmin2' }, M));
+  await assertSucceeds(setDoc(doc(db, `teams/${t}/members/cadmin`), { role: 'admin', uid: 'cadmin' }, M));
+});
+
+test('full control: club owner and admin edit team, roster players, settings, invite and secrets', async () => {
   for (const uid of ['cadmin', 'cowner']) {
     const db = as(uid);
-    await assertSucceeds(updateDoc(doc(db, `teams/${MANAGED}/metadata/info`), { teamName: 'U11 Blue', ageGroup: 'U11', season: 2027, maxAgeOn1Jan: 10 }));
-    await assertSucceeds(setDoc(doc(db, `teams/${MANAGED}/roster/data`), { version: 2, players: [{ name: 'A' }] }));
-    await assertSucceeds(setDoc(doc(db, `teams/${MANAGED}/details/kit`), { shirt: 'blue' }));
-    await assertSucceeds(getDoc(doc(db, `teams/${MANAGED}/secrets/invite`)));
-    await assertSucceeds(getDoc(doc(db, `teams/${MANAGED}/secrets/info`)));
-    await assertSucceeds(setDoc(doc(db, `teams/${MANAGED}/secrets/invite`), { inviteCode: 'Y' }));
+    await assertSucceeds(updateDoc(doc(db, `teams/${FREE}/metadata/info`), { teamName: 'U11 Blue', ageGroup: 'U11', season: 2027, maxAgeOn1Jan: 10 }));
+    await assertSucceeds(updateDoc(doc(db, `teams/${FREE}/roster/data`), { players: [{ name: 'A' }], lastModified: 1 }));
+    await assertSucceeds(setDoc(doc(db, `teams/${FREE}/details/settings`), { nominationsEnabled: 'false' }));
+    await assertSucceeds(setDoc(doc(db, `teams/${FREE}/details/kit`), { shirt: 'blue' }));
+    await assertSucceeds(getDoc(doc(db, `teams/${FREE}/secrets/info`)));
+    await assertSucceeds(setDoc(doc(db, `teams/${FREE}/secrets/invite`), { inviteCode: 'Y' }));
+    await assertSucceeds(setDoc(doc(db, `teams/${FREE}/secrets/info`), { inviteCode: 'Y' }, M));
   }
-  // Locked fields: clubId, createdBy, teamAdminCount.
   const db = as('cadmin');
-  await assertFails(updateDoc(doc(db, `teams/${MANAGED}/metadata/info`), { clubId: C2 }));
-  await assertFails(updateDoc(doc(db, `teams/${MANAGED}/metadata/info`), { createdBy: 'someone' }));
-  await assertFails(updateDoc(doc(db, `teams/${MANAGED}/metadata/info`), { teamAdminCount: 5 }));
-  // Club member (not admin) and other-club admin: nothing.
+  await assertFails(updateDoc(doc(db, `teams/${FREE}/metadata/info`), { clubId: C2 }));
+  await assertFails(updateDoc(doc(db, `teams/${FREE}/metadata/info`), { createdBy: 'someone' }));
+  await assertFails(updateDoc(doc(db, `teams/${FREE}/metadata/info`), { teamAdminCount: 5 }));
   for (const uid of ['cmember', 'admin2', 'stranger']) {
-    await assertFails(updateDoc(doc(as(uid), `teams/${MANAGED}/metadata/info`), { teamName: 'Hack' }));
-    await assertFails(setDoc(doc(as(uid), `teams/${MANAGED}/roster/data`), { version: 2, players: [] }));
-    await assertFails(getDoc(doc(as(uid), `teams/${MANAGED}/secrets/info`)));
+    await assertFails(updateDoc(doc(as(uid), `teams/${FREE}/metadata/info`), { teamName: 'Hack' }));
+    await assertFails(updateDoc(doc(as(uid), `teams/${FREE}/roster/data`), { players: [] }));
+    await assertFails(getDoc(doc(as(uid), `teams/${FREE}/secrets/info`)));
+    await assertFails(setDoc(doc(as(uid), `teams/${FREE}/details/kit`), { shirt: 'x' }));
   }
 });
 
-test('club-managed: club admin can delete the team (members, sessions, chat, logs, metadata)', async () => {
+test('full control: members and roles (promote, remove, join as Admin or Member)', async () => {
   const db = as('cadmin');
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/members/parent`)));
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/sessions/s1/nominations/parent`)));
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/sessions/s1`)));
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/messages/m1`)));
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/logs/l1`)));
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/details/kit`)));
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/secrets/invite`)));
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/secrets/info`)));
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/roster/data`)));
-  await assertSucceeds(deleteDoc(doc(db, `teams/${MANAGED}/metadata/info`)));
+  await assertSucceeds(updateDoc(doc(db, `teams/${FREE}/members/parent`), { role: 'admin' }));
+  await seed((d) => setDoc(doc(d, `teams/${FREE}/members/parent`), { uid: 'parent', role: 'member' }));
+  await assertFails(updateDoc(doc(db, `teams/${FREE}/members/parent`), { role: 'owner' }));
+  await assertSucceeds(deleteDoc(doc(db, `teams/${FREE}/members/parent`)));
+  await assertSucceeds(setDoc(doc(as('cowner'), `teams/${FREE}/members/cowner`), { role: 'member', uid: 'cowner' }));
+  await assertSucceeds(setDoc(doc(db, `teams/${FREE}/members/cadmin`), { role: 'admin', uid: 'cadmin' }));
+  // Cannot add someone else.
+  await assertFails(setDoc(doc(db, `teams/${FREE}/members/friend`), { role: 'admin', uid: 'friend' }));
 });
 
-test('club-managed: club admin does not get chat read or game writes', async () => {
+test('full control: delete the team (metadata, sessions, logs, settings, secrets); not chat', async () => {
   const db = as('cadmin');
-  await assertFails(getDoc(doc(db, `teams/${MANAGED}/messages/m1`)));
-  await assertFails(setDoc(doc(db, `teams/${MANAGED}/sessions/s2`), { x: 1 }));
-  await assertFails(setDoc(doc(db, `teams/${MANAGED}/messages/m2`), { userId: 'cadmin', text: 'x' }));
+  await assertSucceeds(deleteDoc(doc(db, `teams/${FREE}/sessions/s1/nominations/parent`)));
+  await assertSucceeds(deleteDoc(doc(db, `teams/${FREE}/sessions/s1`)));
+  await assertSucceeds(deleteDoc(doc(db, `teams/${FREE}/logs/l1`)));
+  await assertSucceeds(deleteDoc(doc(db, `teams/${FREE}/details/settings`)));
+  await assertSucceeds(deleteDoc(doc(db, `teams/${FREE}/secrets/invite`)));
+  await assertSucceeds(deleteDoc(doc(db, `teams/${FREE}/secrets/info`)));
+  await assertSucceeds(deleteDoc(doc(db, `teams/${FREE}/roster/data`)));
+  // Chat stays team-members only; the deleteTeamTree Cloud Function removes it.
+  await assertFails(deleteDoc(doc(db, `teams/${FREE}/messages/m1`)));
+  await assertSucceeds(deleteDoc(doc(db, `teams/${FREE}/metadata/info`)));
 });
 
-// ── Handed-over team: read only ────────────────────────────────────────────
+// ── Rule 4: never run a game ───────────────────────────────────────────────
 
-test('handed over: club owner and admin can read matches, stats and reports', async () => {
+test('club admins never run a game: no game state, clock, sessions or control', async () => {
+  for (const t of [FREE, OTHER]) {
+    const db = as('cadmin');
+    await assertFails(updateDoc(doc(db, `teams/${t}/roster/data`), { timerRunning: true }));
+    await assertFails(updateDoc(doc(db, `teams/${t}/roster/data`), { controllerUid: 'cadmin' }));
+    await assertFails(updateDoc(doc(db, `teams/${t}/roster/data`), { teamAScore: 1 }));
+    await assertFails(setDoc(doc(db, `teams/${t}/sessions/s9`), { x: 1 }));
+    await assertFails(setDoc(doc(db, `activeControllers/${t}`), { uid: 'cadmin' }));
+    await assertFails(getDoc(doc(db, `teams/${t}/messages/m1`)));
+    await assertFails(setDoc(doc(db, `teams/${t}/messages/m9`), { userId: 'cadmin', text: 'x' }));
+  }
+  // Not even player edits while the clock is running.
+  await seed((d) => setDoc(doc(d, `teams/${FREE}/roster/data`), { timerRunning: true }, M));
+  await assertFails(updateDoc(doc(as('cadmin'), `teams/${FREE}/roster/data`), { players: [{ name: 'B' }] }));
+});
+
+// ── Rule 7: club admin who is the team Admin ──────────────────────────────
+
+test('club admin who is the team Admin has full team Admin rights, including games', async () => {
+  const db = as('cadmin');
+  await assertSucceeds(updateDoc(doc(db, `teams/${SOLO}/roster/data`), { timerRunning: true, controllerUid: 'cadmin' }));
+  await assertSucceeds(setDoc(doc(db, `teams/${SOLO}/sessions/s9`), { x: 1 }));
+  await assertSucceeds(getDoc(doc(db, `teams/${SOLO}/messages/m1`)));
+  await assertSucceeds(updateDoc(doc(db, `teams/${SOLO}/members/parent`), { role: 'admin' }));
+});
+
+test('club owner on a team whose only Admin is a club admin is limited (another Admin exists)', async () => {
+  const db = as('cowner');
+  await assertFails(updateDoc(doc(db, `teams/${SOLO}/roster/data`), { players: [] }));
+  await assertFails(deleteDoc(doc(db, `teams/${SOLO}/members/cadmin`)));
+  await assertSucceeds(setDoc(doc(db, `teams/${SOLO}/details/kit`), { shirt: 'gold' }));
+});
+
+// ── Rule 3: another team Admin exists ─────────────────────────────────────
+
+test('another team Admin: club admins read everything except chat', async () => {
   for (const uid of ['cadmin', 'cowner']) {
     const db = as(uid);
-    await assertSucceeds(getDoc(doc(db, `teams/${HANDED}/sessions/s1`)));
-    await assertSucceeds(getDocs(collection(db, `teams/${HANDED}/sessions`)));
-    await assertSucceeds(getDocs(collection(db, `teams/${HANDED}/sessions/s1/nominations`)));
-    await assertSucceeds(getDoc(doc(db, `teams/${HANDED}/logs/l1`)));
-    await assertSucceeds(getDoc(doc(db, `teams/${HANDED}/roster/data`)));
-    await assertSucceeds(getDocs(collection(db, `teams/${HANDED}/members`)));
-    await assertSucceeds(getDoc(doc(db, `teams/${HANDED}/details/kit`)));
+    await assertSucceeds(getDocs(collection(db, `teams/${OTHER}/sessions`)));
+    await assertSucceeds(getDocs(collection(db, `teams/${OTHER}/sessions/s2/nominations`))); // still open
+    await assertSucceeds(getDoc(doc(db, `teams/${OTHER}/logs/l1`)));
+    await assertSucceeds(getDoc(doc(db, `teams/${OTHER}/roster/data`)));
+    await assertSucceeds(getDocs(collection(db, `teams/${OTHER}/members`)));
+    await assertSucceeds(getDoc(doc(db, `teams/${OTHER}/details/settings`)));
+    await assertSucceeds(getDoc(doc(db, `teams/${OTHER}/secrets/invite`)));
+    await assertFails(getDoc(doc(db, `teams/${OTHER}/secrets/info`)));
+    await assertFails(getDocs(collection(db, `teams/${OTHER}/messages`)));
   }
-  await assertFails(getDoc(doc(as('admin2'), `teams/${HANDED}/sessions/s1`)));
-  await assertFails(getDoc(doc(as('cmember'), `teams/${HANDED}/sessions/s1`)));
+  await assertFails(getDoc(doc(as('admin2'), `teams/${OTHER}/sessions/s1`)));
+  await assertFails(getDoc(doc(as('cmember'), `teams/${OTHER}/sessions/s1`)));
 });
 
-test('handed over: club owner and admin cannot change the team in any way', async () => {
+test('another team Admin: club admins edit Details (location, kit, duties) only', async () => {
   for (const uid of ['cadmin', 'cowner']) {
     const db = as(uid);
-    await assertFails(updateDoc(doc(db, `teams/${HANDED}/metadata/info`), { teamName: 'X' }));
-    await assertFails(updateDoc(doc(db, `teams/${HANDED}/metadata/info`), { ageGroup: 'U12', season: 2027 }));
-    await assertFails(setDoc(doc(db, `teams/${HANDED}/roster/data`), { version: 2, players: [] }));
-    await assertFails(setDoc(doc(db, `teams/${HANDED}/details/kit`), { shirt: 'x' }));
-    await assertFails(deleteDoc(doc(db, `teams/${HANDED}/sessions/s1`)));
-    await assertFails(deleteDoc(doc(db, `teams/${HANDED}/logs/l1`)));
-    await assertFails(deleteDoc(doc(db, `teams/${HANDED}/members/parent`)));
-    await assertFails(getDoc(doc(db, `teams/${HANDED}/secrets/invite`)));
-    await assertFails(getDoc(doc(db, `teams/${HANDED}/messages/m1`)));
-    await assertFails(setDoc(doc(db, `teams/${HANDED}/secrets/invite`), { inviteCode: 'Z' }));
+    await assertSucceeds(setDoc(doc(db, `teams/${OTHER}/details/location`), { venue: 'Oval' }));
+    await assertSucceeds(setDoc(doc(db, `teams/${OTHER}/details/kit`), { shirt: 'white' }));
+    await assertSucceeds(setDoc(doc(db, `teams/${OTHER}/details/duties`), { duties: 'Oranges' }));
+    await assertFails(setDoc(doc(db, `teams/${OTHER}/details/settings`), { nominationsEnabled: 'false' }));
+    await assertFails(updateDoc(doc(db, `teams/${OTHER}/metadata/info`), { teamName: 'X' }));
+    await assertFails(updateDoc(doc(db, `teams/${OTHER}/roster/data`), { players: [] }));
+    await assertFails(updateDoc(doc(db, `teams/${OTHER}/members/parent`), { role: 'admin' }));
+    await assertFails(deleteDoc(doc(db, `teams/${OTHER}/members/parent`)));
+    await assertFails(deleteDoc(doc(db, `teams/${OTHER}/members/coach`)));
+    await assertFails(setDoc(doc(db, `teams/${OTHER}/members/${uid}`), { role: 'admin', uid }));
+    await assertFails(setDoc(doc(db, `teams/${OTHER}/secrets/invite`), { inviteCode: 'Z' }));
+    await assertFails(deleteDoc(doc(db, `teams/${OTHER}/sessions/s1`)));
+    await assertFails(deleteDoc(doc(db, `teams/${OTHER}/metadata/info`)));
   }
-  await assertFails(deleteDoc(doc(as('cowner'), `teams/${HANDED}/metadata/info`)));
-  await assertFails(deleteDoc(doc(as('cadmin'), `teams/${HANDED}/metadata/info`)));
 });
 
-test('legacy club team without teamAdminCount is treated as handed over', async () => {
-  await assertFails(setDoc(doc(as('cadmin'), 'teams/tlegacy/roster/data'), { version: 2, players: [] }));
+test('creator of a club team has no standing powers once another Admin runs it (no hidden override)', async () => {
+  // cadmin created OTHER (metadata.createdBy) but is not a member there.
+  const db = as('cadmin');
+  await assertFails(getDoc(doc(db, `teams/${OTHER}/messages/m1`)));
+  await assertFails(setDoc(doc(db, `teams/${OTHER}/members/cadmin`), { role: 'admin', uid: 'cadmin' }));
+  await assertFails(deleteDoc(doc(db, `teams/${OTHER}/logs/l1`)));
+});
+
+test('legacy club team without teamAdminCount is treated as having another Admin', async () => {
+  await assertFails(updateDoc(doc(as('cadmin'), 'teams/tlegacy/roster/data'), { players: [] }));
   await assertSucceeds(getDoc(doc(as('cadmin'), 'teams/tlegacy/roster/data')));
 });
 
-test('handed over: team admin cannot set teamAdminCount; can still edit the team', async () => {
+test('team admin cannot set teamAdminCount; can still edit the team', async () => {
   const db = as('coach');
-  await assertFails(updateDoc(doc(db, `teams/${HANDED}/metadata/info`), { teamAdminCount: 0 }));
-  await assertSucceeds(updateDoc(doc(db, `teams/${HANDED}/metadata/info`), { teamName: 'Coach name' }));
+  await assertFails(updateDoc(doc(db, `teams/${OTHER}/metadata/info`), { teamAdminCount: 0 }));
+  await assertSucceeds(updateDoc(doc(db, `teams/${OTHER}/metadata/info`), { teamName: 'Coach name' }));
 });
 
-// ── No override, no hand-back ──────────────────────────────────────────────
-
-test('club owner can remove a team admin; club admin cannot; team admin can leave', async () => {
-  await assertFails(deleteDoc(doc(as('cadmin'), `teams/${HANDED}/members/coach`)));
-  await assertFails(deleteDoc(doc(as('cowner'), `teams/${HANDED}/members/parent`)));
-  await assertSucceeds(deleteDoc(doc(as('cowner'), `teams/${HANDED}/members/coach`)));
-  await seed((db) => setDoc(doc(db, `teams/${HANDED}/members/coach`), { uid: 'coach', role: 'admin' }));
-  await assertSucceeds(deleteDoc(doc(as('coach'), `teams/${HANDED}/members/coach`)));
+test('team admin leaves; once the count reaches 0 club admins have full control again', async () => {
+  await assertSucceeds(deleteDoc(doc(as('coach'), `teams/${OTHER}/members/coach`)));
+  await seed((db) => setDoc(doc(db, `teams/${OTHER}/metadata/info`), { teamAdminCount: 0 }, M));
+  await assertSucceeds(updateDoc(doc(as('cadmin'), `teams/${OTHER}/roster/data`), { players: [] }));
 });
 
-test('back to club-managed once the count reaches 0 (set by the Cloud Function)', async () => {
-  await seed(async (db) => {
-    await deleteDoc(doc(db, `teams/${HANDED}/members/coach`));
-    await setDoc(doc(db, `teams/${HANDED}/metadata/info`), { teamAdminCount: 0 }, M);
-  });
-  await assertSucceeds(setDoc(doc(as('cadmin'), `teams/${HANDED}/roster/data`), { version: 2, players: [] }));
-});
-
-test('club admin cannot make themselves team admin of a club team', async () => {
-  // (The team's metadata creator can, as today; see the open question on creator powers.)
-  await assertFails(setDoc(doc(as('cadmin'), `teams/${MANAGED}/members/cadmin`), { uid: 'cadmin', role: 'admin' }));
-  await assertFails(setDoc(doc(as('cadmin'), `teams/${MANAGED}/members/cadmin`), { uid: 'cadmin', role: 'member' }));
+test('club teams list: club admins can query their club teams; others cannot', async () => {
+  await assertSucceeds(getDocs(query(collectionGroup(as('cadmin'), 'metadata'), where('clubId', '==', C))));
+  await assertSucceeds(getDocs(query(collectionGroup(as('cowner'), 'metadata'), where('clubId', '==', C))));
+  await assertFails(getDocs(query(collectionGroup(as('cmember'), 'metadata'), where('clubId', '==', C))));
+  await assertFails(getDocs(query(collectionGroup(as('admin2'), 'metadata'), where('clubId', '==', C))));
+  await assertFails(getDocs(collectionGroup(as('cadmin'), 'metadata')));
 });
