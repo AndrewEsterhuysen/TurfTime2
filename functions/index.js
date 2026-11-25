@@ -708,3 +708,34 @@ exports.stampMemberUid = onDocumentWritten('teams/{teamId}/members/{memberUid}',
     if ((after.get('uid') || '') === memberUid) return;
     await after.ref.set({ uid: memberUid }, { merge: true });
 });
+
+/**
+ * Club Admin role (to-do item 8): keep teams/{teamId}/metadata/info.teamAdminCount equal to the
+ * number of members with role 'admin'. Firestore rules read it to decide whether a club team is
+ * club-managed (0: club Owner/Admins may edit it) or handed over (>0: club Owner/Admins read only).
+ * Clients can't change the field. Recounts from scratch each time, so order of events doesn't matter.
+ * Uses update() so it never recreates metadata during a team delete.
+ */
+exports.syncTeamAdminCount = onDocumentWritten('teams/{teamId}/members/{memberUid}', async (event) => {
+    const before = event.data && event.data.before;
+    const after = event.data && event.data.after;
+    const roleBefore = before && before.exists ? before.get('role') : null;
+    const roleAfter = after && after.exists ? after.get('role') : null;
+    if (roleBefore === roleAfter) return; // profile/uid stamps don't change the count
+
+    const { teamId } = event.params;
+    const db = getFirestore();
+    const teamRef = db.collection('teams').doc(teamId);
+    const admins = await teamRef.collection('members').where('role', '==', 'admin').count().get();
+    const count = admins.data().count;
+    const metaRef = teamRef.collection('metadata').doc('info');
+    try {
+        const meta = await metaRef.get();
+        if (!meta.exists || meta.get('teamAdminCount') === count) return;
+        await metaRef.update({ teamAdminCount: count });
+    } catch (err) {
+        // NOT_FOUND: team deleted mid-cascade. Nothing to do.
+        if (err && err.code === 5) return;
+        throw err;
+    }
+});

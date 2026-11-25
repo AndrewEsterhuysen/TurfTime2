@@ -11,6 +11,7 @@ rules_version = '2';
 //   teams/{teamId}/secrets/invite   (inviteCode — any team member can read; admin write)
 //   teams/{teamId}/secrets/info     (inviteCode, adminCodeHash, creatorEmail — team admins)
 //   clubs/{clubId}/secrets/info     (ownerRecoveryCodeHash — club owner)
+//   clubs/{clubId}/adminInvites/{code}  (single-use Club Admin invite — club owner creates)
 //   teams/{teamId}/members/{uid}
 //   teams/{teamId}/roster/data
 //   teams/{teamId}/details/location  (match schedule / venue — admin write, member read)
@@ -160,6 +161,48 @@ service cloud.firestore {
         && isClubOwner(get(teamMetaPath(teamId)).data.clubId);
     }
 
+    // ── Club Admin role (to-do item 8, design agreed 24 Nov 2026) ─────────────
+    // A club team with no team Admin is club-managed: club Owner/Admins may edit it.
+    // Once a team Admin exists it is handed over: club Owner/Admins may only read
+    // matches, stats and reports. teamAdminCount on teams/{t}/metadata/info is kept
+    // by the syncTeamAdminCount Cloud Function (Admin SDK) from members/* role 'admin';
+    // clients may only write 0 at create and never change it. A missing count is
+    // treated as handed over (safe default until the backfill has run).
+    function teamHasAdmin(teamId) {
+      return get(teamMetaPath(teamId)).data.get('teamAdminCount', 1) > 0;
+    }
+
+    function isClubAdminOfTeam(teamId) {
+      return signedIn()
+        && exists(teamMetaPath(teamId))
+        && get(teamMetaPath(teamId)).data.get('clubId', '') != ''
+        && isClubOwnerOrAdmin(get(teamMetaPath(teamId)).data.clubId);
+    }
+
+    function clubManagesTeam(teamId) {
+      return isClubAdminOfTeam(teamId) && !teamHasAdmin(teamId);
+    }
+
+    function teamAdminCountUnchanged() {
+      return request.resource.data.get('teamAdminCount', null)
+        == resource.data.get('teamAdminCount', null);
+    }
+
+    function clubAdminInvitePath(clubId, code) {
+      return /databases/$(database)/documents/clubs/$(clubId)/adminInvites/$(code);
+    }
+
+    // Redeeming a Club Admin invite: the code names an unexpired invite the owner
+    // created, and the same batch deletes it (single use).
+    function clubAdminInviteOk(clubId) {
+      let code = request.resource.data.get('adminInviteCode', '');
+      return request.resource.data.role == 'admin'
+        && code is string && code != ''
+        && exists(clubAdminInvitePath(clubId, code))
+        && get(clubAdminInvitePath(clubId, code)).data.expiresAt > request.time
+        && !existsAfter(clubAdminInvitePath(clubId, code));
+    }
+
 
     // Club metadata — create any signed-in; updates by Owner.
     // Recovery: signed-in user may rebind createdBy to self when only ownership
@@ -203,6 +246,7 @@ service cloud.firestore {
             && isClubOwner(clubId)
           )
           || clubJoinViaTeamOk(clubId)
+          || clubAdminInviteOk(clubId)
         );
 
       // Owner may promote/demote (admin/member). A second owner can only be the caller
@@ -218,10 +262,36 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['displayName', 'addedAt', 'coachTeamId', 'joinedViaTeamId', 'uid', 'rejoinedAt'])
           && request.resource.data.role == resource.data.role
+        )
+        // An existing club member redeems a Club Admin invite.
+        || (
+          signedIn()
+          && request.auth.uid == userId
+          && resource.data.role == 'member'
+          && clubAdminInviteOk(clubId)
         );
 
       allow delete: if isClubOwner(clubId)
         || (signedIn() && request.auth.uid == userId);
+    }
+
+    // Club Admin invites (doc id = the invite code). Only the club Owner creates, lists
+    // or revokes them. The invitee never reads it: they create clubs/{c}/members/{me}
+    // with role 'admin' and adminInviteCode, deleting the invite in the same batch.
+    match /clubs/{clubId}/adminInvites/{code} {
+      allow read: if isClubOwner(clubId);
+      allow create: if isClubOwner(clubId)
+        && request.resource.data.keys().hasOnly(['createdBy', 'createdAt', 'expiresAt'])
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt <= request.time + duration.value(7, 'd');
+      allow delete: if isClubOwner(clubId)
+        || (
+          signedIn()
+          && existsAfter(/databases/$(database)/documents/clubs/$(clubId)/members/$(request.auth.uid))
+          && getAfter(/databases/$(database)/documents/clubs/$(clubId)/members/$(request.auth.uid)).data.role == 'admin'
+          && getAfter(/databases/$(database)/documents/clubs/$(clubId)/members/$(request.auth.uid)).data.get('adminInviteCode', '') == code
+        );
     }
 
     // ── Club player list (docs/club-players-spec.md §4.1, §9) ─────────────────
@@ -316,8 +386,11 @@ service cloud.firestore {
         && beforeIds.hasAll(afterIds);
     }
 
+    // Club Owner/Admin only while the team is club-managed; once handed over only its
+    // team Admin (coach) assigns or removes players.
     function canAssignToTeam(clubId, t) {
-      return isClubOwnerOrAdmin(clubId)
+      return (isClubOwnerOrAdmin(clubId) && !teamHasAdmin(t))
+        || isTeamAdmin(t)
         || (isClubCoach(clubId) && get(clubMemberPath(clubId)).data.get('coachTeamId', '') == t);
     }
 
@@ -415,7 +488,10 @@ service cloud.firestore {
         function canWritePlayerMatch() {
           return clubPlayerMatchFieldsOk(request.resource.data)
             && teamBelongsToClub(request.resource.data.teamId, clubId)
-            && (isClubOwnerOrAdmin(clubId) || isTeamMember(request.resource.data.teamId));
+            && (
+              (isClubOwnerOrAdmin(clubId) && !teamHasAdmin(request.resource.data.teamId))
+              || isTeamMember(request.resource.data.teamId)
+            );
         }
 
         allow create, update: if canWritePlayerMatch();
@@ -437,6 +513,7 @@ service cloud.firestore {
         && (
           resource.data.createdBy == request.auth.uid
           || (resource.data.teamId is string && isTeamAdmin(resource.data.teamId))
+          || (resource.data.teamId is string && clubManagesTeam(resource.data.teamId))
         );
     }
 
@@ -454,7 +531,9 @@ service cloud.firestore {
     // (client validates Team Owner Recovery Code; only ownership fields may change).
     match /teams/{teamId}/metadata/info {
       allow read: if signedIn();
-      allow create: if signedIn() && teamMetaHasNoSecrets() && (
+      allow create: if signedIn() && teamMetaHasNoSecrets()
+        && request.resource.data.get('teamAdminCount', 0) == 0
+        && (
         !('clubId' in request.resource.data)
         || request.resource.data.clubId == null
         || request.resource.data.clubId == ''
@@ -462,8 +541,14 @@ service cloud.firestore {
       );
       // clubId is immutable after create (including by team admins). Club linkage
       // is set only at create, by a club owner/admin when the team is club-managed.
-      allow update: if signedIn() && clubIdUnchanged() && teamMetaHasNoSecrets() && (
+      allow update: if signedIn() && clubIdUnchanged() && teamMetaHasNoSecrets()
+        && teamAdminCountUnchanged() && (
+        // Club-managed team: club Owner/Admins edit name, age group, season etc.
         (
+          clubManagesTeam(teamId)
+          && request.resource.data.createdBy == resource.data.createdBy
+        )
+        || (
           isTeamAdmin(teamId)
           && (
             request.resource.data.createdBy == resource.data.createdBy
@@ -479,15 +564,16 @@ service cloud.firestore {
               .hasOnly(['createdBy', 'previousOwnerUid', 'ownershipRecoveredAt', 'lastActivityUtc'])
         )
       );
-      allow delete: if isTeamAdmin(teamId);
+      allow delete: if isTeamAdmin(teamId) || clubManagesTeam(teamId);
     }
 
     // Member-readable invite only. Field-level read is not possible in rules,
     // so the invite lives on this document; adminCodeHash and creatorEmail stay
     // on secrets/info (admin / metadata creator only).
     match /teams/{teamId}/secrets/invite {
-      allow read: if isTeamMember(teamId);
-      allow create, update, delete: if isTeamAdmin(teamId) || isTeamOwner(teamId);
+      allow read: if isTeamMember(teamId) || clubManagesTeam(teamId);
+      allow create, update, delete: if isTeamAdmin(teamId) || isTeamOwner(teamId)
+        || clubManagesTeam(teamId);
     }
 
     // Team secrets — admin recovery hash, creator email, and a copy of the
@@ -495,9 +581,9 @@ service cloud.firestore {
     // (so the creator can write this during Create Team, and recoverers can
     // read it once they are admin).
     match /teams/{teamId}/secrets/{docId} {
-      allow read: if isTeamAdmin(teamId) || isTeamOwner(teamId);
-      allow create, update: if isTeamAdmin(teamId) || isTeamOwner(teamId);
-      allow delete: if isTeamOwner(teamId);
+      allow read: if isTeamAdmin(teamId) || isTeamOwner(teamId) || clubManagesTeam(teamId);
+      allow create, update: if isTeamAdmin(teamId) || isTeamOwner(teamId) || clubManagesTeam(teamId);
+      allow delete: if isTeamOwner(teamId) || clubManagesTeam(teamId);
     }
 
     // Optional public invite doc under the team (for collection-group join)
@@ -507,15 +593,18 @@ service cloud.firestore {
       allow create, update: if signedIn()
         && (
           isTeamAdmin(teamId)
+          || clubManagesTeam(teamId)
           || request.resource.data.createdBy == request.auth.uid
         );
-      allow delete: if isTeamAdmin(teamId);
+      allow delete: if isTeamAdmin(teamId) || clubManagesTeam(teamId);
     }
 
     // Members
     match /teams/{teamId}/members/{userId} {
+      // Club Owner/Admins can see who is on a club team (and whether it has an Admin).
       allow read: if isTeamMember(teamId)
-        || (signedIn() && request.auth.uid == userId);
+        || (signedIn() && request.auth.uid == userId)
+        || isClubAdminOfTeam(teamId);
 
       // Creator may take admin when they just created the team (metadata.createdBy).
       // Everyone else joins as member with a valid invite code on the write, or as
@@ -546,8 +635,16 @@ service cloud.firestore {
               && isClubOwnerOfTeam(teamId))
         );
 
+      // Club-managed team: club Owner/Admins may remove members (and delete the team).
+      // The club Owner may remove a team Admin at any time; with none left the team is
+      // club-managed again. A team Admin leaves by deleting their own membership.
       allow delete: if signedIn()
-        && (request.auth.uid == userId || isTeamAdmin(teamId));
+        && (
+          request.auth.uid == userId
+          || isTeamAdmin(teamId)
+          || clubManagesTeam(teamId)
+          || (isClubOwnerOfTeam(teamId) && resource.data.role == 'admin')
+        );
     }
 
     // Select Team discovery: collection-group query members where uid == me.
@@ -564,23 +661,25 @@ service cloud.firestore {
     // Members read and write (game control / controller requests are member PATCHes).
     // Team create writes members/{uid} before roster/data, so the creator is already a member.
     match /teams/{teamId}/roster/data {
-      allow read: if canReadTeam(teamId);
-      allow write: if canReadTeam(teamId);
+      allow read: if canReadTeam(teamId) || isClubAdminOfTeam(teamId);
+      allow write: if canReadTeam(teamId) || clubManagesTeam(teamId);
     }
 
     // Match schedule / Location (Details → Location)
     // Members read; admins write. Keep in sync with IMatchScheduleService.
     match /teams/{teamId}/details/location {
-      allow read: if isTeamMember(teamId);
-      allow create, update: if isTeamAdmin(teamId);
-      allow delete: if isTeamAdmin(teamId);
+      allow read: if isTeamMember(teamId) || isClubAdminOfTeam(teamId);
+      allow create, update: if isTeamAdmin(teamId) || clubManagesTeam(teamId);
+      allow delete: if isTeamAdmin(teamId) || clubManagesTeam(teamId);
     }
 
     // Details → Kit, Duties, and team settings (string fields + lastModifiedUtc/updatedByUid).
     // Same access as Location: members read; admins write. Keep in sync with ITeamDetailsDocService.
     match /teams/{teamId}/details/{docId} {
-      allow read: if docId in ['kit', 'duties', 'settings'] && isTeamMember(teamId);
-      allow create, update, delete: if docId in ['kit', 'duties', 'settings'] && isTeamAdmin(teamId);
+      allow read: if docId in ['kit', 'duties', 'settings']
+        && (isTeamMember(teamId) || isClubAdminOfTeam(teamId));
+      allow create, update, delete: if docId in ['kit', 'duties', 'settings']
+        && (isTeamAdmin(teamId) || clubManagesTeam(teamId));
     }
 
     // Chat messages
@@ -619,6 +718,7 @@ service cloud.firestore {
       // Hard delete: owner cascade, admin, or the original author
       allow delete: if isTeamOwner(teamId)
         || isTeamAdmin(teamId)
+        || clubManagesTeam(teamId)
         || (signedIn() && resource.data.userId == request.auth.uid);
     }
 
@@ -626,9 +726,9 @@ service cloud.firestore {
     // Delete: Admins, or the team owner during the DeleteTeamAsOwner cascade
     // (which removes members/* before sessions, so the owner is no longer an Admin).
     match /teams/{teamId}/sessions/{sessionId} {
-      allow read: if canReadTeam(teamId);
+      allow read: if canReadTeam(teamId) || isClubAdminOfTeam(teamId);
       allow create, update: if isTeamMember(teamId);
-      allow delete: if isTeamOwner(teamId) || isTeamAdmin(teamId);
+      allow delete: if isTeamOwner(teamId) || isTeamAdmin(teamId) || clubManagesTeam(teamId);
     }
 
     // Player of the match nominations (docs/nominations-spec.md §5).
@@ -694,7 +794,8 @@ service cloud.firestore {
           || isTeamAdmin(teamId)
           || isTeamOwner(teamId)
           || !nominationsOpen(teamId, sessionId)
-        );
+        )
+        || (isClubAdminOfTeam(teamId) && !nominationsOpen(teamId, sessionId));
 
       allow create: if isTeamMember(teamId)
         && nominatorId == request.auth.uid
@@ -717,22 +818,26 @@ service cloud.firestore {
           && nominationsOpen(teamId, sessionId)
         )
         || isTeamAdmin(teamId)
-        || isTeamOwner(teamId);
+        || isTeamOwner(teamId)
+        || clubManagesTeam(teamId);
     }
 
     // Admin-only close flag for a session's nominations. The team creator counts as an
     // Admin here (as in the app), even if their members doc role isn't 'admin'.
     match /teams/{teamId}/sessions/{sessionId}/nominationsMeta/{docId} {
-      allow read: if docId == 'status' && canReadTeam(teamId);
+      allow read: if docId == 'status' && (canReadTeam(teamId) || isClubAdminOfTeam(teamId));
       allow create, update: if docId == 'status'
         && (isTeamAdmin(teamId) || (isTeamMember(teamId) && isTeamOwner(teamId)))
         && request.resource.data.closed is bool;
-      allow delete: if docId == 'status' && (isTeamAdmin(teamId) || isTeamOwner(teamId));
+      allow delete: if docId == 'status'
+        && (isTeamAdmin(teamId) || isTeamOwner(teamId) || clubManagesTeam(teamId));
     }
 
     // Game logs
     match /teams/{teamId}/logs/{logId} {
-      allow read, write: if canReadTeam(teamId);
+      allow read: if canReadTeam(teamId) || isClubAdminOfTeam(teamId);
+      allow create, update: if canReadTeam(teamId);
+      allow delete: if canReadTeam(teamId) || clubManagesTeam(teamId);
     }
 
     // MCP server (mcp-server/) state: OAuth clients, auth codes, refresh grants, link codes.
