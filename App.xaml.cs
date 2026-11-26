@@ -96,6 +96,15 @@ namespace TurfTime2
             // Refresh shared match schedule watch after suspend (also reschedules reminders).
             _ = EnsureMatchScheduleSyncAsync();
             _ = RescheduleMatchRemindersAsync();
+            _ = TouchAdminActivityAsync();
+        }
+
+        /// <summary>Keeps this team Admin's activity stamp fresh (club owner can remove an Admin idle 1 day or more).</summary>
+        private Task TouchAdminActivityAsync()
+        {
+            var svc = Handler?.MauiContext?.Services?.GetService<IClubAdminService>()
+                ?? Current?.Handler?.MauiContext?.Services?.GetService<IClubAdminService>();
+            return svc?.TouchMyAdminActivityAsync() ?? Task.CompletedTask;
         }
 
         protected override Window CreateWindow(IActivationState? activationState)
@@ -117,6 +126,7 @@ namespace TurfTime2
 
                 // Shared-team match schedule: load + live watch (fail soft).
                 _ = EnsureMatchScheduleSyncAsync();
+                _ = TouchAdminActivityAsync();
 
                 // If we launched from a deep link, skip Welcome so join/import alerts can show.
                 var hasPendingLink = false;

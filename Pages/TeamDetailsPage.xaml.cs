@@ -217,7 +217,9 @@ public partial class TeamDetailsPage : ContentPage
 			// Team Owner can transfer ownership to another admin
 			var teamId = Preferences.Get(TEAM_ID_KEY, string.Empty);
 			var isOwner = isShared && Preferences.Get($"{teamId}_isOwner", false);
-			TransferOwnershipButton.IsVisible = isOwner;
+			// Club teams have no transfer: the creator has no standing owner powers there (item 8).
+			var isClubTeam = !string.IsNullOrWhiteSpace(Preferences.Get($"{teamId}_club_id", string.Empty));
+			TransferOwnershipButton.IsVisible = isOwner && !isClubTeam;
 
 			// Club admins are not on the team, so there is nothing to leave (Club admin page manages it).
 			LeaveTeamButton.IsVisible = isShared && !clubAdminOnly;

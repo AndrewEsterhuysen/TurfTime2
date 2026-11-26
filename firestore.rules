@@ -207,6 +207,29 @@ service cloud.firestore {
         && isClubOwnerOrAdmin(get(teamMetaPath(teamId)).data.clubId);
     }
 
+    // Item 8 owner way-back-in: members/{uid}.seenAtUtc is the team Admin's activity stamp.
+    // Rules let only the member write it, and only as request.time (server time), so it can
+    // never be set into the past or the future by the client. The Cloud Function stamps a
+    // first value when an Admin has none. A club owner (not a club admin) may remove a team
+    // Admin of a club team whose stamp is at least 1 day old.
+    function seenAtUnchanged() {
+      return request.resource.data.get('seenAtUtc', null) == resource.data.get('seenAtUtc', null);
+    }
+
+    function seenAtUnchangedOrNow() {
+      return seenAtUnchanged() || request.resource.data.get('seenAtUtc', null) == request.time;
+    }
+
+    function ownerMayRemoveInactiveAdmin(teamId) {
+      return signedIn()
+        && resource.data.role == 'admin'
+        && resource.data.get('seenAtUtc', null) is timestamp
+        && request.time >= resource.data.seenAtUtc + duration.value(1, 'd')
+        && exists(teamMetaPath(teamId))
+        && get(teamMetaPath(teamId)).data.get('clubId', '') != ''
+        && isClubOwner(get(teamMetaPath(teamId)).data.clubId);
+    }
+
     function teamAdminCountUnchanged() {
       return request.resource.data.get('teamAdminCount', null)
         == resource.data.get('teamAdminCount', null);
@@ -316,6 +339,21 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/clubs/$(clubId)/members/$(request.auth.uid)).data.role == 'admin'
           && getAfter(/databases/$(database)/documents/clubs/$(clubId)/members/$(request.auth.uid)).data.get('adminInviteCode', '') == code
         );
+    }
+
+    // Basic record of owner actions (item 8: who removed which inactive team Admin, when).
+    // Create-only by the club Owner, readable by the Owner; never edited or deleted. The full
+    // audit log step supersedes this.
+    match /clubs/{clubId}/auditLog/{entryId} {
+      allow read: if isClubOwner(clubId);
+      allow create: if isClubOwner(clubId)
+        && request.resource.data.keys().hasOnly(['action', 'actorUid', 'targetUid', 'teamId', 'teamName', 'at'])
+        && request.resource.data.action == 'remove_inactive_team_admin'
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.at == request.time
+        && request.resource.data.teamId is string
+        && request.resource.data.targetUid is string;
+      allow update, delete: if false;
     }
 
     // ── Club player list (docs/club-players-spec.md §4.1, §9) ─────────────────
@@ -638,6 +676,7 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == userId
         && request.resource.data.role in ['admin', 'member']
         && (!('uid' in request.resource.data) || request.resource.data.uid == userId)
+        && (!('seenAtUtc' in request.resource.data) || request.resource.data.seenAtUtc == request.time)
         && (
           (request.resource.data.role == 'admin' && isTeamOwner(teamId))
           || inviteProofOk(teamId)
@@ -654,10 +693,14 @@ service cloud.firestore {
       allow update: if signedIn()
         && (!('uid' in request.resource.data) || request.resource.data.uid == userId)
         && (
-          ((isTeamAdmin(teamId) || clubFullControl(teamId)) && request.resource.data.role in ['admin', 'member'])
-          || (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+          // Others never change someone's activity stamp.
+          (((isTeamAdmin(teamId) || clubFullControl(teamId)) && request.resource.data.role in ['admin', 'member'])
+            && (request.auth.uid == userId ? seenAtUnchangedOrNow() : seenAtUnchanged()))
+          || (request.auth.uid == userId && request.resource.data.role == resource.data.role
+              && seenAtUnchangedOrNow())
           || (request.auth.uid == userId && request.resource.data.role == 'admin'
-              && teamAdminHashMatches(teamId, request.resource.data.get('adminCodeHash', '')))
+              && teamAdminHashMatches(teamId, request.resource.data.get('adminCodeHash', ''))
+              && seenAtUnchangedOrNow())
         );
 
       // Club admin with full control may remove members. No club override once another
@@ -667,6 +710,7 @@ service cloud.firestore {
           request.auth.uid == userId
           || isTeamAdmin(teamId)
           || clubFullControl(teamId)
+          || ownerMayRemoveInactiveAdmin(teamId)
         );
     }
 

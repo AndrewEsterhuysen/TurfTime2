@@ -310,6 +310,8 @@ public sealed class ClubAdminPage : ContentPage
         if (t.Access == ClubTeamAccess.Full)
             options.AddRange(new[] { "Edit name, age group and season", "Manage members", "Make me team admin" });
         options.Add("Share the team invite");
+        if (t.InactiveAdmins.Count > 0)
+            options.Add("Remove inactive team admin");
         if (!string.IsNullOrEmpty(t.MyTeamRole))
             options.Add("Leave the team (stay club admin)");
         string? destroy = t.Access == ClubTeamAccess.Full ? "Delete this team" : null;
@@ -323,9 +325,43 @@ public sealed class ClubAdminPage : ContentPage
             case "Manage members": await ManageMembersAsync(t); break;
             case "Make me team admin": await JoinAsAdminAsync(t); break;
             case "Share the team invite": await ShareInviteAsync(t); break;
+            case "Remove inactive team admin": await RemoveInactiveAdminAsync(club, t); break;
             case "Leave the team (stay club admin)": await LeaveTeamAsync(t); break;
             case "Delete this team": await DeleteTeamAsync(t); break;
         }
+    }
+
+    /// <summary>Club owner only (the list only fills InactiveAdmins for the owner; the rules re-check).</summary>
+    private async Task RemoveInactiveAdminAsync(CloudClubSummary club, ClubTeamStatus t)
+    {
+        var svc = Resolve<IClubAdminService>();
+        if (svc is null || t.InactiveAdmins.Count == 0) return;
+        var teamName = string.IsNullOrWhiteSpace(t.TeamName) ? t.TeamId : t.TeamName;
+        ClubTeamAdminInfo? target = t.InactiveAdmins[0];
+        if (t.InactiveAdmins.Count > 1)
+        {
+            var labels = t.InactiveAdmins.Select((a, i) => $"{a.Label} · inactive {a.LastSeenText}" + (t.InactiveAdmins.Count(x => x.Label == a.Label) > 1 ? $" ({i + 1})" : "")).ToArray();
+            var pick = await DisplayActionSheet("Which team admin?", "Cancel", null, labels);
+            var idx = Array.IndexOf(labels, pick);
+            if (idx < 0) return;
+            target = t.InactiveAdmins[idx];
+        }
+        var ok = await DisplayAlert("Remove inactive team admin",
+            $"Remove {target.Label} as team admin of {teamName}? They haven't been active for {target.LastSeenText}.\n\n" +
+            "They're removed from the team. If no other team admin is left, club admins get full control of the team, " +
+            "and you can then make yourself or someone else team admin. A record of this is kept.",
+            "Remove", "Cancel");
+        if (!ok) return;
+        SetBusy(true);
+        try
+        {
+            var result = await svc.RemoveInactiveTeamAdminAsync(club.ClubId, t.TeamId, teamName, target.Uid);
+            await DisplayAlert("Team admin", result == "success"
+                ? $"{target.Label} was removed as team admin of {teamName}."
+                : result.Replace("error: ", ""), "OK");
+            await LoadSelectedClubAsync();
+        }
+        finally { SetBusy(false); }
     }
 
     private async Task OpenTeamAsync(CloudClubSummary club, ClubTeamStatus t)
