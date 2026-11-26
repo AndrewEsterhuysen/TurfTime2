@@ -184,7 +184,11 @@ test('club players: coach can assign an eligible player to their team and unassi
   }));
 });
 
-test('club players: owner and club admin can assign an eligible player', async () => {
+test('club players: owner and club admin can assign an eligible player while the team is club-managed', async () => {
+  // t1 has team Admins (handed over): club owner/admin may not assign (item 8).
+  await assertFails(updateDoc(doc(as('owner'), `${P}/p1`), assignUpdate({ updatedBy: 'owner' })));
+  await assertFails(updateDoc(doc(as('cadmin'), `${P}/p1`), assignUpdate({ updatedBy: 'cadmin' })));
+  await seed(async (db) => setDoc(doc(db, 'teams/t1/metadata/info'), { teamAdminCount: 0 }, { merge: true }));
   await assertSucceeds(updateDoc(doc(as('owner'), `${P}/p1`), assignUpdate({ updatedBy: 'owner' })));
   await seed(async (db) => {
     await setDoc(doc(db, `${P}/p1`), {
@@ -317,11 +321,14 @@ test('club player matches: owner, admin and coach can read; parents cannot', asy
   await assertFails(getDoc(doc(as('stranger'), matchPath('p1', 's1'))));
 });
 
-test('club player matches: team member or club admin can write for their club team', async () => {
+test('club player matches: team member, or club admin while club-managed, can write for their club team', async () => {
   // Re-save (idempotent overwrite) and first write.
   await assertSucceeds(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc()));
   await assertSucceeds(setDoc(doc(as('coach'), matchPath('p1', 's1')), matchDoc({ goals: 2, potm: true })));
   await assertSucceeds(setDoc(doc(as('parent'), matchPath('p1', 's2')), matchDoc({ sessionId: 's2' })));
+  // Handed over (t1 has team Admins): club owner is read-only for the team's stats.
+  await assertFails(setDoc(doc(as('owner'), matchPath('p1', 's3')), matchDoc({ sessionId: 's3' })));
+  await seed(async (db) => setDoc(doc(db, 'teams/t1/metadata/info'), { teamAdminCount: 0 }, { merge: true }));
   await assertSucceeds(setDoc(doc(as('owner'), matchPath('p1', 's3')), matchDoc({ sessionId: 's3' })));
 });
 

@@ -305,7 +305,7 @@ public partial class GamePage : ContentPage
                     cloudRole ?? string.Empty,
                     StringComparison.OrdinalIgnoreCase);
                 var vmMismatch = _vm is not null
-                    && (_vm.IsCloudAdmin != !string.Equals(cloudRole, "member", StringComparison.Ordinal));
+                    && (_vm.IsCloudAdmin != !string.Equals(GameViewModel.GameRole(cloudRole), "member", StringComparison.Ordinal));
 
                 if (!changed && !vmMismatch)
                     continue;
@@ -373,6 +373,7 @@ public partial class GamePage : ContentPage
 
     private async Task ApplyTeamAndRoleToViewModelAsync(string teamId, string? userRole, bool forceFromAppear)
     {
+        userRole = GameViewModel.GameRole(userRole); // club-admin-only users: view only, never run a game
         var sessionViewOnly = Preferences.Get($"session_view_only_{teamId}", false)
             && !string.Equals(userRole, "member", StringComparison.Ordinal);
         var isMember = string.Equals(userRole, "member", StringComparison.Ordinal) || sessionViewOnly;
