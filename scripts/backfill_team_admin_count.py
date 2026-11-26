@@ -8,10 +8,6 @@ so without this backfill every existing club team stays read-only to club
 admins, even one with no team Admin. After the syncTeamAdminCount Cloud
 Function is deployed it keeps the count up to date; run this once after that.
 
-It also stamps members/{uid}.seenAtUtc = now on every team Admin that has none, so the
-club owner's "remove inactive team Admin" clock (1 day) starts from the deploy, not from
-nothing. (The Function stamps new Admins from then on; the app refreshes the stamp.)
-
 Default is a dry run (no writes). Do NOT run --apply against production until
 Andrew has approved the item 8 rules + function deploy.
 
@@ -23,7 +19,6 @@ Usage (from a machine with gcloud ADC, e.g. the Mac):
 from __future__ import annotations
 
 import argparse, sys, urllib.parse
-from datetime import datetime, timezone
 from collections import Counter
 
 sys.path.insert(0, __import__("os").path.dirname(__file__))
@@ -38,13 +33,10 @@ def main() -> int:
     tok = token()
 
     admins: Counter[str] = Counter()
-    unstamped: list[tuple[str, str, str]] = []  # (team, uid, full doc name)
     for doc in list_cg(tok, args.project, "members"):
         parts = path_parts(doc.get("name", ""))
         if len(parts) == 4 and parts[0] == "teams" and str_val(fields_of(doc), "role") == "admin":
             admins[parts[1]] += 1
-            if "seenAtUtc" not in fields_of(doc):
-                unstamped.append((parts[1], parts[3], doc.get("name", "")))
 
     teams = ok = changed = 0
     for doc in list_cg(tok, args.project, "metadata"):
@@ -69,13 +61,6 @@ def main() -> int:
             path = f"projects/{args.project}/databases/(default)/documents/teams/{tid}/metadata/info"
             url = f"{BASE}/{path}?updateMask.fieldPaths=teamAdminCount&currentDocument.exists=true"
             req("PATCH", url, tok, {"fields": {"teamAdminCount": {"integerValue": str(want)}}}, args.project)
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    for tid, uid, name in unstamped:
-        print(f"  team {tid} admin {uid}: seenAtUtc missing -> {now}")
-        if args.apply:
-            url = f"https://firestore.googleapis.com/v1/{name}?updateMask.fieldPaths=seenAtUtc&currentDocument.exists=true"
-            req("PATCH", url, tok, {"fields": {"seenAtUtc": {"timestampValue": now}}}, args.project)
-    print(f"admins_to_stamp={len(unstamped)}")
     print(f"teams={teams} already_ok={ok} {'updated' if args.apply else 'would_update'}={changed}"
           + ("" if args.apply else " (dry run)"))
     return 0

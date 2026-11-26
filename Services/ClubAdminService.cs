@@ -204,22 +204,17 @@ public sealed class ClubAdminService : IClubAdminService
                 Season = I(f, "season", 0),
                 TeamAdminCount = I(f, "teamAdminCount", -1),
                 MyTeamRole = mine is { } m ? S(m, "role") : "",
-                InactiveAdmins = iAmOwner && I(f, "teamAdminCount", -1) != 0
-                    ? await ListInactiveAdminsAsync(teamId, uid).ConfigureAwait(false)
+                TeamAdmins = iAmOwner && I(f, "teamAdminCount", -1) != 0
+                    ? await ListTeamAdminsAsync(teamId, uid).ConfigureAwait(false)
                     : Array.Empty<ClubTeamAdminInfo>(),
             });
         }
         return list.OrderBy(t => t.TeamName, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    // ── Owner way back in: inactive team Admins ───────────────────────────
+    // ── Owner way back in: remove a team Admin at any time ────────────────
 
-    private static DateTimeOffset? Ts(JsonElement fields, string key) =>
-        fields.TryGetProperty(key, out var v) && v.TryGetProperty("timestampValue", out var t)
-        && DateTimeOffset.TryParse(t.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var d)
-            ? d : null;
-
-    private async Task<IReadOnlyList<ClubTeamAdminInfo>> ListInactiveAdminsAsync(string teamId, string myUid)
+    private async Task<IReadOnlyList<ClubTeamAdminInfo>> ListTeamAdminsAsync(string teamId, string myUid)
     {
         var result = new List<ClubTeamAdminInfo>();
         try
@@ -233,20 +228,17 @@ public sealed class ClubAdminService : IClubAdminService
                 if (!d.TryGetProperty("fields", out var f) || S(f, "role") != "admin") continue;
                 var uidOfDoc = (d.GetProperty("name").GetString() ?? "").Split('/').Last();
                 if (uidOfDoc == myUid) continue;
-                // No stamp = not removable (the rules agree).
-                if (Ts(f, "seenAtUtc") is not { } seen) continue;
-                if (DateTimeOffset.UtcNow - seen < ClubTeamAccess.InactiveAfter) continue;
-                result.Add(new ClubTeamAdminInfo { Uid = uidOfDoc, DisplayName = S(f, "displayName"), LastSeenUtc = seen });
+                result.Add(new ClubTeamAdminInfo { Uid = uidOfDoc, DisplayName = S(f, "displayName") });
             }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[ClubAdmin] inactive admins {teamId}: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[ClubAdmin] team admins {teamId}: {ex.Message}");
         }
         return result;
     }
 
-    public async Task<string> RemoveInactiveTeamAdminAsync(string clubId, string teamId, string teamName, string adminUid)
+    public async Task<string> RemoveTeamAdminAsync(string clubId, string teamId, string teamName, string adminUid)
     {
         var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
         if (uid is null) return "error: Could not sign in. Check your internet connection.";
@@ -264,7 +256,7 @@ public sealed class ClubAdminService : IClubAdminService
                         ["name"] = FullName($"clubs/{clubId}/auditLog/{Guid.NewGuid():N}"),
                         ["fields"] = new Dictionary<string, object>
                         {
-                            ["action"] = Str("remove_inactive_team_admin"),
+                            ["action"] = Str("remove_team_admin"),
                             ["actorUid"] = Str(uid),
                             ["targetUid"] = Str(adminUid),
                             ["teamId"] = Str(teamId),
@@ -283,49 +275,7 @@ public sealed class ClubAdminService : IClubAdminService
         var (status, text) = await SendAsync(HttpMethod.Post, $"{RestBase}:commit", body).ConfigureAwait(false);
         return Ok(status)
             ? "success"
-            : Error(status, text, "Couldn't remove that team admin. They may have been active again, or only the club owner can do this.");
-    }
-
-    public async Task TouchMyAdminActivityAsync()
-    {
-        try
-        {
-            var ids = System.Text.Json.JsonSerializer.Deserialize<List<string>>(Preferences.Get("team_id_list", "[]")) ?? [];
-            foreach (var teamId in ids)
-            {
-                if (string.IsNullOrWhiteSpace(teamId) || teamId.StartsWith("local_", StringComparison.Ordinal)) continue;
-                if (!string.Equals(Preferences.Get($"{teamId}_role", ""), "admin", StringComparison.OrdinalIgnoreCase)) continue;
-                // Once an hour per team is plenty for a 1 day threshold.
-                var key = $"{teamId}_admin_seen_utc";
-                var last = Preferences.Get(key, 0L);
-                var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                if (now - last < 3600) continue;
-                var uid = await _auth.EnsureSignedInAsync().ConfigureAwait(false);
-                if (uid is null) return;
-                var body = new Dictionary<string, object>
-                {
-                    ["writes"] = new object[]
-                    {
-                        new Dictionary<string, object>
-                        {
-                            ["update"] = new Dictionary<string, object> { ["name"] = FullName($"teams/{teamId}/members/{uid}"), ["fields"] = new Dictionary<string, object>() },
-                            ["updateMask"] = new Dictionary<string, object> { ["fieldPaths"] = Array.Empty<string>() },
-                            ["updateTransforms"] = new object[]
-                            {
-                                new Dictionary<string, object> { ["fieldPath"] = "seenAtUtc", ["setToServerValue"] = "REQUEST_TIME" },
-                            },
-                            ["currentDocument"] = new Dictionary<string, object> { ["exists"] = true },
-                        },
-                    }
-                };
-                var (status, _) = await SendAsync(HttpMethod.Post, $"{RestBase}:commit", body).ConfigureAwait(false);
-                if (Ok(status)) Preferences.Set(key, now);
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[ClubAdmin] touch admin activity: {ex.Message}");
-        }
+            : Error(status, text, "Couldn't remove that team admin. Only the club owner can do this on a club team.");
     }
 
     public async Task<ClubTeamEffectiveRole?> GetEffectiveRoleAsync(string teamId)

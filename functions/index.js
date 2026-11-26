@@ -721,17 +721,6 @@ exports.syncTeamAdminCount = onDocumentWritten('teams/{teamId}/members/{memberUi
     const after = event.data && event.data.after;
     const roleBefore = before && before.exists ? before.get('role') : null;
     const roleAfter = after && after.exists ? after.get('role') : null;
-    // Owner way-back-in (item 8): a team Admin's activity stamp (members/{uid}.seenAtUtc) starts
-    // at server time when someone becomes Admin (or is an Admin with no stamp yet), so a new
-    // or re-promoted Admin never looks inactive. The member keeps it fresh from the app.
-    if (after && after.exists && roleAfter === 'admin'
-        && (roleBefore !== 'admin' || !after.get('seenAtUtc'))) {
-        try {
-            await after.ref.update({ seenAtUtc: FieldValue.serverTimestamp() });
-        } catch (err) {
-            if (!(err && err.code === 5)) throw err; // NOT_FOUND: member removed meanwhile
-        }
-    }
     if (roleBefore === roleAfter) return; // profile/uid stamps don't change the count
 
     const { teamId } = event.params;

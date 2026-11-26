@@ -246,7 +246,8 @@ test('club admin who is the team Admin has full team Admin rights, including gam
 test('club owner on a team whose only Admin is a club admin is limited (another Admin exists)', async () => {
   const db = as('cowner');
   await assertFails(updateDoc(doc(db, `teams/${SOLO}/roster/data`), { players: [] }));
-  await assertFails(deleteDoc(doc(db, `teams/${SOLO}/members/cadmin`)));
+  // Owner may remove the team Admin at any time (way back in); club admins still cannot.
+  await assertSucceeds(deleteDoc(doc(db, `teams/${SOLO}/members/cadmin`)));
   await assertSucceeds(setDoc(doc(db, `teams/${SOLO}/details/kit`), { shirt: 'gold' }));
 });
 
@@ -280,7 +281,10 @@ test('another team Admin: club admins edit Details (location, kit, duties) only'
     await assertFails(updateDoc(doc(db, `teams/${OTHER}/roster/data`), { players: [] }));
     await assertFails(updateDoc(doc(db, `teams/${OTHER}/members/parent`), { role: 'admin' }));
     await assertFails(deleteDoc(doc(db, `teams/${OTHER}/members/parent`)));
-    await assertFails(deleteDoc(doc(db, `teams/${OTHER}/members/coach`)));
+    if (uid === 'cowner')
+      await assertSucceeds(deleteDoc(doc(db, `teams/${OTHER}/members/coach`))); // owner way back in
+    else
+      await assertFails(deleteDoc(doc(db, `teams/${OTHER}/members/coach`)));
     await assertFails(setDoc(doc(db, `teams/${OTHER}/members/${uid}`), { role: 'admin', uid }));
     await assertFails(setDoc(doc(db, `teams/${OTHER}/secrets/invite`), { inviteCode: 'Z' }));
     await assertFails(deleteDoc(doc(db, `teams/${OTHER}/sessions/s1`)));

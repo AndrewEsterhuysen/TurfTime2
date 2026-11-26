@@ -41,17 +41,11 @@ public interface IClubAdminService
     Task<string> SetClubMemberRoleAsync(string clubId, string memberUid, string role);
 
     /// <summary>
-    /// Refresh your team Admin activity stamp (<c>members/{uid}.seenAtUtc</c>, server time) on every
-    /// team where you are Admin. Throttled; call on app start/resume. Best effort.
+    /// Club owner only: remove a team Admin of a club team at any time, and record who removed
+    /// whom and when (<c>clubs/{c}/auditLog</c>). The rules re-check the owner and club team.
+    /// Club admins cannot do this.
     /// </summary>
-    Task TouchMyAdminActivityAsync();
-
-    /// <summary>
-    /// Club owner only: remove a team Admin of a club team who has been inactive for
-    /// <see cref="ClubTeamAccess.InactiveAfter"/> or more, and record who removed whom and when
-    /// (<c>clubs/{c}/auditLog</c>). The rules re-check the owner, club team and inactivity.
-    /// </summary>
-    Task<string> RemoveInactiveTeamAdminAsync(string clubId, string teamId, string teamName, string adminUid);
+    Task<string> RemoveTeamAdminAsync(string clubId, string teamId, string teamName, string adminUid);
 
     /// <summary>Full control: join the team yourself as <c>admin</c> or <c>member</c>.</summary>
     Task<string> JoinTeamAsync(string teamId, string role, string displayName);
@@ -74,8 +68,6 @@ public static class ClubTeamAccess
     public const string TeamAdmin = "teamadmin"; // you are a team Admin (full team Admin rights)
     public const string Full = "full";           // no other team Admin: full control, no games
     public const string Limited = "limited";     // another team Admin: read all but chat, Details only
-    /// <summary>Owner way back in: a team Admin idle this long can be removed by the club owner. Must match firestore.rules.</summary>
-    public static readonly TimeSpan InactiveAfter = TimeSpan.FromDays(1);
 }
 
 public sealed class ClubTeamStatus
@@ -90,8 +82,8 @@ public sealed class ClubTeamStatus
     public int TeamAdminCount { get; init; } = -1;
     /// <summary>Your team membership role (admin/member) or empty.</summary>
     public string MyTeamRole { get; init; } = "";
-    /// <summary>Club owner only: team Admins inactive for <see cref="ClubTeamAccess.InactiveAfter"/> or more.</summary>
-    public IReadOnlyList<ClubTeamAdminInfo> InactiveAdmins { get; init; } = Array.Empty<ClubTeamAdminInfo>();
+    /// <summary>Club owner only: current team Admins (other than you), for "Remove team admin".</summary>
+    public IReadOnlyList<ClubTeamAdminInfo> TeamAdmins { get; init; } = Array.Empty<ClubTeamAdminInfo>();
 
     public bool IAmTeamAdmin => string.Equals(MyTeamRole, "admin", StringComparison.OrdinalIgnoreCase);
 
@@ -99,13 +91,7 @@ public sealed class ClubTeamStatus
         ? ClubTeamAccess.TeamAdmin
         : TeamAdminCount == 0 ? ClubTeamAccess.Full : ClubTeamAccess.Limited;
 
-    public string StatusText => BaseStatusText + (InactiveAdmins.Count == 0
-        ? ""
-        : InactiveAdmins.Count == 1
-            ? $"\n{InactiveAdmins[0].Label} hasn't been active for {InactiveAdmins[0].LastSeenText}"
-            : $"\n{InactiveAdmins.Count} team admins haven't been active for a while");
-
-    private string BaseStatusText => Access switch
+    public string StatusText => Access switch
     {
         ClubTeamAccess.TeamAdmin => TeamAdminCount > 1 ? "You are a team admin" : "You are the team admin",
         ClubTeamAccess.Full => "No team admin yet · club manages it",
@@ -117,16 +103,7 @@ public sealed class ClubTeamAdminInfo
 {
     public string Uid { get; init; } = "";
     public string DisplayName { get; init; } = "";
-    public DateTimeOffset LastSeenUtc { get; init; }
     public string Label => string.IsNullOrWhiteSpace(DisplayName) ? "A team admin" : DisplayName;
-    public string LastSeenText
-    {
-        get
-        {
-            var d = DateTimeOffset.UtcNow - LastSeenUtc;
-            return d.TotalDays >= 2 ? $"{(int)d.TotalDays} days" : $"{Math.Max(1, (int)d.TotalHours)} hours";
-        }
-    }
 }
 
 public sealed class ClubTeamEffectiveRole
