@@ -199,6 +199,8 @@ namespace TurfTime2
             try
             {
                 _forcingTabRoot = true;
+                // Windows: let the tab switch finish first; GoToAsync during it throws "Pending Navigations still processing".
+                if (DesktopMode.IsWindows) await Task.Delay(350);
                 await Shell.Current.GoToAsync(absoluteRoute);
             }
             catch (InvalidOperationException ex) when (DesktopMode.IsWindows)
