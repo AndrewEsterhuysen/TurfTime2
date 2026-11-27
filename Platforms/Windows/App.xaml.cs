@@ -17,6 +17,23 @@ namespace TurfTime2.WinUI
         public App()
         {
             this.InitializeComponent();
+
+            // Setup client: leave a trace when something goes wrong (no crash reporter on Windows yet).
+            this.UnhandledException += (_, e) => LogCrash("WinUI", e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (_, e) => LogCrash("AppDomain", e.ExceptionObject as Exception);
+            TaskScheduler.UnobservedTaskException += (_, e) => LogCrash("Task", e.Exception);
+        }
+
+        private static void LogCrash(string source, Exception? ex)
+        {
+            try
+            {
+                var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TurfTimer");
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "windows-errors.log"),
+                    $"{DateTime.Now:O} [{source}] {ex}\n\n");
+            }
+            catch { /* never throw from the handler */ }
         }
 
         protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();

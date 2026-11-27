@@ -1920,7 +1920,7 @@ public partial class TeamDetailsPage : ContentPage
 			"You will need it to regain admin access if you reinstall the app or change devices." +
 			clubNote +
 			clubRecoveryNote +
-			"\n\nNext: Open the Game screen to name players, assign positions, and set timers." +
+			(Helpers.DesktopMode.IsWindows ? "\n\nNext: add club players and set Kit and Duties in the Team details tab." : "\n\nNext: Open the Game screen to name players, assign positions, and set timers.") +
 			emailNote,
 			"OK");
 
