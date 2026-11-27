@@ -201,6 +201,18 @@ namespace TurfTime2
                 _forcingTabRoot = true;
                 await Shell.Current.GoToAsync(absoluteRoute);
             }
+            catch (InvalidOperationException ex) when (DesktopMode.IsWindows)
+            {
+                // Windows: a quick tab click while another navigation is still settling throws
+                // "Pending Navigations still processing" from an async-void handler, which would crash the app.
+                System.Diagnostics.Debug.WriteLine($"[AppShell] ForceTabRoot retry: {ex.Message}");
+                try
+                {
+                    await Task.Delay(400);
+                    await Shell.Current.GoToAsync(absoluteRoute);
+                }
+                catch (Exception ex2) { System.Diagnostics.Debug.WriteLine($"[AppShell] ForceTabRoot gave up: {ex2.Message}"); }
+            }
             finally
             {
                 _forcingTabRoot = false;
