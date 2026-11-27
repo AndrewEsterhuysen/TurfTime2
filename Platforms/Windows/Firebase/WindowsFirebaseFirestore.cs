@@ -66,8 +66,27 @@ public sealed class WindowsFirebaseFirestore : IFirebaseFirestore
             if (resp.IsSuccessStatusCode) return JsonDocument.Parse(text);
             if (resp.StatusCode == HttpStatusCode.NotFound && allow404) return null;
             if (resp.StatusCode == HttpStatusCode.Unauthorized && attempt == 0) continue;
-            throw ToException(resp.StatusCode, text);
+            var ex = ToException(resp.StatusCode, text);
+            LogFailure(method, url, ex);
+            throw ex;
         }
+    }
+
+    /// <summary>Failed Firestore calls (status + message only, never tokens) go to %LOCALAPPDATA%\TurfTimer\windows-errors.log.</summary>
+    private static void LogFailure(HttpMethod method, string url, WindowsFirestoreException ex)
+    {
+        try
+        {
+            var path = url.StartsWith(WindowsFirebaseConfig.DocumentsBaseUrl, StringComparison.Ordinal)
+                ? url[WindowsFirebaseConfig.DocumentsBaseUrl.Length..] : url;
+            var q = path.IndexOf('?');
+            if (q >= 0) path = path[..q];
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TurfTimer");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "windows-errors.log"),
+                $"{DateTime.Now:O} [Firestore] {method} {path} -> {ex.Message}\n");
+        }
+        catch { /* logging must never throw */ }
     }
 
     private static WindowsFirestoreException ToException(HttpStatusCode code, string text)
