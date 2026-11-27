@@ -377,6 +377,10 @@ public sealed class ClubAdminPage : ContentPage
         var what = t.Access == ClubTeamAccess.Full
             ? "You have full control as a club admin: team details, Details pages, club players and team members. You can't run games (the Game screen is view only) or see chat."
             : "This team has a team admin, so you can view games, reports and players and edit the Details pages (location, kit, duties). Chat stays with team members.";
+        if (DesktopMode.IsWindows)
+            what = t.Access == ClubTeamAccess.Full
+                ? "You have full control as a club admin: use the Team details tab for kit, duties and club players. Games and chat are on the phone."
+                : "This team has a team admin, so you can edit its Details (kit, duties) and view club players here. Games and chat are on the phone.";
         await DisplayAlert("Team opened", $"Now viewing: {name}\n\n{what}", "OK");
     }
 
