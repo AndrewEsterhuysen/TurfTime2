@@ -197,6 +197,8 @@
 		<!-- Pin to override the 0.11.0 version pulled transitively by Plugin.Firebase, which conflicts with the 0.11.4 DLL -->
 		<PackageReference Include="Xamarin.Build.Download" Version="0.11.4" />
 		<!-- Resolve androidx.tracing conflict: explicitly pin both tracing and tracing-ktx to same version -->
+				<!-- Windows-only: encrypts the stored Firebase refresh token (DPAPI) -->
+		<PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" Condition="$(TargetFramework.Contains('windows'))" />
 		<PackageReference Include="Xamarin.AndroidX.Tracing.Tracing" Version="1.3.0.1" Condition="$(TargetFramework.Contains('android'))" />
 		<PackageReference Include="Xamarin.AndroidX.Tracing.Tracing.Ktx" Version="1.3.0.1" Condition="$(TargetFramework.Contains('android'))" />
 	</ItemGroup>
