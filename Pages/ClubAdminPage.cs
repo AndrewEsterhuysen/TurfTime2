@@ -267,7 +267,7 @@ public sealed class ClubAdminPage : ContentPage
             $"Club admin invite\n{club.ClubId}/{result.Code}\nSingle use · expires {result.ExpiresUtc.ToLocalTime():d MMM}",
             "Done", "Revoke this invite", "Share invite", "Copy code");
         if (choice == "Share invite")
-            await Share.Default.RequestAsync(new ShareTextRequest { Title = "Club admin invite", Text = result.InviteText });
+            await DesktopMode.ShareOrCopyTextAsync(this, "Club admin invite", result.InviteText);
         else if (choice == "Copy code")
             await Clipboard.Default.SetTextAsync($"{club.ClubId}/{result.Code}");
         else if (choice == "Revoke this invite")
@@ -481,11 +481,8 @@ public sealed class ClubAdminPage : ContentPage
             return;
         }
         var name = string.IsNullOrWhiteSpace(t.TeamName) ? t.TeamId : t.TeamName;
-        await Share.Default.RequestAsync(new ShareTextRequest
-        {
-            Title = "Team invite",
-            Text = $"Join {name} on TurfTimer. In the app open Settings > Team Selection > Join team and enter invite code: {code}",
-        });
+        await DesktopMode.ShareOrCopyTextAsync(this, "Team invite",
+            $"Join {name} on TurfTimer. In the app open Settings > Team Selection > Join team and enter invite code: {code}");
     }
 
     private async Task DeleteTeamAsync(ClubTeamStatus t)

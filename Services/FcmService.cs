@@ -59,6 +59,11 @@ public class FcmService
     /// </summary>
     public async Task<bool> InitializeAsync()
     {
+#if WINDOWS
+        // No push notifications in the Windows setup client (Plugin.Firebase Cloud Messaging has no Windows support).
+        await Task.CompletedTask;
+        return false;
+#endif
         try
         {
             System.Diagnostics.Debug.WriteLine("[FCM] 🔔 Initializing Firebase Cloud Messaging…");
@@ -716,6 +721,10 @@ public class FcmService
     /// </summary>
     public async Task UpdateTokenInFirestoreAsync(string? token = null)
     {
+#if WINDOWS
+        await Task.CompletedTask;
+        return; // no push token on Windows
+#endif
         if (Interlocked.CompareExchange(ref _saveInFlight, 1, 0) != 0)
             return;
 

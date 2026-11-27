@@ -35,6 +35,25 @@ namespace TurfTime2
             // Handle navigation to clear stacks when switching to Settings / Details tabs
             this.Navigated += OnShellNavigated;
 
+            if (DesktopMode.IsWindows)
+            {
+                // Setup client: game play and chat stay on the phone.
+                GameTab.IsVisible = false;
+                ChatTab.IsVisible = false;
+                SettingsTab.Title = "Setup";
+                DetailsTab.Title = "Team details";
+                try
+                {
+                    // Setup first: Setup | Team details | Help
+                    if (SettingsTab.Parent is ShellSection sec && sec.Parent is ShellItem item && item.Items.IndexOf(sec) > 0)
+                    {
+                        item.Items.Remove(sec);
+                        item.Items.Insert(0, sec);
+                    }
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[AppShell] reorder: {ex.Message}"); }
+            }
+
             ChatBadgeHelper.Changed += OnChatBadgeChanged;
             UpdateChatTabBadge();
         }
@@ -115,10 +134,11 @@ namespace TurfTime2
             // Chat is available whenever the user has any online team membership
             // (multi-team Chat strip), even if Game is currently on a local team.
             var hasOnlineMembership = HasOnlineTeamMembership();
-            ChatTab.IsVisible = hasOnlineMembership;
+            ChatTab.IsVisible = hasOnlineMembership && !DesktopMode.IsWindows;
             DetailsTab.IsVisible = hasTeam || !isLocal;
 
             GameTab.IsEnabled = hasTeam;
+            if (DesktopMode.IsWindows) GameTab.IsVisible = false;
 
             if (Items.FirstOrDefault() is TabBar tabBar)
             {

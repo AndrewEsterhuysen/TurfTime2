@@ -10,8 +10,13 @@ public partial class SettingsPage : ContentPage
     protected override void OnAppearing()
     {
         base.OnAppearing();
-        DetailsPage.ApplyPageTeamTitle(this, "Settings");
+        var desktop = Helpers.DesktopMode.IsWindows;
+        DetailsPage.ApplyPageTeamTitle(this, desktop ? "Setup" : "Settings");
         AiConnectCard.IsVisible = Services.AiConnectConfig.IsEnabled;
+        // Windows is the setup client: game timers and match options live on the phone.
+        TimersCard.IsVisible = !desktop;
+        OptionsCard.IsVisible = !desktop;
+        PageTitleLabel.Text = desktop ? "Club and team setup" : "Settings";
     }
 
     private async void OnAiConnectTapped(object sender, EventArgs e)
