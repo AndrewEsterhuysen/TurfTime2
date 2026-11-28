@@ -579,8 +579,15 @@ public partial class TeamDetailsPage : ContentPage
 	private void OnSelectOnlineLabelTapped(object sender, EventArgs e)
 		=> SharedCheckbox.IsChecked = true;
 
-	private void OnSelectLocalLabelTapped(object sender, EventArgs e)
-		=> LocalCheckbox.IsChecked = true;
+	private async void OnSelectLocalLabelTapped(object sender, EventArgs e)
+	{
+		if (Helpers.DesktopMode.IsWindows)
+		{
+			await Helpers.DesktopMode.ShowUnsupportedAsync(this, "Local (this-device-only) teams", "Use the Online option: online teams are what clubs, invites and the phone app share.");
+			return;
+		}
+		LocalCheckbox.IsChecked = true;
+	}
 
 	private void OnJoinOnlineModeChanged(object sender, CheckedChangedEventArgs e)
 	{
@@ -599,8 +606,15 @@ public partial class TeamDetailsPage : ContentPage
 	private void OnJoinOnlineLabelTapped(object sender, EventArgs e)
 		=> JoinOnlineModeCheckbox.IsChecked = true;
 
-	private void OnJoinLocalLabelTapped(object sender, EventArgs e)
-		=> JoinLocalModeCheckbox.IsChecked = true;
+	private async void OnJoinLocalLabelTapped(object sender, EventArgs e)
+	{
+		if (Helpers.DesktopMode.IsWindows)
+		{
+			await Helpers.DesktopMode.ShowUnsupportedAsync(this, "Local (this-device-only) teams", "Use the Online option: online teams are what clubs, invites and the phone app share.");
+			return;
+		}
+		JoinLocalModeCheckbox.IsChecked = true;
+	}
 
 	private void OnCreateSharedModeChanged(object sender, CheckedChangedEventArgs e)
 	{
@@ -619,8 +633,15 @@ public partial class TeamDetailsPage : ContentPage
 	private void OnCreateOnlineLabelTapped(object sender, EventArgs e)
 		=> CreateSharedModeCheckbox.IsChecked = true;
 
-	private void OnCreateLocalLabelTapped(object sender, EventArgs e)
-		=> CreateLocalModeCheckbox.IsChecked = true;
+	private async void OnCreateLocalLabelTapped(object sender, EventArgs e)
+	{
+		if (Helpers.DesktopMode.IsWindows)
+		{
+			await Helpers.DesktopMode.ShowUnsupportedAsync(this, "Local (this-device-only) teams", "Use the Online option: online teams are what clubs, invites and the phone app share.");
+			return;
+		}
+		CreateLocalModeCheckbox.IsChecked = true;
+	}
 
 	private void UpdateJoinTeamSubSections()
 	{
@@ -1899,7 +1920,7 @@ public partial class TeamDetailsPage : ContentPage
 			"You will need it to regain admin access if you reinstall the app or change devices." +
 			clubNote +
 			clubRecoveryNote +
-			"\n\nNext: Open the Game screen to name players, assign positions, and set timers." +
+			(Helpers.DesktopMode.IsWindows ? "\n\nNext: add club players and set Kit and Duties in the Team details tab." : "\n\nNext: Open the Game screen to name players, assign positions, and set timers.") +
 			emailNote,
 			"OK");
 
@@ -2541,6 +2562,11 @@ private void RegisterTeamId(string teamId)
 
 	private async void OnSetLocalTeamClicked(object sender, EventArgs e)
 	{
+		if (Helpers.DesktopMode.IsWindows)
+		{
+			await Helpers.DesktopMode.ShowUnsupportedAsync(this, "Local (this-device-only) teams", "Create an online team instead: Create Team > Create Online Team, or add a team under a club you manage.");
+			return;
+		}
 		try
 		{
 			var teamName = LocalTeamNameEntry.Text?.Trim();
@@ -3279,6 +3305,11 @@ private void RegisterTeamId(string teamId)
 
 	private async void OnImportTeamClicked(object sender, EventArgs e)
 	{
+		if (Helpers.DesktopMode.IsWindows)
+		{
+			await Helpers.DesktopMode.ShowUnsupportedAsync(this, "Scanning or importing a team QR code", "To join a team, enter its invite code under Join Team > Join as Member. To become a club admin, use Settings > Club admin > Redeem an invite.");
+			return;
+		}
 		try
 		{
 			await Navigation.PushModalAsync(new QrImportPage());

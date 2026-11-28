@@ -88,12 +88,19 @@ namespace TurfTime2
 #endif
                 });
 
+#if WINDOWS
+            // Windows: Plugin.Firebase has no Windows implementation. Auth and Firestore go over the Firebase REST
+            // APIs with the user's own ID token (rules still apply). Same interfaces, so the services are unchanged.
+            builder.Services.AddSingleton<Services.IFirebaseAuthService, Services.WindowsFirebaseAuthService>();
+            builder.Services.AddSingleton<Plugin.Firebase.Firestore.IFirebaseFirestore, Services.WinFirestore.WindowsFirebaseFirestore>();
+#else
             // Plugin.Firebase singletons + app adapters (no Firestore REST)
             builder.Services.AddSingleton(_ => CrossFirebaseAuth.Current);
             builder.Services.AddSingleton(_ => CrossFirebaseFirestore.Current);
             builder.Services.AddSingleton(_ => CrossFirebaseCloudMessaging.Current);
             builder.Services.AddSingleton(_ => CrossFirebaseFunctions.Current);
             builder.Services.AddSingleton<Services.IFirebaseAuthService, Services.FirebaseAuthService>();
+#endif
             builder.Services.AddSingleton<Services.IChatService, Services.ChatService>();
             builder.Services.AddSingleton<Services.ICloudTeamService, Services.CloudTeamService>();
 

@@ -24,6 +24,12 @@ public partial class DetailsPage : ContentPage
         try { await TeamNominationsOptions.RefreshAsync(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Details] Nominations setting: {ex.Message}"); }
         NominationsCard.IsVisible = shared && TeamNominationsOptions.ShowDetailsTile();
+        if (Helpers.DesktopMode.IsWindows)
+        {
+            // Setup client: nominations and match reports come from played games, which are phone-only.
+            NominationsCard.IsVisible = false;
+            ReportsCard.IsVisible = false;
+        }
         await RefreshClubPlayersCardAsync(shared);
     }
 

@@ -102,10 +102,19 @@ namespace TurfTime2
         {
             var appShell = new AppShell();
             var window = new Window(appShell);
+#if WINDOWS
+            // Setup client for back-office staff: desktop-sized window with a sensible floor.
+            window.Width = 1100;
+            window.Height = 780;
+            window.MinimumWidth = 820;
+            window.MinimumHeight = 600;
+#endif
 
             appShell.Loaded += async (s, e) =>
             {
-                await EnsureDemoTeamOnFirstRunAsync();
+                // Windows is a setup client: no demo team (that is a Game-tab practice lineup).
+                if (!DesktopMode.IsWindows)
+                    await EnsureDemoTeamOnFirstRunAsync();
 
                 // Require a display name before Welcome / deep-link join so Chat and
                 // shared-team join always have a name ready (first launch or cleared prefs).
@@ -124,12 +133,17 @@ namespace TurfTime2
                     hasPendingLink = _pendingDeepLink is not null;
 
                 // First-run / optional welcome modal (user can opt out permanently).
-                if (!hasPendingLink && !Preferences.Get("welcome_dont_show", false))
+                if (!hasPendingLink && !DesktopMode.IsWindows && !Preferences.Get("welcome_dont_show", false))
                 {
                     await appShell.Navigation.PushModalAsync(new WelcomePage(), animated: true);
                 }
 
-                if (string.IsNullOrEmpty(teamMode) || string.IsNullOrEmpty(teamId))
+                if (DesktopMode.IsWindows)
+                {
+                    // Windows opens on the Setup hub (Team Selection, Club admin, Club players). No Game tab.
+                    await Shell.Current.GoToAsync("//SettingsPage");
+                }
+                else if (string.IsNullOrEmpty(teamMode) || string.IsNullOrEmpty(teamId))
                 {
                     // No team selected — pre-navigate to Team Details so it's ready when welcome closes
                     System.Diagnostics.Debug.WriteLine("[App] No team selected - will navigate to Team Details after welcome");
@@ -1040,6 +1054,7 @@ namespace TurfTime2
         /// <summary>Start/refresh shared match schedule listener for current team (no-op for local).</summary>
         internal static async Task EnsureMatchScheduleSyncAsync()
         {
+            if (DesktopMode.IsWindows) return; // schedule watch + reminders are phone features
             try
             {
                 var services = Current?.Handler?.MauiContext?.Services
@@ -1056,6 +1071,7 @@ namespace TurfTime2
 
         internal static async Task RescheduleMatchRemindersAsync()
         {
+            if (DesktopMode.IsWindows) return;
             try
             {
                 var services = Current?.Handler?.MauiContext?.Services

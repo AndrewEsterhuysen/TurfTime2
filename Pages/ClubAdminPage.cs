@@ -267,7 +267,7 @@ public sealed class ClubAdminPage : ContentPage
             $"Club admin invite\n{club.ClubId}/{result.Code}\nSingle use · expires {result.ExpiresUtc.ToLocalTime():d MMM}",
             "Done", "Revoke this invite", "Share invite", "Copy code");
         if (choice == "Share invite")
-            await Share.Default.RequestAsync(new ShareTextRequest { Title = "Club admin invite", Text = result.InviteText });
+            await DesktopMode.ShareOrCopyTextAsync(this, "Club admin invite", result.InviteText);
         else if (choice == "Copy code")
             await Clipboard.Default.SetTextAsync($"{club.ClubId}/{result.Code}");
         else if (choice == "Revoke this invite")
@@ -377,6 +377,10 @@ public sealed class ClubAdminPage : ContentPage
         var what = t.Access == ClubTeamAccess.Full
             ? "You have full control as a club admin: team details, Details pages, club players and team members. You can't run games (the Game screen is view only) or see chat."
             : "This team has a team admin, so you can view games, reports and players and edit the Details pages (location, kit, duties). Chat stays with team members.";
+        if (DesktopMode.IsWindows)
+            what = t.Access == ClubTeamAccess.Full
+                ? "You have full control as a club admin: use the Team details tab for kit, duties and club players. Games and chat are on the phone."
+                : "This team has a team admin, so you can edit its Details (kit, duties) and view club players here. Games and chat are on the phone.";
         await DisplayAlert("Team opened", $"Now viewing: {name}\n\n{what}", "OK");
     }
 
@@ -481,11 +485,8 @@ public sealed class ClubAdminPage : ContentPage
             return;
         }
         var name = string.IsNullOrWhiteSpace(t.TeamName) ? t.TeamId : t.TeamName;
-        await Share.Default.RequestAsync(new ShareTextRequest
-        {
-            Title = "Team invite",
-            Text = $"Join {name} on TurfTimer. In the app open Settings > Team Selection > Join team and enter invite code: {code}",
-        });
+        await DesktopMode.ShareOrCopyTextAsync(this, "Team invite",
+            $"Join {name} on TurfTimer. In the app open Settings > Team Selection > Join team and enter invite code: {code}");
     }
 
     private async Task DeleteTeamAsync(ClubTeamStatus t)

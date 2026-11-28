@@ -11,7 +11,7 @@
     </ContentPage.Style>
     <ScrollView>
         <VerticalStackLayout Padding="{StaticResource PvPagePadding}" Spacing="8">
-            <Label Style="{StaticResource PvTitle}" Text="Settings" Margin="4,8,0,16" />
+            <Label x:Name="PageTitleLabel" Style="{StaticResource PvTitle}" Text="Settings" Margin="4,8,0,16" />
 
             <Border Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
@@ -45,7 +45,7 @@
                 </Grid>
             </Border>
 
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <Border x:Name="TimersCard" Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnTimersTapped" />
                 </Border.GestureRecognizers>
@@ -61,7 +61,7 @@
                 </Grid>
             </Border>
 
-            <Border Style="{StaticResource PvCard}" Padding="16,12">
+            <Border x:Name="OptionsCard" Style="{StaticResource PvCard}" Padding="16,12">
                 <Border.GestureRecognizers>
                     <TapGestureRecognizer Tapped="OnOptionsTapped" />
                 </Border.GestureRecognizers>
