@@ -29,7 +29,7 @@
             <!-- Add player form -->
             <Border x:Name="AddCard" Style="{StaticResource PvCard}" IsVisible="False">
                 <VerticalStackLayout Spacing="12">
-                    <Label Style="{StaticResource PvSectionHeader}" Text="Add player" />
+                    <Label x:Name="AddTitleLabel" Style="{StaticResource PvSectionHeader}" Text="Add player" />
                     <VerticalStackLayout Spacing="4">
                         <Label Style="{StaticResource PvBodyStrong}" Text="Name" />
                         <Border Style="{StaticResource PvField}">

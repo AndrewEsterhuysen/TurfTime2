@@ -355,3 +355,21 @@ test('club player matches: team member or club owner can delete a match row', as
   await seed(async (db) => setDoc(doc(db, matchPath('p1', 's1')), matchDoc()));
   await assertSucceeds(deleteDoc(doc(as('owner'), matchPath('p1', 's1'))));
 });
+
+// Edit player form (Club players > player > Edit): the exact field set the app PATCHes.
+test('club players: edit form write (name, preferred name cleared, nameKey, date of birth, dob parts) for owner and club admin, never a parent', async () => {
+  const edit = (who, extra = {}) => ({
+    name: 'Samuel Lee', preferredName: null, nameKey: 'samuel lee', dateOfBirth: '2016-12-31',
+    dobYear: 2016, dobMonth: 12, dobDay: 31, updatedAt: Timestamp.now(), updatedBy: who, ...extra,
+  });
+  await assertSucceeds(updateDoc(doc(as('owner'), `${P}/p1`), edit('owner')));
+  await assertSucceeds(updateDoc(doc(as('cadmin'), `${P}/p1`), edit('cadmin', { preferredName: 'Sammy', nameKey: 'samuel lee sammy' })));
+  // Archived players can be edited too, and the edit keeps team assignments untouched.
+  await seed(async (db) => { await setDoc(doc(db, `${P}/p1`), { status: 'archived' }, { merge: true }); });
+  await assertSucceeds(updateDoc(doc(as('owner'), `${P}/p1`), edit('owner', { name: 'Samuel J Lee' })));
+  await assertFails(updateDoc(doc(as('owner'), `${P}/p1`), edit('owner', { name: '' })));
+  await assertFails(updateDoc(doc(as('owner'), `${P}/p1`), edit('owner', { dobMonth: 13 })));
+  await assertFails(updateDoc(doc(as('parent'), `${P}/p1`), edit('parent')));
+  // A coach may only change names: the full form write is refused for them.
+  await assertFails(updateDoc(doc(as('coach'), `${P}/p1`), edit('coach', { dateOfBirth: '2015-01-02', dobYear: 2015, dobMonth: 1, dobDay: 2 })));
+});

@@ -214,10 +214,12 @@ public partial class ClubPlayersPage : ContentPage
         }
 
         var restoreOrArchive = player.IsArchived ? "Restore" : "Archive";
-        var choice = await DisplayActionSheet(player.DisplayName, "Cancel", "Delete", "Stats", restoreOrArchive);
+        var choice = await DisplayActionSheet(player.DisplayName, "Cancel", "Delete", "Edit", "Stats", restoreOrArchive);
         if (string.IsNullOrEmpty(choice) || choice == "Cancel") return;
 
-        if (choice == "Stats")
+        if (choice == "Edit")
+            OpenEditForm(player);
+        else if (choice == "Stats")
             await OpenStatsAsync(player);
         else if (choice == "Archive")
             await ArchivePlayerAsync(player);
@@ -348,9 +350,14 @@ public partial class ClubPlayersPage : ContentPage
     private void OnAddFromSearchClicked(object? sender, EventArgs e) =>
         OpenAddForm(ClubPlayerNames.CleanDisplay(SearchEntry.Text));
 
+    private ClubPlayer? _editing;
+
     private void OpenAddForm(string name)
     {
         if (!_access.CanAdd) return;
+        _editing = null;
+        AddTitleLabel.Text = "Add player";
+        AddSaveButton.Text = "Add to club";
         AddNameEntry.Text = name;
         AddPreferredEntry.Text = "";
         AddDobPicker.MaximumDate = DateTime.Today;
@@ -363,6 +370,38 @@ public partial class ClubPlayersPage : ContentPage
         AddCard.IsVisible = true;
         AddButton.IsVisible = false;
         if (string.IsNullOrEmpty(name)) AddNameEntry.Focus();
+    }
+
+    /// <summary>Edit an existing player: same form as Add. Club owner and club admins only (the rules agree;
+    /// a coach may only change names, so coaches don't get this).</summary>
+    private void OpenEditForm(ClubPlayer player)
+    {
+        if (!_access.IsClubAdmin) return;
+        _editing = player;
+        AddTitleLabel.Text = "Edit player";
+        AddSaveButton.Text = "Save changes";
+        AddNameEntry.Text = player.Name;
+        AddPreferredEntry.Text = player.PreferredName ?? "";
+        AddDobPicker.MaximumDate = DateTime.Today;
+        var min = DateTime.Today.AddYears(-80);
+        if (ClubAgeGroups.TryParseDateOfBirth(player.DateOfBirth, out var dob))
+        {
+            var d = dob.ToDateTime(TimeOnly.MinValue);
+            AddDobPicker.MinimumDate = d < min ? d : min;
+            AddDobPicker.Date = d;
+            _dobPicked = true;
+        }
+        else
+        {
+            AddDobPicker.MinimumDate = min;
+            AddDobPicker.Date = DateTime.Today.AddYears(-10);
+            _dobPicked = false; // date of birth missing: it has to be entered to save
+        }
+        UpdateAgeGroupHint();
+        AddErrorLabel.IsVisible = false;
+        AddCard.IsVisible = true;
+        AddButton.IsVisible = false;
+        AddNameEntry.Focus();
     }
 
     private bool _dobPicked;
@@ -387,6 +426,7 @@ public partial class ClubPlayersPage : ContentPage
 
     private void CloseAddForm()
     {
+        _editing = null;
         AddCard.IsVisible = false;
         AddButton.IsVisible = _access.CanAdd;
         AddErrorLabel.IsVisible = false;
@@ -400,6 +440,12 @@ public partial class ClubPlayersPage : ContentPage
         if (name.Length == 0) { ShowAddError("Enter the player's name."); return; }
         if (!_dobPicked) { ShowAddError("Pick the player's date of birth."); return; }
         var dob = PickedDob();
+
+        if (_editing is not null)
+        {
+            await SaveEditAsync(_editing, name, preferred, dob);
+            return;
+        }
 
         // Near-duplicate guard, exact match only in slice 1 (§7.3).
         var existing = _all.FirstOrDefault(p => ClubPlayerNames.IsExactDuplicate(name, p.Name, p.PreferredName));
@@ -434,6 +480,68 @@ public partial class ClubPlayersPage : ContentPage
             CloseAddForm();
             SearchEntry.Text = "";
             RenderList();
+        }
+        finally
+        {
+            _saving = false;
+            AddSaveButton.IsEnabled = true;
+        }
+    }
+
+    private async Task SaveEditAsync(ClubPlayer player, string name, string preferred, DateOnly dob)
+    {
+        var oldDob = ClubAgeGroups.TryParseDateOfBirth(player.DateOfBirth, out var od) ? (DateOnly?)od : null;
+        var dobChanged = oldDob != dob;
+        var nameChanged = !string.Equals(name, player.Name, StringComparison.Ordinal)
+                          || !string.Equals(preferred, player.PreferredName ?? "", StringComparison.Ordinal);
+        if (!dobChanged && !nameChanged) { CloseAddForm(); return; }
+
+        if (nameChanged)
+        {
+            var other = _all.FirstOrDefault(p => p.PlayerId != player.PlayerId
+                && ClubPlayerNames.IsExactDuplicate(name, p.Name, p.PreferredName));
+            if (other is not null)
+            {
+                var keep = await DisplayAlert("Same name as another player",
+                    $"{other.DisplayName} is already in the club with this name.", "Save anyway", "Cancel");
+                if (!keep) return;
+            }
+        }
+        if (dobChanged && ClubPlayerAssignments.CurrentTeamNames(player.Teams, player.TeamIds).Count > 0)
+        {
+            var go = await DisplayAlert("Change date of birth?",
+                "This player is on a team. Their age group is worked out from the date of birth; their team " +
+                "assignments are not changed or re-checked.", "Save", "Cancel");
+            if (!go) return;
+        }
+
+        var update = new ClubPlayerUpdate
+        {
+            Name = nameChanged ? name : null,
+            SetPreferredName = nameChanged,
+            PreferredName = preferred.Length == 0 ? null : preferred,
+            DateOfBirth = dobChanged ? dob : null,
+        };
+
+        _saving = true;
+        AddSaveButton.IsEnabled = false;
+        AddErrorLabel.IsVisible = false;
+        try
+        {
+            var result = await _players!.UpdateAsync(_clubId, player.PlayerId, update);
+            if (!result.Success || result.Player is null)
+            {
+                ShowAddError(result.Error ?? "Could not save the changes. Only a club owner or admin can edit players.");
+                return;
+            }
+            ReplacePlayer(result.Player, player.Status);
+            CloseAddForm();
+            RenderList();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ClubPlayersPage] Edit: {ex.Message}");
+            ShowAddError("Could not reach the server. Check your connection and try again.");
         }
         finally
         {
