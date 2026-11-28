@@ -2223,18 +2223,27 @@ private void RegisterTeamId(string teamId)
 						if (string.IsNullOrWhiteSpace(display))
 							display = restoredTeamName;
 
-						Preferences.Set(TEAM_MODE_KEY, "shared");
-						Preferences.Set(TEAM_ID_KEY, restoredTeamId);
-						Preferences.Set(TEAM_NAME_KEY, display);
-						Preferences.Set(USER_ROLE_KEY, "admin");
-						Preferences.Set($"{restoredTeamId}_role", "admin");
-						Preferences.Set($"team_mode_{restoredTeamId}", "shared");
-						Preferences.Set($"user_role_{restoredTeamId}", "admin");
-						Preferences.Set($"{restoredTeamId}_name", display);
-						Preferences.Set($"{restoredTeamId}_team_name", restoredTeamName);
-						CacheTeamClubPrefs(restoredTeamId, result.ClubId, result.ClubName);
-						UserDisplayName.Set(displayName);
-						RegisterTeamId(restoredTeamId);
+						if (!result.IsClubScope)
+						{
+							Preferences.Set(TEAM_MODE_KEY, "shared");
+							Preferences.Set(TEAM_ID_KEY, restoredTeamId);
+							Preferences.Set(TEAM_NAME_KEY, display);
+							Preferences.Set(USER_ROLE_KEY, "admin");
+							Preferences.Set($"{restoredTeamId}_role", "admin");
+							Preferences.Set($"team_mode_{restoredTeamId}", "shared");
+							Preferences.Set($"user_role_{restoredTeamId}", "admin");
+							Preferences.Set($"{restoredTeamId}_name", display);
+							Preferences.Set($"{restoredTeamId}_team_name", restoredTeamName);
+							CacheTeamClubPrefs(restoredTeamId, result.ClubId, result.ClubName);
+							UserDisplayName.Set(displayName);
+							RegisterTeamId(restoredTeamId);
+						}
+						else
+						{
+							// Club Owner recovery gives club powers only: no team is selected and no team Admin
+							// seat is taken (club Admin design). The owner opens teams from Settings > Club admin.
+							UserDisplayName.Set(displayName);
+						}
 
 						if (result.IsClubScope)
 						{
@@ -2246,10 +2255,10 @@ private void RegisterTeamId(string teamId)
 							await DisplayAlert(
 								"Club Owner Access Restored",
 								$"You are now the Club Owner of '{result.ClubName}'.\n\n" +
-								$"Anchor team on this device: {display}\n" +
-								$"(Team Admin on that team — team ownership was not changed.)\n\n" +
+								"This gives you the club Owner powers only: see the club's teams, remove a team admin, " +
+								"invite club admins and create teams. You were not made a team admin of any team.\n\n" +
 								$"Chat name: {displayName}\n\n" +
-								"You can create more teams under this club from Create → managed club.",
+								"Open Settings > Club admin to manage the club.",
 								"OK");
 						}
 						else
@@ -2275,7 +2284,8 @@ private void RegisterTeamId(string teamId)
 								"OK");
 						}
 
-						SyncTeamIdToLocalStorage(restoredTeamId);
+						if (!result.IsClubScope)
+							SyncTeamIdToLocalStorage(restoredTeamId);
 						RefreshAppShellMenu();
 						LoadCurrentTeam();
 						RefreshManagedClubPicker();
