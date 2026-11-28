@@ -84,3 +84,33 @@ test('removal record: owner creates (as server time), others cannot, never edite
   await assertSucceeds(getDoc(doc(as('cowner'), `clubs/${C}/auditLog/a1`)));
   await assertFails(getDoc(doc(as('cadmin'), `clubs/${C}/auditLog/a1`)));
 });
+
+// Club Owner recovery (app flow, 28 Nov 2026): the code restores club Owner powers and nothing more.
+// No team Admin seat is taken on the anchor team (the app no longer tries); the rules still refuse it
+// while another team Admin exists, which is the design (club admins are Details-only on such teams).
+test('club recovery: metadata proof + owner membership succeed; no team Admin seat; owner can then remove a team Admin', async () => {
+  const HASH = 'd'.repeat(64);
+  await seed(async (db) => {
+    await setDoc(doc(db, `clubs/${C}/secrets/info`), { ownerRecoveryCodeHash: HASH });
+  });
+  const eve = as('eve');
+  // 1) proof step (rules compare recoveryHash to clubs/{c}/secrets/info.ownerRecoveryCodeHash)
+  await assertFails(updateDoc(doc(eve, `clubs/${C}/metadata/info`), {
+    createdBy: 'eve', previousOwnerUid: 'cowner', ownershipRecoveredAt: Timestamp.now(), recoveryHash: 'e'.repeat(64),
+  }));
+  await assertSucceeds(updateDoc(doc(eve, `clubs/${C}/metadata/info`), {
+    createdBy: 'eve', previousOwnerUid: 'cowner', ownershipRecoveredAt: Timestamp.now(), recoveryHash: HASH,
+  }));
+  // 2) owner membership doc, with uid so club membership discovery finds it
+  await assertSucceeds(setDoc(doc(eve, `clubs/${C}/members/eve`), {
+    role: 'owner', uid: 'eve', displayName: 'Eve', addedAt: Timestamp.now(), rejoinedAt: Timestamp.now(),
+  }, { merge: true }));
+  // 3) no automatic team Admin seat while another team Admin exists (what the old anchor write attempted)
+  await assertFails(setDoc(doc(eve, `teams/${T}/members/eve`), {
+    role: 'admin', displayName: 'Eve', uid: 'eve', rejoinedAt: Timestamp.now(),
+  }, { merge: true }));
+  await assertFails(setDoc(doc(eve, `teams/${T}/members/eve`), { role: 'member', displayName: 'Eve', uid: 'eve' }));
+  // 4) but club Owner powers work: remove a team Admin, and the previous owner lost theirs
+  await assertSucceeds(deleteDoc(doc(eve, `teams/${T}/members/coach`)));
+  await assertFails(deleteDoc(doc(as('cowner'), `teams/${T}/members/fresh`)));
+});

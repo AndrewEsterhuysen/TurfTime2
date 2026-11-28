@@ -887,6 +887,17 @@ public sealed class CloudTeamService : ICloudTeamService
                     clubId, clubName, teamId, teamName, uid, displayName, clubData, suppliedHash)
                     .ConfigureAwait(false);
             }
+            catch (ClubRecoveryPartialException partial)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[CloudTeam] Club recovery partial: {partial.InnerException?.Message}");
+                return new CloudOwnerRecoveryResult
+                {
+                    Status = "error",
+                    Message = "The code was accepted and you are the club Owner again, but saving your club membership failed. " +
+                              "Check your connection and enter the code once more."
+                };
+            }
             catch (Exception clubRecEx)
             {
                 System.Diagnostics.Debug.WriteLine(
@@ -1030,25 +1041,29 @@ public sealed class CloudTeamService : ICloudTeamService
                 $"[CloudTeam] Club recoveryHash strip: {stripEx.Message}");
         }
 
-        await _db.GetDocument($"clubs/{clubId}/members/{uid}")
-            .SetDataAsync(new Dictionary<object, object>
-            {
-                ["role"] = "owner",
-                ["displayName"] = displayName ?? "",
-                ["addedAt"] = DateTimeOffset.UtcNow,
-                ["rejoinedAt"] = DateTimeOffset.UtcNow
-            }, SetOptions.Merge()).ConfigureAwait(false);
+        try
+        {
+            await _db.GetDocument($"clubs/{clubId}/members/{uid}")
+                .SetDataAsync(new Dictionary<object, object>
+                {
+                    ["role"] = "owner",
+                    ["uid"] = uid,
+                    ["displayName"] = displayName ?? "",
+                    ["addedAt"] = DateTimeOffset.UtcNow,
+                    ["rejoinedAt"] = DateTimeOffset.UtcNow
+                }, SetOptions.Merge()).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The metadata write above already moved ownership; do not report that as a bad code.
+            throw new ClubRecoveryPartialException(ex);
+        }
 
-        // Anchor team: ensure Admin membership for device usability — do NOT steal team ownership.
-        await _db.GetDocument($"teams/{teamId}/members/{uid}")
-            .SetDataAsync(new Dictionary<object, object>
-            {
-                ["role"] = "admin",
-                ["displayName"] = displayName ?? "",
-                ["uid"] = uid,
-                ["rejoinedAt"] = DateTimeOffset.UtcNow
-            }, SetOptions.Merge()).ConfigureAwait(false);
-
+        // Club Admin design (25 Nov 2026): recovering the club gives back club Owner powers only (list club
+        // teams, remove a team Admin, invite club admins, create teams). It does NOT give a team Admin seat on
+        // the anchor team: with another team Admin present the rules refuse it (club admins are Details-only),
+        // and without one it would silently hand out a seat nobody asked for. To run a team the Owner removes
+        // its Admin (Settings > Club admin) and then joins it from there.
         _ = clubName;
         _ = teamName;
     }
@@ -3012,4 +3027,10 @@ public sealed class CloudTeamService : ICloudTeamService
             return Array.Empty<CloudTeamLookup>();
         }
     }
+}
+
+/// <summary>Club Owner recovery: ownership moved, but a later step failed (not an invalid code).</summary>
+internal sealed class ClubRecoveryPartialException : Exception
+{
+    public ClubRecoveryPartialException(Exception inner) : base(inner.Message, inner) { }
 }
