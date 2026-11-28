@@ -26,6 +26,5 @@ There is no cross-device account linking.
 ## Known gaps
 - Tabs, windows and layout are phone layouts; nothing was redesigned for desktop.
 - Local teams, QR import/scan, Game, Chat, Nominations, Reports, Timers, Options are hidden or show "Not available on Windows".
-- Club Owner recovery: ownership moves, but if the anchor team already has another team admin the final write of the
-  recovering user's team membership is denied by the rules and the app says "Invalid recovery code" (not Windows-specific).
+- Club Owner recovery: fixed on feature/club-admin (28 Nov): recovery no longer tries to take a team Admin seat. See 2026-11-28-club-recovery-and-player-edit.md.
 - Distribution (unsigned dev build only): see 2026-11-27-windows-spike.md.
